@@ -1,0 +1,596 @@
+---
+description: Apply application monitoring standards when setting up production monitoring to ensure visibility into application health and performance
+globs: "**/*"
+---
+
+# Application Monitoring Standards
+
+## Context
+You can't fix what you can't see. Application monitoring provides real-time visibility into your application's health, performance, and user experience. This rule establishes comprehensive monitoring standards for production applications.
+
+**The Three Pillars of Observability:**
+1. **Logs** - What happened (events, errors, debug info)
+2. **Metrics** - How much/how fast (numbers, trends)
+3. **Traces** - Request flow across services
+
+## Requirements
+
+### 1. Application Performance Monitoring (APM)
+
+**Required APM Tools (Choose One or More):**
+- **Vercel Analytics** - Built-in, free, Next.js optimized
+- **Sentry** - Error tracking, performance monitoring
+- **Datadog** - Comprehensive APM and infrastructure
+- **New Relic** - Full-stack observability
+- **LogRocket** - Session replay + monitoring
+
+**What to Monitor:**
+```typescript
+// Core metrics to track
+export const coreMetrics = {
+  // Performance
+  responseTime: {
+    p50: 200, // ms - median
+    p95: 500, // ms - 95th percentile
+    p99: 1000, // ms - 99th percentile
+  },
+  
+  // Reliability
+  errorRate: {
+    target: 0.1, // % - errors per request
+    threshold: 5, // % - alert threshold
+  },
+  
+  // Availability
+  uptime: {
+    target: 99.9, // % - three nines
+    downtime: 43.2, // minutes per month allowed
+  },
+  
+  // Throughput
+  requestsPerSecond: {
+    normal: 100,
+    peak: 500,
+  },
+};
+```
+
+### 2. Error Tracking
+
+**Sentry Setup (Recommended):**
+```typescript
+// lib/sentry.ts
+import * as Sentry from '@sentry/nextjs';
+
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  
+  // Performance monitoring
+  tracesSampleRate: 1.0, // 100% in dev, 10% in prod
+  
+  // Session replay
+  replaysSessionSampleRate: 0.1, // 10% of sessions
+  replaysOnErrorSampleRate: 1.0, // 100% when errors occur
+  
+  // Filter sensitive data
+  beforeSend(event) {
+    // Remove sensitive data
+    if (event.request) {
+      delete event.request.cookies;
+      delete event.request.headers?.authorization;
+    }
+    return event;
+  },
+  
+  // Ignore known issues
+  ignoreErrors: [
+    'ResizeObserver loop limit exceeded',
+    'Non-Error promise rejection',
+  ],
+});
+```
+
+**Error Context (Always Include):**
+```typescript
+// Good error tracking with context
+try {
+  await processPayment(userId, amount);
+} catch (error) {
+  Sentry.captureException(error, {
+    level: 'error',
+    tags: {
+      feature: 'payment',
+      userId: userId,
+    },
+    contexts: {
+      payment: {
+        amount: amount,
+        currency: 'USD',
+        attempt: retryCount,
+      },
+    },
+    fingerprint: ['payment-processing', userId],
+  });
+  throw error;
+}
+```
+
+### 3. Performance Monitoring
+
+**Web Vitals Tracking:**
+```typescript
+// lib/analytics.ts
+import { getCLS, getFID, getFCP, getLCP, getTTFB } from 'web-vitals';
+
+export function reportWebVitals(metric: Metric) {
+  // Send to analytics
+  if (process.env.NODE_ENV === 'production') {
+    // Vercel Analytics (automatic)
+    // Or custom analytics
+    analytics.track('web-vitals', {
+      name: metric.name,
+      value: metric.value,
+      id: metric.id,
+      label: metric.label,
+    });
+    
+    // Alert on poor metrics
+    if (metric.name === 'LCP' && metric.value > 2500) {
+      console.warn('Poor LCP detected:', metric.value);
+    }
+  }
+}
+
+// pages/_app.tsx
+export function reportWebVitals(metric: NextWebVitalsMetric) {
+  reportWebVitals(metric);
+}
+```
+
+**API Performance Tracking:**
+```typescript
+// middleware.ts
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+
+export function middleware(request: NextRequest) {
+  const startTime = Date.now();
+  
+  const response = NextResponse.next();
+  
+  const duration = Date.now() - startTime;
+  
+  // Track API performance
+  if (request.nextUrl.pathname.startsWith('/api/')) {
+    analytics.track('api-performance', {
+      path: request.nextUrl.pathname,
+      method: request.method,
+      duration: duration,
+      status: response.status,
+    });
+    
+    // Alert on slow APIs
+    if (duration > 1000) {
+      logger.warn('Slow API detected', {
+        path: request.nextUrl.pathname,
+        duration: duration,
+      });
+    }
+  }
+  
+  return response;
+}
+```
+
+### 4. Real User Monitoring (RUM)
+
+**Track Real User Experience:**
+```typescript
+// lib/rum.ts
+export function trackUserSession() {
+  // Track session metrics
+  const sessionData = {
+    sessionId: generateSessionId(),
+    userId: getCurrentUser()?.id,
+    
+    // Device info
+    device: {
+      type: getDeviceType(), // mobile, tablet, desktop
+      browser: getBrowser(),
+      os: getOS(),
+      screenSize: `${window.screen.width}x${window.screen.height}`,
+    },
+    
+    // Performance
+    performance: {
+      navigationTiming: performance.timing,
+      resourceTiming: performance.getEntriesByType('resource'),
+    },
+    
+    // User interactions
+    interactions: {
+      clicks: 0,
+      keystrokes: 0,
+      scrollDepth: 0,
+    },
+  };
+  
+  // Send to analytics
+  analytics.identify(sessionData.userId, sessionData);
+}
+```
+
+**Session Replay (Sentry/LogRocket):**
+```typescript
+// Capture user sessions for debugging
+import LogRocket from 'logrocket';
+
+if (process.env.NODE_ENV === 'production') {
+  LogRocket.init('your-app-id', {
+    // Sanitize sensitive data
+    sanitizer(input) {
+      if (input.type === 'password') return '***';
+      if (input.name?.includes('credit')) return '***';
+      return input.value;
+    },
+    
+    // Sample rate (10% of sessions)
+    shouldCaptureIP: false,
+    network: {
+      requestSanitizer(request) {
+        // Remove sensitive headers
+        delete request.headers.authorization;
+        return request;
+      },
+    },
+  });
+  
+  // Identify users
+  LogRocket.identify(userId, {
+    name: user.name,
+    email: user.email,
+    plan: user.subscription.plan,
+  });
+}
+```
+
+### 5. Database Monitoring
+
+**Query Performance Tracking:**
+```typescript
+// lib/db.ts with monitoring
+import { PrismaClient } from '@prisma/client';
+import { performance } from 'perf_hooks';
+
+const prisma = new PrismaClient({
+  log: [
+    { emit: 'event', level: 'query' },
+    { emit: 'event', level: 'error' },
+  ],
+});
+
+// Track slow queries
+prisma.$on('query', (e) => {
+  if (e.duration > 100) { // > 100ms
+    logger.warn('Slow query detected', {
+      query: e.query,
+      duration: e.duration,
+      params: e.params,
+    });
+    
+    metrics.histogram('database.query.duration', e.duration, {
+      operation: e.query.split(' ')[0], // SELECT, INSERT, etc.
+    });
+  }
+});
+
+// Track errors
+prisma.$on('error', (e) => {
+  Sentry.captureException(e, {
+    tags: { component: 'database' },
+  });
+});
+```
+
+**Connection Pool Monitoring:**
+```typescript
+// Monitor connection pool health
+setInterval(() => {
+  const poolStats = prisma.$metrics.histogram('prisma_pool_connections_open');
+  
+  if (poolStats.count > 80) { // 80% of max connections
+    logger.warn('Connection pool near capacity', {
+      open: poolStats.count,
+      max: 100,
+    });
+  }
+}, 60000); // Check every minute
+```
+
+### 6. External Service Monitoring
+
+**Third-Party API Monitoring:**
+```typescript
+// lib/external-monitoring.ts
+export async function monitoredFetch(
+  url: string,
+  options: RequestInit,
+  service: string
+) {
+  const startTime = Date.now();
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: AbortSignal.timeout(5000), // 5s timeout
+    });
+    
+    const duration = Date.now() - startTime;
+    
+    // Track success
+    metrics.increment('external.api.success', {
+      service: service,
+      status: response.status,
+    });
+    
+    metrics.histogram('external.api.duration', duration, {
+      service: service,
+    });
+    
+    return response;
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    
+    // Track failure
+    metrics.increment('external.api.failure', {
+      service: service,
+      error: error.message,
+    });
+    
+    logger.error(`External API failure: ${service}`, {
+      url: url,
+      duration: duration,
+      error: error,
+    });
+    
+    throw error;
+  }
+}
+
+// Usage
+const response = await monitoredFetch(
+  'https://api.stripe.com/v1/charges',
+  { method: 'POST', body: data },
+  'stripe'
+);
+```
+
+### 7. Custom Business Metrics
+
+**Track Business-Critical Events:**
+```typescript
+// Track conversions
+export function trackConversion(type: string, value: number) {
+  metrics.increment('business.conversion', {
+    type: type, // signup, purchase, upgrade
+    value: value,
+  });
+  
+  analytics.track('Conversion', {
+    type: type,
+    value: value,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// Track feature usage
+export function trackFeatureUsage(feature: string, userId: string) {
+  metrics.increment('feature.usage', {
+    feature: feature,
+    userId: userId,
+  });
+}
+
+// Track errors by feature
+export function trackFeatureError(feature: string, error: Error) {
+  metrics.increment('feature.error', {
+    feature: feature,
+  });
+  
+  Sentry.captureException(error, {
+    tags: { feature: feature },
+  });
+}
+```
+
+## Monitoring Dashboards
+
+### Dashboard 1: Application Health
+
+**Key Metrics:**
+```yaml
+Application Health Dashboard:
+  - Uptime (last 24h, 7d, 30d)
+  - Error rate (%)
+  - Response time (p50, p95, p99)
+  - Requests per minute
+  - Active users
+  - CPU usage
+  - Memory usage
+  - Deployment markers (show when deployed)
+```
+
+### Dashboard 2: User Experience
+
+**Key Metrics:**
+```yaml
+User Experience Dashboard:
+  - Core Web Vitals (LCP, FID, CLS)
+  - Page load time (p50, p95)
+  - Time to Interactive
+  - Bounce rate
+  - Session duration
+  - User flows (funnel analysis)
+  - Error rate by page
+```
+
+### Dashboard 3: Database Performance
+
+**Key Metrics:**
+```yaml
+Database Performance Dashboard:
+  - Query duration (p50, p95, p99)
+  - Slow queries (> 100ms)
+  - Connection pool usage
+  - Deadlocks
+  - Cache hit rate
+  - Index usage
+  - Table sizes
+```
+
+### Dashboard 4: External Dependencies
+
+**Key Metrics:**
+```yaml
+External Dependencies Dashboard:
+  - API response time by service
+  - API error rate by service
+  - API availability by service
+  - Timeout rate
+  - Retry rate
+  - Circuit breaker status
+```
+
+## Monitoring Best Practices
+
+### DO:
+- ✅ Monitor from user perspective (RUM)
+- ✅ Set up alerts for critical metrics
+- ✅ Track both technical and business metrics
+- ✅ Include context with all errors
+- ✅ Monitor external dependencies
+- ✅ Review dashboards daily
+- ✅ Test monitoring in staging
+
+### DON'T:
+- ❌ Log sensitive data (passwords, tokens, PII)
+- ❌ Monitor everything (focus on what matters)
+- ❌ Ignore trends (sudden changes = problems)
+- ❌ Set up alerts without action plans
+- ❌ Over-sample (balance cost vs value)
+- ❌ Forget to monitor monitoring (meta-monitoring)
+
+## Monitoring Checklist
+
+```markdown
+## Production Monitoring Checklist
+
+### Application
+- [ ] APM tool configured (Sentry/Datadog/New Relic)
+- [ ] Error tracking enabled with context
+- [ ] Performance monitoring active
+- [ ] Web Vitals tracked
+- [ ] API performance tracked
+
+### Infrastructure
+- [ ] Server/function metrics tracked
+- [ ] Database metrics tracked
+- [ ] Cache metrics tracked
+- [ ] CDN metrics tracked
+
+### User Experience
+- [ ] Real User Monitoring (RUM) enabled
+- [ ] Session replay configured
+- [ ] User flows tracked
+- [ ] Conversion tracking active
+
+### External Services
+- [ ] Third-party API monitoring
+- [ ] Timeout monitoring
+- [ ] Retry monitoring
+- [ ] Circuit breaker status
+
+### Alerts
+- [ ] Critical alerts configured (see 222-metrics-alerting)
+- [ ] On-call rotation set up
+- [ ] Alert action plans documented
+- [ ] Alert fatigue prevented
+
+### Dashboards
+- [ ] Application health dashboard
+- [ ] User experience dashboard
+- [ ] Database performance dashboard
+- [ ] External dependencies dashboard
+
+### Testing
+- [ ] Monitoring tested in staging
+- [ ] Alert testing completed
+- [ ] Dashboard review schedule set
+- [ ] Monitoring documentation complete
+```
+
+## Monitoring Stack Example
+
+**Recommended Stack for Next.js + Vercel:**
+```yaml
+Frontend Monitoring:
+  - Vercel Analytics (built-in, free)
+  - Sentry (errors + performance)
+  - LogRocket (session replay, optional)
+
+Backend Monitoring:
+  - Vercel Functions logs
+  - Sentry (errors)
+  - Prisma metrics (database)
+
+Infrastructure:
+  - Vercel dashboard (deployments, functions)
+  - Datadog (optional, comprehensive)
+
+Alerting:
+  - Sentry alerts (errors)
+  - Vercel alerts (functions, bandwidth)
+  - PagerDuty (on-call, optional)
+
+Business Metrics:
+  - Mixpanel or Amplitude (user analytics)
+  - Custom metrics (Vercel Analytics API)
+```
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Monitoring workflows
+- **`003-cursor-system-overview.mdc`** ⭐ - System overview
+
+### Complete Guides
+- **`guides/Monitoring-Complete-Guide.md`** ⭐ - Comprehensive monitoring guide
+- **`guides/Incident-Response-Complete-Guide.md`** ⭐ - Using monitoring for incidents
+
+### Related Rules
+- @222-metrics-alerting.mdc - Alert configuration
+- @223-health-checks.mdc - Health check endpoints
+- @130-logging-standards.mdc - Logging best practices
+- @062-core-web-vitals.mdc - Web Vitals optimization
+- @202-rollback-procedures.mdc - Monitoring for rollback triggers
+
+### Tools
+- **`.cursor/tools/check-deployment-health.sh`** - Post-deploy monitoring check
+- **`.cursor/tools/analyze-performance.sh`** - Performance analysis
+
+### Quick Start
+1. **Set up Sentry:** Error tracking + performance
+2. **Enable Vercel Analytics:** Built-in Web Vitals
+3. **Create dashboards:** Health, performance, users
+4. **Configure alerts:** Critical errors, performance degradation
+5. **Review daily:** Check dashboards every morning
+
+## Priority
+**P0 (Required)** - Application monitoring is critical for production operations, incident response, and maintaining service quality.
+
+## References
+- [Sentry Documentation](https://docs.sentry.io/)
+- [Vercel Analytics](https://vercel.com/docs/analytics)
+- [Google SRE - Monitoring](https://sre.google/sre-book/monitoring-distributed-systems/)
+- [Three Pillars of Observability](https://www.oreilly.com/library/view/distributed-systems-observability/9781492033431/)

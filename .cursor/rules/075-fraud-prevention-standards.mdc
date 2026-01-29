@@ -1,0 +1,259 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply fraud prevention standards when implementing payment features to protect revenue and minimize risk
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Fraud Prevention Standards
+
+## Stripe Radar Integration
+- Implement Stripe Radar rules for automated fraud detection
+- Create custom rules for business-specific risk patterns
+- Apply appropriate block/review thresholds based on risk tolerance
+- Document fraud rule configuration and logic for future reference
+- Conduct regular rule effectiveness reviews with data analysis
+- Implement proper metadata in API calls to enhance Radar's effectiveness
+
+## Risk Assessment
+- Implement risk scoring for transactions based on multiple factors
+- Apply additional verification for high-risk transactions (3D Secure, etc.)
+- Create manual review workflows for flagged payments with clear processes
+- Document risk assessment criteria and thresholds with justification
+- Implement machine learning models for risk prediction where applicable
+- Log comprehensive data for risk decisions to enable future optimization
+
+## Suspicious Activity Monitoring
+- Monitor unusual payment patterns with real-time anomaly detection
+- Implement velocity checks for new customers to limit rapid transactions
+- Create alerts for multiple failed payment attempts from same source
+- Apply IP and device fingerprinting to identify suspicious patterns
+- Document suspicious activity response procedures for operations team
+- Create dashboards for fraud monitoring with actionable insights
+
+## Account Security
+- Implement proper account verification processes for new users
+- Create secure password recovery workflows with appropriate verification
+- Apply rate limiting for authentication attempts to prevent brute force
+- Document account takeover prevention measures and response procedures
+- Implement notifications for unusual account activity or changes
+- Protect account management features with additional verification
+
+## Chargeback Management
+- Create comprehensive dispute handling process with evidence collection
+- Implement automated response systems for common dispute types
+- Apply learnings from chargebacks to improve fraud prevention
+- Track chargeback rates by payment method, region, and amount
+- Document dispute response procedures with templates for common cases
+- Implement proactive measures to prevent friendly fraud
+
+## Payment Method Verification
+- Implement proper Address Verification System (AVS) for card payments
+- Apply Card Verification Value (CVV) validation for all card transactions
+- Create additional verification steps for high-value transactions
+- Document verification requirements by payment method and risk level
+- Implement progressive verification based on transaction risk score
+- Track verification success rates and adjust thresholds accordingly
+
+## Examples
+
+<example>
+// Good: Comprehensive risk assessment with multiple factors
+async function assessTransactionRisk(paymentIntent, customer) {
+  let riskScore = 0;
+  const riskFactors = [];
+
+  // Factor 1: New customer with high-value transaction
+  if (
+    customer.created > Date.now() / 1000 - 7 * 24 * 60 * 60 && // Less than 7 days old
+    paymentIntent.amount > 50000 // More than $500
+  ) {
+    riskScore += 25;
+    riskFactors.push("new_customer_high_value");
+  }
+
+  // Factor 2: Mismatch between billing and shipping countries
+  if (
+    paymentIntent.shipping?.address?.country &&
+    customer.address?.country &&
+    paymentIntent.shipping.address.country !== customer.address.country
+  ) {
+    riskScore += 20;
+    riskFactors.push("country_mismatch");
+  }
+
+  // Factor 3: Multiple payment methods recently added
+  const paymentMethods = await stripe.paymentMethods.list({
+    customer: customer.id,
+    type: "card",
+    limit: 10,
+  });
+
+  if (paymentMethods.data.length >= 3) {
+    riskScore += 15;
+    riskFactors.push("multiple_payment_methods");
+  }
+
+  // Determine action based on risk score
+  let action = "allow";
+  if (riskScore >= 50) {
+    action = "review";
+  } else if (riskScore >= 30) {
+    action = "verify";
+  }
+
+  // Log the assessment for analysis
+  logger.info(`Risk assessment for payment ${paymentIntent.id}`, {
+    customerId: customer.id,
+    riskScore,
+    riskFactors,
+    action,
+  });
+
+  return { score: riskScore, factors: riskFactors, action };
+}
+</example>
+
+<example type="invalid">
+// Bad: Simplistic fraud check with single factor
+function checkFraud(amount) {
+  // Only checks transaction amount
+  if (amount > 1000) {
+    return true; // Considered fraudulent
+  }
+  return false; // Considered legitimate
+}
+</example>
+
+<example>
+// Good: Anomaly detection implementation
+async function detectPaymentAnomalies(paymentIntent, customer) {
+  const anomalies = [];
+
+  // Velocity check - too many payments in short time
+  const recentPayments = await getRecentPayments(customer.id, "1h");
+  if (recentPayments.length > 10) {
+    anomalies.push({
+      type: "velocity",
+      severity: "high",
+      confidence: 0.9,
+      suggestedAction: "review",
+    });
+  }
+
+  // Amount anomaly - unusual amount for this customer
+  const averageAmount = await getAveragePaymentAmount(customer.id);
+  const currentAmount = paymentIntent.amount;
+
+  if (averageAmount > 0 && currentAmount > averageAmount * 5) {
+    anomalies.push({
+      type: "amount",
+      severity: currentAmount > averageAmount * 10 ? "high" : "medium",
+      confidence: 0.8,
+      suggestedAction: "review",
+    });
+  }
+
+  // Take action based on anomalies
+  if (anomalies.length > 0) {
+    const highSeverity = anomalies.some(a => a.severity === "high");
+    if (highSeverity) {
+      await flagForManualReview(paymentIntent.id, anomalies);
+    }
+  }
+
+  return anomalies;
+}
+</example>
+
+<example type="invalid">
+// Bad: No anomaly detection or monitoring
+async function processPayment(paymentIntentId) {
+  const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+  
+  // No fraud checks or anomaly detection
+  
+  // Directly captures payment without any verification
+  if (paymentIntent.status === "requires_capture") {
+    await stripe.paymentIntents.capture(paymentIntentId);
+  }
+  
+  return { success: true };
+}
+</example>
+
+<example>
+// Good: Proper metadata for Stripe Radar
+async function createPaymentIntent(amount, currency, customerId, metadata = {}) {
+  // Fetch the customer
+  const customer = await stripe.customers.retrieve(customerId);
+  const user = await getUserByStripeCustomerId(customerId);
+  
+  // Enhanced metadata for Radar
+  const enhancedMetadata = {
+    user_id: user.id,
+    account_age_days: Math.floor((Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24)),
+    purchase_count: user.purchaseCount.toString(),
+    verified_email: user.emailVerified ? "true" : "false",
+    ip_address: metadata.ipAddress || "",
+    ...metadata
+  };
+  
+  // Create payment intent with radar_options
+  return stripe.paymentIntents.create({
+    amount,
+    currency,
+    customer: customerId,
+    metadata: enhancedMetadata,
+    radar_options: {
+      session: {
+        // Link this payment to a specific user session
+        session_id: metadata.sessionId || "",
+        referrer: metadata.referrer || "",
+        ip: metadata.ipAddress || "",
+      }
+    }
+  });
+}
+</example>
+
+<example type="invalid">
+// Bad: No metadata or radar options
+function createPayment(amount) {
+  // No customer information or metadata
+  return stripe.paymentIntents.create({
+    amount,
+    currency: "usd",
+    // Missing radar_options and metadata for fraud detection
+  });
+}
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Fraud prevention patterns
+- **`.cursor/docs/security-checklist.md#payment-security-if-applicable`** - Security validation
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Check Stripe Radar keys
+- **`.cursor/tools/check-env-vars.sh`** - Validate configuration
+- **`.cursor/tools/inspect-model.sh`** - Check fraud detection models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @010-security-compliance.mdc - Security standards
+- @020-payment-security.mdc - Payment security (critical!)
+- @020-stripe-integration.mdc - Stripe patterns
+- @078-payment-testing-standards.mdc - Testing fraud prevention
+- @220-security-monitoring.mdc - Monitoring patterns
+- @331-high-risk-feature-testing.mdc - Critical testing
+
+### Quick Start
+1. **Scan:** `.cursor/tools/scan-secrets.sh`
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Monitor:** Implement fraud detection per this rule

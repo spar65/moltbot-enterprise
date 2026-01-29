@@ -1,0 +1,1102 @@
+---
+description: Implement error recovery and resilience patterns when building applications to ensure graceful degradation, automatic recovery, and fault tolerance
+globs: ["**/*.{ts,tsx,js,jsx}", "**/lib/resilience/**/*", "**/middleware/**/*"]
+---
+
+# Error Recovery & Resilience Patterns
+
+## Context
+
+Systems fail. Networks are unreliable. Services go down. The difference between a robust application and a fragile one is how it handles failures. This rule establishes comprehensive patterns for error recovery, graceful degradation, and system resilience.
+
+**Core Resilience Principles**:
+1. **Fail Fast** - Detect failures quickly
+2. **Fail Gracefully** - Degrade functionality, don't crash
+3. **Recover Automatically** - Self-heal when possible
+4. **Isolate Failures** - Prevent cascading failures
+5. **Learn from Failures** - Track and prevent recurrence
+
+## Requirements
+
+### 1. Circuit Breaker Pattern
+
+**Purpose**: Prevent cascading failures by stopping calls to failing services.
+
+**Implementation**:
+
+```typescript
+// lib/resilience/circuit-breaker.ts
+
+export enum CircuitState {
+  CLOSED = "closed",     // Normal operation
+  OPEN = "open",         // Failing, reject requests
+  HALF_OPEN = "half_open" // Testing if recovered
+}
+
+export interface CircuitBreakerConfig {
+  failureThreshold: number;      // Failures before opening (default: 5)
+  successThreshold: number;       // Successes to close (default: 2)
+  timeout: number;                // Time in OPEN before HALF_OPEN (ms)
+  volumeThreshold: number;        // Min requests before tracking failures
+}
+
+export class CircuitBreaker {
+  private state: CircuitState = CircuitState.CLOSED;
+  private failureCount: number = 0;
+  private successCount: number = 0;
+  private lastFailureTime?: number;
+  private nextAttemptTime?: number;
+  private requestCount: number = 0;
+  
+  constructor(
+    private name: string,
+    private config: CircuitBreakerConfig = {
+      failureThreshold: 5,
+      successThreshold: 2,
+      timeout: 60000, // 1 minute
+      volumeThreshold: 10,
+    }
+  ) {}
+  
+  async execute<T>(
+    operation: () => Promise<T>,
+    fallback?: () => Promise<T>
+  ): Promise<T> {
+    this.requestCount++;
+    
+    // If circuit is OPEN, check if we should try again
+    if (this.state === CircuitState.OPEN) {
+      if (Date.now() < (this.nextAttemptTime || 0)) {
+        // Circuit still open, use fallback or reject
+        if (fallback) {
+          return fallback();
+        }
+        throw new Error(
+          `Circuit breaker [${this.name}] is OPEN. Service unavailable.`
+        );
+      }
+      
+      // Timeout elapsed, try half-open
+      this.state = CircuitState.HALF_OPEN;
+      this.successCount = 0;
+    }
+    
+    try {
+      const result = await operation();
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure();
+      
+      // Use fallback if available
+      if (fallback && this.state === CircuitState.OPEN) {
+        return fallback();
+      }
+      
+      throw error;
+    }
+  }
+  
+  private onSuccess(): void {
+    this.failureCount = 0;
+    
+    if (this.state === CircuitState.HALF_OPEN) {
+      this.successCount++;
+      
+      if (this.successCount >= this.config.successThreshold) {
+        this.state = CircuitState.CLOSED;
+        this.successCount = 0;
+        console.log(`✅ Circuit breaker [${this.name}] CLOSED - service recovered`);
+      }
+    }
+  }
+  
+  private onFailure(): void {
+    this.lastFailureTime = Date.now();
+    this.failureCount++;
+    
+    // Only track failures after minimum volume
+    if (this.requestCount < this.config.volumeThreshold) {
+      return;
+    }
+    
+    if (this.state === CircuitState.HALF_OPEN) {
+      // Failed during test, go back to OPEN
+      this.state = CircuitState.OPEN;
+      this.nextAttemptTime = Date.now() + this.config.timeout;
+      console.error(`❌ Circuit breaker [${this.name}] OPEN - service still failing`);
+    } else if (this.failureCount >= this.config.failureThreshold) {
+      // Too many failures, open circuit
+      this.state = CircuitState.OPEN;
+      this.nextAttemptTime = Date.now() + this.config.timeout;
+      console.error(
+        `🔴 Circuit breaker [${this.name}] OPEN - ${this.failureCount} failures detected`
+      );
+    }
+  }
+  
+  getState(): CircuitState {
+    return this.state;
+  }
+  
+  getMetrics() {
+    return {
+      state: this.state,
+      failureCount: this.failureCount,
+      successCount: this.successCount,
+      requestCount: this.requestCount,
+      lastFailureTime: this.lastFailureTime,
+    };
+  }
+  
+  reset(): void {
+    this.state = CircuitState.CLOSED;
+    this.failureCount = 0;
+    this.successCount = 0;
+    this.requestCount = 0;
+  }
+}
+
+// Global circuit breaker registry
+const breakers = new Map<string, CircuitBreaker>();
+
+export function getCircuitBreaker(
+  name: string,
+  config?: CircuitBreakerConfig
+): CircuitBreaker {
+  if (!breakers.has(name)) {
+    breakers.set(name, new CircuitBreaker(name, config));
+  }
+  return breakers.get(name)!;
+}
+```
+
+**Usage Examples**:
+
+```typescript
+// Protecting API calls
+const apiBreaker = getCircuitBreaker("external-api", {
+  failureThreshold: 5,
+  timeout: 30000, // 30 seconds
+});
+
+async function callExternalAPI(data: any) {
+  return apiBreaker.execute(
+    // Primary operation
+    async () => {
+      const response = await fetch("https://api.example.com/data", {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      return response.json();
+    },
+    // Fallback operation
+    async () => {
+      console.warn("Using cached data due to API failure");
+      return getCachedData(data.id);
+    }
+  );
+}
+
+// Protecting database calls
+const dbBreaker = getCircuitBreaker("database", {
+  failureThreshold: 3,
+  timeout: 60000, // 1 minute
+});
+
+async function queryDatabase(query: string) {
+  return dbBreaker.execute(
+    async () => {
+      return await db.query(query);
+    },
+    async () => {
+      throw new Error("Database unavailable, no fallback available");
+    }
+  );
+}
+```
+
+### 2. Retry Pattern with Exponential Backoff
+
+**Purpose**: Automatically retry transient failures with increasing delays.
+
+**Implementation**:
+
+```typescript
+// lib/resilience/retry.ts
+
+export interface RetryConfig {
+  maxAttempts: number;
+  initialDelay: number;     // ms
+  maxDelay: number;         // ms
+  backoffMultiplier: number;
+  jitter: boolean;          // Add randomness to prevent thundering herd
+}
+
+export class RetryableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RetryableError";
+  }
+}
+
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  config: Partial<RetryConfig> = {}
+): Promise<T> {
+  const {
+    maxAttempts = 3,
+    initialDelay = 1000,
+    maxDelay = 30000,
+    backoffMultiplier = 2,
+    jitter = true,
+  } = config;
+  
+  let lastError: Error;
+  let delay = initialDelay;
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      
+      // Don't retry non-retryable errors
+      if (!(error instanceof RetryableError) && attempt < maxAttempts) {
+        // Check if it's a network error (retryable)
+        const isNetworkError = 
+          error instanceof TypeError &&
+          (error.message.includes("fetch") || error.message.includes("network"));
+        
+        if (!isNetworkError) {
+          throw error; // Not retryable
+        }
+      }
+      
+      if (attempt === maxAttempts) {
+        throw new Error(
+          `Operation failed after ${maxAttempts} attempts: ${lastError.message}`
+        );
+      }
+      
+      // Calculate delay with exponential backoff
+      let waitTime = Math.min(delay, maxDelay);
+      
+      // Add jitter (random ±25%)
+      if (jitter) {
+        const jitterAmount = waitTime * 0.25;
+        waitTime = waitTime + (Math.random() * jitterAmount * 2 - jitterAmount);
+      }
+      
+      console.warn(
+        `Attempt ${attempt}/${maxAttempts} failed, retrying in ${Math.round(waitTime)}ms...`
+      );
+      
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      delay *= backoffMultiplier;
+    }
+  }
+  
+  throw lastError!;
+}
+```
+
+**Usage Examples**:
+
+```typescript
+// Retry API calls
+async function fetchWithRetry(url: string) {
+  return withRetry(
+    async () => {
+      const response = await fetch(url);
+      
+      // Retry on 5xx errors
+      if (response.status >= 500) {
+        throw new RetryableError(`Server error: ${response.status}`);
+      }
+      
+      // Don't retry on 4xx errors
+      if (!response.ok) {
+        throw new Error(`Client error: ${response.status}`);
+      }
+      
+      return response.json();
+    },
+    {
+      maxAttempts: 3,
+      initialDelay: 1000,
+      maxDelay: 10000,
+    }
+  );
+}
+
+// Retry database operations
+async function saveWithRetry(data: any) {
+  return withRetry(
+    async () => {
+      try {
+        return await db.save(data);
+      } catch (error) {
+        // Retry on connection errors
+        if (error.code === "ECONNREFUSED" || error.code === "ETIMEDOUT") {
+          throw new RetryableError("Database connection failed");
+        }
+        throw error; // Don't retry validation errors, etc.
+      }
+    },
+    {
+      maxAttempts: 5,
+      initialDelay: 500,
+      backoffMultiplier: 2,
+    }
+  );
+}
+```
+
+### 3. Bulkhead Pattern (Isolation)
+
+**Purpose**: Isolate resources to prevent failures from spreading.
+
+**Implementation**:
+
+```typescript
+// lib/resilience/bulkhead.ts
+
+export class Bulkhead {
+  private activeRequests: number = 0;
+  private queue: Array<() => void> = [];
+  
+  constructor(
+    private name: string,
+    private maxConcurrent: number,
+    private maxQueue: number = Infinity
+  ) {}
+  
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    // Check if we can execute immediately
+    if (this.activeRequests < this.maxConcurrent) {
+      return this.executeOperation(operation);
+    }
+    
+    // Queue is full, reject
+    if (this.queue.length >= this.maxQueue) {
+      throw new Error(
+        `Bulkhead [${this.name}] queue full (${this.queue.length}/${this.maxQueue})`
+      );
+    }
+    
+    // Wait in queue
+    await new Promise<void>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        // Remove from queue on timeout
+        const index = this.queue.indexOf(resolve);
+        if (index > -1) {
+          this.queue.splice(index, 1);
+        }
+        reject(new Error(`Bulkhead [${this.name}] request timeout`));
+      }, 30000); // 30 second timeout
+      
+      const wrappedResolve = () => {
+        clearTimeout(timeoutId);
+        resolve();
+      };
+      
+      this.queue.push(wrappedResolve);
+    });
+    
+    return this.executeOperation(operation);
+  }
+  
+  private async executeOperation<T>(operation: () => Promise<T>): Promise<T> {
+    this.activeRequests++;
+    
+    try {
+      return await operation();
+    } finally {
+      this.activeRequests--;
+      
+      // Process next queued request
+      const next = this.queue.shift();
+      if (next) {
+        next();
+      }
+    }
+  }
+  
+  getMetrics() {
+    return {
+      activeRequests: this.activeRequests,
+      queuedRequests: this.queue.length,
+      maxConcurrent: this.maxConcurrent,
+      maxQueue: this.maxQueue,
+    };
+  }
+}
+
+// Global bulkhead registry
+const bulkheads = new Map<string, Bulkhead>();
+
+export function getBulkhead(
+  name: string,
+  maxConcurrent: number,
+  maxQueue?: number
+): Bulkhead {
+  if (!bulkheads.has(name)) {
+    bulkheads.set(name, new Bulkhead(name, maxConcurrent, maxQueue));
+  }
+  return bulkheads.get(name)!;
+}
+```
+
+**Usage Examples**:
+
+```typescript
+// Limit concurrent database connections
+const dbBulkhead = getBulkhead("database", 10); // Max 10 concurrent
+
+async function queryWithBulkhead(query: string) {
+  return dbBulkhead.execute(async () => {
+    return await db.query(query);
+  });
+}
+
+// Limit concurrent external API calls
+const apiBulkhead = getBulkhead("external-api", 5, 20); // Max 5 concurrent, 20 queued
+
+async function callAPIWithBulkhead(endpoint: string) {
+  return apiBulkhead.execute(async () => {
+    return await fetch(endpoint);
+  });
+}
+```
+
+### 4. Timeout Pattern
+
+**Purpose**: Prevent operations from hanging indefinitely.
+
+**Implementation**:
+
+```typescript
+// lib/resilience/timeout.ts
+
+export class TimeoutError extends Error {
+  constructor(message: string, public duration: number) {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}
+
+export async function withTimeout<T>(
+  operation: () => Promise<T>,
+  timeoutMs: number,
+  errorMessage?: string
+): Promise<T> {
+  return Promise.race([
+    operation(),
+    new Promise<T>((_, reject) => {
+      setTimeout(() => {
+        reject(
+          new TimeoutError(
+            errorMessage || `Operation timed out after ${timeoutMs}ms`,
+            timeoutMs
+          )
+        );
+      }, timeoutMs);
+    }),
+  ]);
+}
+```
+
+**Usage Examples**:
+
+```typescript
+// API calls with timeout
+async function fetchWithTimeout(url: string) {
+  return withTimeout(
+    () => fetch(url),
+    5000, // 5 seconds
+    "API request timed out"
+  );
+}
+
+// Database queries with timeout
+async function queryWithTimeout(query: string) {
+  return withTimeout(
+    () => db.query(query),
+    10000, // 10 seconds
+    "Database query timed out"
+  );
+}
+
+// Combined with retry
+async function fetchWithRetryAndTimeout(url: string) {
+  return withRetry(
+    () => withTimeout(() => fetch(url), 5000),
+    { maxAttempts: 3 }
+  );
+}
+```
+
+### 5. Fallback Pattern
+
+**Purpose**: Provide alternative responses when primary operation fails.
+
+**Implementation**:
+
+```typescript
+// lib/resilience/fallback.ts
+
+export async function withFallback<T>(
+  primary: () => Promise<T>,
+  fallback: () => Promise<T> | T,
+  shouldFallback?: (error: Error) => boolean
+): Promise<T> {
+  try {
+    return await primary();
+  } catch (error) {
+    const err = error as Error;
+    
+    // Check if we should use fallback
+    if (shouldFallback && !shouldFallback(err)) {
+      throw error;
+    }
+    
+    console.warn(`Primary operation failed, using fallback: ${err.message}`);
+    return await Promise.resolve(fallback());
+  }
+}
+```
+
+**Usage Examples**:
+
+```typescript
+// Fallback to cache
+async function getUserData(userId: string) {
+  return withFallback(
+    // Primary: Fetch from API
+    async () => {
+      const response = await fetch(`/api/users/${userId}`);
+      if (!response.ok) throw new Error("API failed");
+      return response.json();
+    },
+    // Fallback: Use cache
+    async () => {
+      const cached = await cache.get(`user:${userId}`);
+      if (!cached) {
+        throw new Error("No cached data available");
+      }
+      return cached;
+    },
+    // Only fallback on network/server errors
+    (error) => {
+      return error.message.includes("network") || 
+             error.message.includes("500");
+    }
+  );
+}
+
+// Fallback to default values
+async function getFeatureFlags() {
+  return withFallback(
+    async () => {
+      return await fetchFeatureFlags();
+    },
+    () => ({
+      // Default safe values
+      newFeatureEnabled: false,
+      betaAccessEnabled: false,
+      maintenanceMode: false,
+    })
+  );
+}
+```
+
+### 6. Graceful Degradation
+
+**Purpose**: Maintain core functionality when non-critical features fail.
+
+**Implementation**:
+
+```typescript
+// lib/resilience/degradation.ts
+
+export interface DegradedService {
+  name: string;
+  status: "healthy" | "degraded" | "down";
+  fallback?: () => any;
+  lastCheck: number;
+}
+
+class DegradationManager {
+  private services = new Map<string, DegradedService>();
+  
+  registerService(
+    name: string,
+    healthCheck: () => Promise<boolean>,
+    fallback?: () => any
+  ): void {
+    this.services.set(name, {
+      name,
+      status: "healthy",
+      fallback,
+      lastCheck: Date.now(),
+    });
+    
+    // Periodic health check
+    setInterval(async () => {
+      try {
+        const isHealthy = await healthCheck();
+        this.updateStatus(name, isHealthy ? "healthy" : "degraded");
+      } catch {
+        this.updateStatus(name, "down");
+      }
+    }, 60000); // Check every minute
+  }
+  
+  private updateStatus(
+    name: string,
+    status: DegradedService["status"]
+  ): void {
+    const service = this.services.get(name);
+    if (service) {
+      const oldStatus = service.status;
+      service.status = status;
+      service.lastCheck = Date.now();
+      
+      if (oldStatus !== status) {
+        console.warn(`Service [${name}] status changed: ${oldStatus} → ${status}`);
+      }
+    }
+  }
+  
+  async executeWithDegradation<T>(
+    serviceName: string,
+    operation: () => Promise<T>
+  ): Promise<T | null> {
+    const service = this.services.get(serviceName);
+    
+    if (!service) {
+      // Service not registered, try anyway
+      return operation();
+    }
+    
+    if (service.status === "down") {
+      console.warn(`Service [${serviceName}] is down, skipping operation`);
+      return service.fallback ? service.fallback() : null;
+    }
+    
+    try {
+      return await operation();
+    } catch (error) {
+      this.updateStatus(serviceName, "degraded");
+      
+      if (service.fallback) {
+        console.warn(`Using fallback for [${serviceName}]`);
+        return service.fallback();
+      }
+      
+      throw error;
+    }
+  }
+  
+  getServiceStatus(): Record<string, DegradedService> {
+    const status: Record<string, DegradedService> = {};
+    this.services.forEach((service, name) => {
+      status[name] = service;
+    });
+    return status;
+  }
+}
+
+export const degradationManager = new DegradationManager();
+```
+
+**Usage Examples**:
+
+```typescript
+// Register services
+degradationManager.registerService(
+  "analytics",
+  async () => {
+    // Health check
+    const response = await fetch("/api/analytics/health");
+    return response.ok;
+  },
+  // Fallback: No-op
+  () => {
+    console.log("Analytics degraded, tracking disabled");
+    return { tracked: false };
+  }
+);
+
+degradationManager.registerService(
+  "recommendations",
+  async () => {
+    const response = await fetch("/api/recommendations/health");
+    return response.ok;
+  },
+  // Fallback: Popular items
+  () => {
+    return getPopularItems();
+  }
+);
+
+// Use with degradation
+async function trackEvent(event: string, data: any) {
+  return degradationManager.executeWithDegradation(
+    "analytics",
+    async () => {
+      await analytics.track(event, data);
+    }
+  );
+}
+
+async function getRecommendations(userId: string) {
+  return degradationManager.executeWithDegradation(
+    "recommendations",
+    async () => {
+      return await fetchPersonalizedRecommendations(userId);
+    }
+  );
+}
+```
+
+### 7. Dead Letter Queue (DLQ)
+
+**Purpose**: Handle messages/requests that fail repeatedly.
+
+**Implementation**:
+
+```typescript
+// lib/resilience/dead-letter-queue.ts
+
+export interface DeadLetter {
+  id: string;
+  originalMessage: any;
+  error: string;
+  attempts: number;
+  firstFailure: number;
+  lastFailure: number;
+}
+
+class DeadLetterQueue {
+  private queue: DeadLetter[] = [];
+  private maxSize = 1000;
+  
+  add(message: any, error: Error, attempts: number): void {
+    const deadLetter: DeadLetter = {
+      id: crypto.randomUUID(),
+      originalMessage: message,
+      error: error.message,
+      attempts,
+      firstFailure: Date.now(),
+      lastFailure: Date.now(),
+    };
+    
+    this.queue.push(deadLetter);
+    
+    // Trim if too large
+    if (this.queue.length > this.maxSize) {
+      this.queue.shift();
+    }
+    
+    console.error(
+      `Message added to DLQ after ${attempts} attempts:`,
+      error.message
+    );
+  }
+  
+  getAll(): DeadLetter[] {
+    return [...this.queue];
+  }
+  
+  remove(id: string): boolean {
+    const index = this.queue.findIndex(item => item.id === id);
+    if (index > -1) {
+      this.queue.splice(index, 1);
+      return true;
+    }
+    return false;
+  }
+  
+  async reprocess(
+    id: string,
+    processor: (message: any) => Promise<void>
+  ): Promise<boolean> {
+    const deadLetter = this.queue.find(item => item.id === id);
+    if (!deadLetter) {
+      return false;
+    }
+    
+    try {
+      await processor(deadLetter.originalMessage);
+      this.remove(id);
+      return true;
+    } catch (error) {
+      deadLetter.attempts++;
+      deadLetter.lastFailure = Date.now();
+      return false;
+    }
+  }
+  
+  clear(): void {
+    this.queue = [];
+  }
+}
+
+export const dlq = new DeadLetterQueue();
+```
+
+**Usage Example**:
+
+```typescript
+// Process with DLQ
+async function processMessage(message: any) {
+  const maxAttempts = 3;
+  let attempts = 0;
+  
+  while (attempts < maxAttempts) {
+    try {
+      await handleMessage(message);
+      return; // Success!
+    } catch (error) {
+      attempts++;
+      
+      if (attempts === maxAttempts) {
+        // Failed all attempts, add to DLQ
+        dlq.add(message, error as Error, attempts);
+      } else {
+        // Retry with backoff
+        await new Promise(resolve => 
+          setTimeout(resolve, 1000 * Math.pow(2, attempts))
+        );
+      }
+    }
+  }
+}
+
+// Admin endpoint to view DLQ
+export async function GET() {
+  const deadLetters = dlq.getAll();
+  return NextResponse.json({
+    count: deadLetters.length,
+    items: deadLetters,
+  });
+}
+
+// Admin endpoint to reprocess
+export async function POST(request: Request) {
+  const { id } = await request.json();
+  
+  const success = await dlq.reprocess(id, async (message) => {
+    await handleMessage(message);
+  });
+  
+  return NextResponse.json({ success });
+}
+```
+
+### 8. Health Checks
+
+**Purpose**: Monitor service health and enable automatic recovery.
+
+**Implementation**:
+
+```typescript
+// app/api/health/route.ts
+
+export async function GET() {
+  const checks = await Promise.allSettled([
+    checkDatabase(),
+    checkExternalAPI(),
+    checkCache(),
+  ]);
+  
+  const results = {
+    database: checks[0].status === "fulfilled" ? checks[0].value : false,
+    externalAPI: checks[1].status === "fulfilled" ? checks[1].value : false,
+    cache: checks[2].status === "fulfilled" ? checks[2].value : false,
+  };
+  
+  const allHealthy = Object.values(results).every(v => v);
+  
+  return NextResponse.json(
+    {
+      status: allHealthy ? "healthy" : "degraded",
+      checks: results,
+      timestamp: new Date().toISOString(),
+    },
+    { status: allHealthy ? 200 : 503 }
+  );
+}
+
+async function checkDatabase(): Promise<boolean> {
+  try {
+    await db.$queryRaw`SELECT 1`;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function checkExternalAPI(): Promise<boolean> {
+  try {
+    const response = await fetch("https://api.example.com/health", {
+      signal: AbortSignal.timeout(5000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function checkCache(): Promise<boolean> {
+  try {
+    await cache.ping();
+    return true;
+  } catch {
+    return false;
+  }
+}
+```
+
+## Examples
+
+<example>
+// ✅ GOOD - Comprehensive resilience implementation
+
+// lib/resilience/api-client.ts
+import { getCircuitBreaker } from "./circuit-breaker";
+import { withRetry } from "./retry";
+import { withTimeout } from "./timeout";
+import { withFallback } from "./fallback";
+import { getBulkhead } from "./bulkhead";
+
+const apiBreaker = getCircuitBreaker("external-api");
+const apiBulkhead = getBulkhead("external-api", 10);
+
+export async function resilientAPICall<T>(
+  url: string,
+  options: RequestInit,
+  fallback?: () => T
+): Promise<T> {
+  return apiBulkhead.execute(async () => {
+    return apiBreaker.execute(
+      async () => {
+        return withRetry(
+          async () => {
+            return withTimeout(
+              async () => {
+                const response = await fetch(url, options);
+                
+                if (!response.ok) {
+                  throw new Error(`API error: ${response.status}`);
+                }
+                
+                return response.json();
+              },
+              5000 // 5 second timeout
+            );
+          },
+          { maxAttempts: 3 }
+        );
+      },
+      fallback
+    );
+  });
+}
+
+// Usage
+const data = await resilientAPICall(
+  "/api/recommendations",
+  { method: "GET" },
+  () => getDefaultRecommendations() // Fallback
+);
+</example>
+
+<example type="invalid">
+// ❌ BAD - No resilience patterns
+
+async function callAPI(url: string) {
+  const response = await fetch(url); // No timeout!
+  return response.json(); // No error handling!
+}
+
+// Problems:
+// - Can hang forever (no timeout)
+// - No retry on transient failures
+// - No circuit breaker (can overwhelm failing service)
+// - No fallback (fails completely)
+// - No rate limiting (can overwhelm ourselves)
+</example>
+
+## See Also
+
+### Related Rules
+
+**Error Handling**:
+- @090-error-handling.mdc - Error classes and patterns
+- @130-error-handling.mdc - User-facing errors
+- @135-error-monitoring-observability.mdc - Error monitoring with Sentry
+- @137-error-budget-slo.mdc - Error budgets and SLOs
+- @138-frontend-error-patterns.mdc - Frontend error handling
+- @141-error-testing-strategies.mdc - Testing error recovery
+
+**Resilience & Operations**:
+- @069-database-resilience-patterns.mdc - Database-specific resilience
+- @221-application-monitoring.mdc - Application monitoring
+- @223-health-checks.mdc - Health check implementation
+- @210-operations-incidents.mdc - Incident response
+
+**Testing**:
+- @330-third-party-integration-testing.mdc - Testing external services
+- @320-test-resilience.mdc - Test reliability
+
+### Tools & Documentation
+
+**Resilience Tools**:
+- **`.cursor/tools/test-resilience.sh`** - Test resilience patterns
+  ```bash
+  ./.cursor/tools/test-resilience.sh --service api --failure-rate 0.5
+  # Simulates failures and validates recovery
+  ```
+
+**Documentation**:
+- **`.cursor/docs/resilience-patterns.md`** - Resilience pattern catalog
+
+### Comprehensive Guides
+
+**Essential Guides**:
+- **`guides/Error-Handling-Complete-Guide.md`** ⭐ - Complete error handling strategy
+- **`guides/Production-Monitoring-Complete-Guide.md`** - Monitoring and observability
+
+### Quick Start - Adding Resilience
+
+```bash
+# 1. Install resilience utilities
+# Copy circuit-breaker.ts, retry.ts, etc. to lib/resilience/
+
+# 2. Wrap critical operations
+const breaker = getCircuitBreaker("my-service");
+await breaker.execute(() => criticalOperation());
+
+# 3. Add retry to transient failures
+await withRetry(() => apiCall(), { maxAttempts: 3 });
+
+# 4. Add timeouts to prevent hanging
+await withTimeout(() => operation(), 5000);
+
+# 5. Monitor circuit breaker states
+# Dashboard showing breaker status, failure rates
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important for production)  
+**Generated**: November 20, 2025

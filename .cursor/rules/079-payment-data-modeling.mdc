@@ -1,0 +1,1127 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply payment data modeling standards when designing database schemas for payment systems to ensure proper data consistency and relationships
+globs: "src/**/*.{sql,prisma,js,jsx,ts,tsx}"
+___
+
+# Payment Data Modeling Standards
+
+## Data Model Design
+- Define standard schema models for payment-related entities (customers, subscriptions, invoices)
+- Implement consistent naming conventions for payment-related database fields
+- Create clear separation between payment provider data and application data
+- Document the relationship between payment provider models and database models
+- Use appropriate data types for payment-related fields (monetary values, timestamps)
+- Design for future extensibility with payment provider API changes
+
+## Relationship Modeling
+- Implement proper foreign key relationships between user records and payment records
+- Create clear one-to-many relationships for users to payment methods
+- Define appropriate cardinality for subscription to invoice relationships
+- Document entity-relationship diagrams for payment data models
+- Implement proper cascading behaviors for payment-related records
+- Ensure referential integrity for all payment-related relationships
+
+## Indexing Strategy
+- Add proper indexing for common payment-related queries
+- Create composite indexes for frequently joined payment tables
+- Implement efficient lookup indexes for payment provider IDs
+- Define indexes for date-based payment queries (subscription periods, invoices)
+- Document index usage patterns for payment-related operations
+- Balance index coverage with write performance considerations
+
+## Data Retention
+- Define clear data retention policies for payment data
+- Implement data archiving strategies for historical payment records
+- Create proper data deletion flows for canceled subscriptions
+- Document compliance requirements for payment data retention
+- Implement audit logging for payment data changes
+- Define data lifecycle stages for payment records
+
+## Status Mapping
+- Create standardized status enumerations for payment states
+- Define consistent status mapping between payment provider statuses and application statuses
+- Implement state transition validation for subscription statuses
+- Document all possible payment and subscription states
+- Create data integrity checks for valid status values
+- Implement status history tracking for payment entities
+
+## Query Patterns
+- Create standardized query patterns for common payment operations
+- Implement efficient filtering for payment status and date ranges
+- Define consistent aggregation patterns for payment reporting
+- Document transaction isolation requirements for payment operations
+- Create optimized query patterns for high-frequency payment operations
+- Implement proper query caching strategies for payment data
+
+## Schema Validation and Health Checks
+- Implement database schema validation to ensure compatibility with payment provider models
+- Create health check endpoints that verify database schema integrity
+- Validate index presence and structure for critical payment queries
+- Monitor for data anomalies that may indicate payment processing issues
+- Implement alerts for orphaned payment records or inconsistent states
+- Provide automatic schema diagnostic reports for payment-related tables
+
+## Examples
+
+<example>
+-- Good: Properly structured subscription table with indexes
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  stripe_subscription_id VARCHAR(255) UNIQUE NOT NULL,
+  stripe_customer_id VARCHAR(255) NOT NULL,
+  status VARCHAR(50) NOT NULL,
+  tier VARCHAR(50) NOT NULL,
+  current_period_start TIMESTAMP WITH TIME ZONE NOT NULL,
+  current_period_end TIMESTAMP WITH TIME ZONE NOT NULL,
+  cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+  canceled_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- Proper indexes for common query patterns
+CREATE INDEX idx_subscriptions_user_id ON subscriptions(user_id);
+CREATE INDEX idx_subscriptions_status ON subscriptions(status);
+CREATE INDEX idx_subscriptions_period_end ON subscriptions(current_period_end);
+CREATE INDEX idx_subscriptions_stripe_ids ON subscriptions(stripe_subscription_id, stripe_customer_id);
+</example>
+
+<example type="invalid">
+-- Bad: Poorly structured subscription table
+CREATE TABLE subscriptions (
+  id SERIAL PRIMARY KEY,  -- No UUID for distributed systems
+  user_id INTEGER REFERENCES users(id),  -- No NOT NULL constraint
+  stripe_id VARCHAR(255),  -- Ambiguous name, no UNIQUE constraint
+  status VARCHAR(50),  -- No NOT NULL constraint
+  -- Missing created_at/updated_at timestamps
+  -- Missing proper period tracking
+  -- No indexes for common queries
+);
+</example>
+
+<example>
+// Good: Prisma schema with proper relationships and types
+// schema.prisma
+model User {
+  id                String         @id @default(uuid())
+  email             String         @unique
+  name              String?
+  stripeCustomerId  String?        @unique @map("stripe_customer_id")
+  subscriptions     Subscription[]
+  paymentMethods    PaymentMethod[]
+  invoices          Invoice[]
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  @@index([stripeCustomerId])
+}
+
+model Subscription {
+  id                  String    @id @default(uuid())
+  userId              String    @map("user_id")
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeSubscriptionId String   @unique @map("stripe_subscription_id")
+  stripeCustomerId    String    @map("stripe_customer_id")
+  status              String
+  tier                String
+  currentPeriodStart  DateTime  @map("current_period_start")
+  currentPeriodEnd    DateTime  @map("current_period_end")
+  cancelAtPeriodEnd   Boolean   @default(false) @map("cancel_at_period_end")
+  canceledAt          DateTime? @map("canceled_at")
+  invoices            Invoice[]
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@index([currentPeriodEnd])
+  @@index([stripeSubscriptionId, stripeCustomerId])
+}
+
+model PaymentMethod {
+  id                String    @id @default(uuid())
+  userId            String    @map("user_id")
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripePaymentMethodId String @unique @map("stripe_payment_method_id")
+  type              String
+  brand             String?
+  last4             String?
+  expiryMonth       Int?      @map("expiry_month")
+  expiryYear        Int?      @map("expiry_year")
+  isDefault         Boolean   @default(false) @map("is_default")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([userId, isDefault])
+}
+
+model Invoice {
+  id                String       @id @default(uuid())
+  userId            String       @map("user_id")
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId    String?      @map("subscription_id")
+  subscription      Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  stripeInvoiceId   String       @unique @map("stripe_invoice_id")
+  stripeCustomerId  String       @map("stripe_customer_id")
+  amount            Int
+  currency          String
+  status            String
+  paidAt            DateTime?    @map("paid_at")
+  hostedInvoiceUrl  String?      @map("hosted_invoice_url")
+  invoicePdf        String?      @map("invoice_pdf")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([status])
+  @@index([stripeInvoiceId])
+}
+
+model WebhookEvent {
+  id                String    @id @default(uuid())
+  stripeEventId     String    @unique @map("stripe_event_id")
+  eventType         String    @map("event_type")
+  eventData         Json      @map("event_data")
+  processed         Boolean   @default(false)
+  processingError   String?   @map("processing_error")
+  processingAttempts Int       @default(0) @map("processing_attempts")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([processed, createdAt])
+  @@index([eventType])
+}
+</example>
+
+<example type="invalid">
+// Bad: Poorly designed Prisma schema
+// schema.prisma
+model User {
+  id            Int     @id @default(autoincrement())
+  email         String  @unique
+  name          String?
+  stripe_id     String? // Inconsistent naming, no uniqueness
+  // No relationships to payment entities
+}
+
+model Subscription {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  stripe_id  String   // No uniqueness constraint
+  status     String
+  // Missing foreign key relationship to User
+  // Missing indexes for common queries
+  // Missing period tracking fields
+  // Inconsistent naming convention
+}
+
+// Missing proper payment method and invoice models
+</example>
+
+<example>
+// Good: Status mapping with validation
+// src/lib/subscription.ts
+import { stripe } from './stripe';
+
+// Define all possible subscription statuses
+enum SubscriptionStatus {
+  ACTIVE = 'active',
+  PAST_DUE = 'past_due',
+  UNPAID = 'unpaid',
+  CANCELED = 'canceled',
+  INCOMPLETE = 'incomplete',
+  INCOMPLETE_EXPIRED = 'incomplete_expired',
+  TRIALING = 'trialing',
+  PAUSED = 'paused',
+}
+
+// Map Stripe subscription statuses to our application statuses
+const stripeToAppStatusMap: Record<string, SubscriptionStatus> = {
+  'active': SubscriptionStatus.ACTIVE,
+  'past_due': SubscriptionStatus.PAST_DUE,
+  'unpaid': SubscriptionStatus.UNPAID,
+  'canceled': SubscriptionStatus.CANCELED,
+  'incomplete': SubscriptionStatus.INCOMPLETE,
+  'incomplete_expired': SubscriptionStatus.INCOMPLETE_EXPIRED,
+  'trialing': SubscriptionStatus.TRIALING,
+  // Stripe doesn't have a paused status, but we might use it internally
+};
+
+// Define valid state transitions
+const validStatusTransitions: Record<SubscriptionStatus, SubscriptionStatus[]> = {
+  [SubscriptionStatus.ACTIVE]: [
+    SubscriptionStatus.PAST_DUE,
+    SubscriptionStatus.CANCELED,
+    SubscriptionStatus.PAUSED,
+  ],
+  [SubscriptionStatus.PAST_DUE]: [
+    SubscriptionStatus.ACTIVE,
+    SubscriptionStatus.UNPAID,
+    SubscriptionStatus.CANCELED,
+  ],
+  [SubscriptionStatus.UNPAID]: [
+    SubscriptionStatus.ACTIVE,
+    SubscriptionStatus.CANCELED,
+  ],
+  [SubscriptionStatus.CANCELED]: [],
+  [SubscriptionStatus.INCOMPLETE]: [
+    SubscriptionStatus.ACTIVE,
+    SubscriptionStatus.INCOMPLETE_EXPIRED,
+    SubscriptionStatus.CANCELED,
+  ],
+  [SubscriptionStatus.INCOMPLETE_EXPIRED]: [
+    SubscriptionStatus.INCOMPLETE,
+  ],
+  [SubscriptionStatus.TRIALING]: [
+    SubscriptionStatus.ACTIVE,
+    SubscriptionStatus.CANCELED,
+    SubscriptionStatus.INCOMPLETE,
+  ],
+  [SubscriptionStatus.PAUSED]: [
+    SubscriptionStatus.ACTIVE,
+    SubscriptionStatus.CANCELED,
+  ],
+};
+
+// Validate status transition
+export function isValidStatusTransition(
+  currentStatus: SubscriptionStatus,
+  newStatus: SubscriptionStatus
+): boolean {
+  return validStatusTransitions[currentStatus]?.includes(newStatus) || false;
+}
+
+// Map Stripe status to application status
+export function mapStripeStatus(stripeStatus: string): SubscriptionStatus {
+  return stripeToAppStatusMap[stripeStatus] || SubscriptionStatus.INCOMPLETE;
+}
+
+// Update subscription with status validation
+export async function updateSubscriptionStatus(
+  subscriptionId: string,
+  newStatus: SubscriptionStatus,
+  prisma: any
+): Promise<boolean> {
+  // Get current subscription
+  const subscription = await prisma.subscription.findUnique({
+    where: { id: subscriptionId },
+  });
+  
+  if (!subscription) {
+    throw new Error(`Subscription ${subscriptionId} not found`);
+  }
+  
+  // Validate the status transition
+  const currentStatus = subscription.status as SubscriptionStatus;
+  if (!isValidStatusTransition(currentStatus, newStatus)) {
+    throw new Error(
+      `Invalid status transition from ${currentStatus} to ${newStatus}`
+    );
+  }
+  
+  // Update the subscription
+  await prisma.subscription.update({
+    where: { id: subscriptionId },
+    data: { status: newStatus },
+  });
+  
+  return true;
+}
+</example>
+
+<example type="invalid">
+// Bad: No status validation or mapping
+// src/lib/subscription.js
+async function updateSubscription(subscriptionId, newStatus) {
+  // Directly update without validation
+  await db.query(
+    'UPDATE subscriptions SET status = $1 WHERE id = $2',
+    [newStatus, subscriptionId]
+  );
+  
+  // No validation of allowed status values
+  // No validation of status transitions
+  // No mapping from Stripe statuses
+  return true;
+}
+</example>
+
+<example>
+// Good: Efficient query patterns
+// src/repositories/subscriptionRepository.ts
+import { prisma } from '../lib/prisma';
+
+export async function getActiveSubscriptions() {
+  return prisma.subscription.findMany({
+    where: {
+      status: 'active',
+      currentPeriodEnd: {
+        gte: new Date(),
+      },
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+        },
+      },
+    },
+    orderBy: {
+      currentPeriodEnd: 'asc',
+    },
+  });
+}
+
+export async function getExpiringSubscriptions(daysFromNow: number = 7) {
+  const expirationDate = new Date();
+  expirationDate.setDate(expirationDate.getDate() + daysFromNow);
+  
+  return prisma.subscription.findMany({
+    where: {
+      status: 'active',
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: {
+        gte: new Date(),
+        lte: expirationDate,
+      },
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+        },
+      },
+    },
+    orderBy: {
+      currentPeriodEnd: 'asc',
+    },
+  });
+}
+
+export async function getSubscriptionByStripeId(
+  stripeSubscriptionId: string
+) {
+  return prisma.subscription.findUnique({
+    where: {
+      stripeSubscriptionId,
+    },
+    include: {
+      user: true,
+    },
+  });
+}
+
+export async function getUserWithActiveSubscription(userId: string) {
+  return prisma.user.findFirst({
+    where: {
+      id: userId,
+      subscriptions: {
+        some: {
+          status: 'active',
+          currentPeriodEnd: {
+            gte: new Date(),
+          },
+        },
+      },
+    },
+    include: {
+      subscriptions: {
+        where: {
+          status: 'active',
+          currentPeriodEnd: {
+            gte: new Date(),
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: 1,
+      },
+    },
+  });
+}
+</example>
+
+<example type="invalid">
+// Bad: Inefficient query patterns
+// src/repositories/subscriptions.js
+async function getActiveSubscriptions() {
+  // Fetches all subscriptions and filters in memory
+  const allSubscriptions = await db.query(
+    'SELECT * FROM subscriptions'
+  );
+  
+  // Inefficient filtering in application code
+  return allSubscriptions.filter(sub => 
+    sub.status === 'active' && 
+    new Date(sub.current_period_end) > new Date()
+  );
+}
+
+async function getUserSubscription(userId) {
+  // Multiple separate queries instead of joins
+  const subscription = await db.query(
+    'SELECT * FROM subscriptions WHERE user_id = $1 LIMIT 1',
+    [userId]
+  );
+  
+  // Separate query for user data
+  const user = await db.query(
+    'SELECT * FROM users WHERE id = $1',
+    [userId]
+  );
+  
+  // Manual data combination
+  return {
+    ...subscription,
+    user,
+  };
+}
+</example>
+
+<example>
+// Good: Database schema health checks
+// src/utils/health/database-schema-health.ts
+import { prisma } from '@/lib/prisma';
+import Stripe from 'stripe';
+import { stripe } from '@/lib/stripe';
+
+interface SchemaValidationResult {
+  name: string;
+  status: 'healthy' | 'unhealthy' | 'error';
+  details: any;
+  timestamp: string;
+}
+
+export class PaymentDatabaseHealthCheck {
+  async validatePaymentSchema(): Promise<SchemaValidationResult[]> {
+    return Promise.all([
+      this.validateUserSchema(),
+      this.validateSubscriptionSchema(),
+      this.validatePaymentMethodSchema(),
+      this.validateInvoiceSchema(),
+      this.validateWebhookEventSchema(),
+      this.validateDataConsistency(),
+    ]);
+  }
+  
+  private async validateUserSchema(): Promise<SchemaValidationResult> {
+    try {
+      // Check if User model has required Stripe fields
+      const users = await prisma.$queryRaw`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'User' 
+          AND column_name IN ('stripe_customer_id')
+      `;
+      
+      const hasStripeCustomerId = Array.isArray(users) && users.length > 0;
+      
+      // Check for proper unique constraint
+      const uniqueConstraints = await prisma.$queryRaw`
+        SELECT constraint_name
+        FROM information_schema.table_constraints
+        WHERE table_name = 'User'
+          AND constraint_type = 'UNIQUE'
+      `;
+      
+      const hasUniqueConstraint = uniqueConstraints && uniqueConstraints.length > 0;
+      
+      return {
+        name: 'User Schema Validation',
+        status: (hasStripeCustomerId && hasUniqueConstraint) ? 'healthy' : 'unhealthy',
+        details: {
+          hasStripeCustomerId,
+          hasUniqueConstraint,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        name: 'User Schema Validation',
+        status: 'error',
+        details: {
+          error: error.message,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+  
+  private async validateSubscriptionSchema(): Promise<SchemaValidationResult> {
+    try {
+      // Check if Subscription model has required fields
+      const requiredColumns = [
+        'stripe_subscription_id', 
+        'stripe_customer_id', 
+        'status',
+        'current_period_start',
+        'current_period_end',
+      ];
+      
+      const columns = await prisma.$queryRaw`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'Subscription' 
+          AND column_name IN (${requiredColumns.join(',')})
+      `;
+      
+      const missingColumns = requiredColumns.filter(col => 
+        !columns.some(c => c.column_name === col)
+      );
+      
+      // Check for foreign key relationship to User
+      const foreignKeys = await prisma.$queryRaw`
+        SELECT tc.constraint_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+        WHERE tc.table_name = 'Subscription'
+          AND tc.constraint_type = 'FOREIGN KEY'
+          AND kcu.column_name = 'user_id'
+      `;
+      
+      const hasUserForeignKey = foreignKeys && foreignKeys.length > 0;
+      
+      // Check for required indexes
+      const indexes = await prisma.$queryRaw`
+        SELECT indexname
+        FROM pg_indexes
+        WHERE tablename = 'Subscription'
+      `;
+      
+      const indexNames = indexes.map(idx => idx.indexname);
+      const requiredIndexes = [
+        'Subscription_pkey',
+        'Subscription_stripe_subscription_id_key',
+        'Subscription_user_id_idx',
+        'Subscription_status_idx',
+      ];
+      
+      const missingIndexes = requiredIndexes.filter(idx => 
+        !indexNames.includes(idx)
+      );
+      
+      const isHealthy = 
+        missingColumns.length === 0 && 
+        hasUserForeignKey && 
+        missingIndexes.length === 0;
+      
+      return {
+        name: 'Subscription Schema Validation',
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        details: {
+          missingColumns,
+          hasUserForeignKey,
+          missingIndexes,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        name: 'Subscription Schema Validation',
+        status: 'error',
+        details: {
+          error: error.message,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+  
+  private async validatePaymentMethodSchema(): Promise<SchemaValidationResult> {
+    try {
+      // Check if PaymentMethod model has required fields
+      const requiredColumns = [
+        'stripe_payment_method_id',
+        'user_id',
+        'type',
+      ];
+      
+      const columns = await prisma.$queryRaw`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'PaymentMethod' 
+          AND column_name IN (${requiredColumns.join(',')})
+      `;
+      
+      const missingColumns = requiredColumns.filter(col => 
+        !columns.some(c => c.column_name === col)
+      );
+      
+      // Check for unique constraint on payment method ID
+      const uniqueConstraints = await prisma.$queryRaw`
+        SELECT constraint_name
+        FROM information_schema.table_constraints
+        WHERE table_name = 'PaymentMethod'
+          AND constraint_type = 'UNIQUE'
+          AND constraint_name LIKE '%stripe_payment_method_id%'
+      `;
+      
+      const hasUniqueConstraint = uniqueConstraints && uniqueConstraints.length > 0;
+      
+      const isHealthy = missingColumns.length === 0 && hasUniqueConstraint;
+      
+      return {
+        name: 'PaymentMethod Schema Validation',
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        details: {
+          missingColumns,
+          hasUniqueConstraint,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        name: 'PaymentMethod Schema Validation',
+        status: 'error',
+        details: {
+          error: error.message,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+  
+  private async validateInvoiceSchema(): Promise<SchemaValidationResult> {
+    // Implementation similar to other schema validation methods
+    try {
+      const requiredColumns = [
+        'stripe_invoice_id',
+        'user_id',
+        'amount',
+        'currency',
+        'status',
+      ];
+      
+      const columns = await prisma.$queryRaw`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'Invoice' 
+          AND column_name IN (${requiredColumns.join(',')})
+      `;
+      
+      const missingColumns = requiredColumns.filter(col => 
+        !columns.some(c => c.column_name === col)
+      );
+      
+      const isHealthy = missingColumns.length === 0;
+      
+      return {
+        name: 'Invoice Schema Validation',
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        details: {
+          missingColumns,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        name: 'Invoice Schema Validation',
+        status: 'error',
+        details: {
+          error: error.message,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+  
+  private async validateWebhookEventSchema(): Promise<SchemaValidationResult> {
+    // Implementation similar to other schema validation methods
+    try {
+      const requiredColumns = [
+        'stripe_event_id',
+        'event_type',
+        'event_data',
+        'processed',
+      ];
+      
+      const columns = await prisma.$queryRaw`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'WebhookEvent' 
+          AND column_name IN (${requiredColumns.join(',')})
+      `;
+      
+      const missingColumns = requiredColumns.filter(col => 
+        !columns.some(c => c.column_name === col)
+      );
+      
+      const isHealthy = missingColumns.length === 0;
+      
+      return {
+        name: 'WebhookEvent Schema Validation',
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        details: {
+          missingColumns,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        name: 'WebhookEvent Schema Validation',
+        status: 'error',
+        details: {
+          error: error.message,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+  
+  private async validateDataConsistency(): Promise<SchemaValidationResult> {
+    try {
+      // Check for orphaned subscriptions (without users)
+      const orphanedSubscriptions = await prisma.$queryRaw`
+        SELECT COUNT(*) as count 
+        FROM "Subscription" s 
+        LEFT JOIN "User" u ON s.user_id = u.id 
+        WHERE u.id IS NULL
+      `;
+      
+      // Check for subscriptions with invalid status
+      const invalidStatusSubscriptions = await prisma.subscription.count({
+        where: {
+          status: {
+            notIn: ['active', 'past_due', 'unpaid', 'canceled', 'incomplete', 'incomplete_expired', 'trialing'],
+          },
+        },
+      });
+      
+      // Check for users with Stripe customer IDs that don't match any subscription
+      const inconsistentCustomerIds = await prisma.$queryRaw`
+        SELECT COUNT(*) as count
+        FROM "User" u
+        WHERE u.stripe_customer_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM "Subscription" s
+          WHERE s.stripe_customer_id = u.stripe_customer_id
+        )
+      `;
+      
+      const isHealthy = 
+        orphanedSubscriptions[0].count === 0 && 
+        invalidStatusSubscriptions === 0 &&
+        inconsistentCustomerIds[0].count === 0;
+      
+      return {
+        name: 'Data Consistency Validation',
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        details: {
+          orphanedSubscriptions: orphanedSubscriptions[0].count,
+          invalidStatusSubscriptions,
+          inconsistentCustomerIds: inconsistentCustomerIds[0].count,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        name: 'Data Consistency Validation',
+        status: 'error',
+        details: {
+          error: error.message,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+  
+  // Additional validation to ensure schema matches Stripe API requirements
+  async validateStripeCompatibility(): Promise<SchemaValidationResult> {
+    try {
+      // Get Stripe API version
+      const stripeApiVersion = Stripe.API_VERSION;
+      
+      // Check that our status values match Stripe's subscription statuses
+      const stripeSubscriptionStatuses = [
+        'active',
+        'past_due',
+        'unpaid',
+        'canceled',
+        'incomplete',
+        'incomplete_expired',
+        'trialing',
+      ];
+      
+      // Get unique status values from our database
+      const dbStatuses = await prisma.$queryRaw`
+        SELECT DISTINCT status FROM "Subscription"
+      `;
+      
+      const dbStatusValues = dbStatuses.map(s => s.status);
+      
+      // Check for any DB statuses that don't match Stripe's statuses
+      // (we might have custom statuses like "paused", which is fine)
+      const invalidStatuses = dbStatusValues.filter(s => 
+        !stripeSubscriptionStatuses.includes(s) && 
+        !['paused'].includes(s) // Our valid custom statuses
+      );
+      
+      // Verify our database can handle all Stripe webhook event types
+      // by checking schema can store all possible event types
+      const eventTypeMaxLength = await prisma.$queryRaw`
+        SELECT character_maximum_length
+        FROM information_schema.columns
+        WHERE table_name = 'WebhookEvent'
+          AND column_name = 'event_type'
+      `;
+      
+      // Stripe event types can be up to 255 chars
+      const eventTypeMaxLengthValue = eventTypeMaxLength[0]?.character_maximum_length || 0;
+      const hasValidEventTypeLength = eventTypeMaxLengthValue >= 255;
+      
+      const isHealthy = invalidStatuses.length === 0 && hasValidEventTypeLength;
+      
+      return {
+        name: 'Stripe API Compatibility',
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        details: {
+          stripeApiVersion,
+          invalidStatuses,
+          hasValidEventTypeLength,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        name: 'Stripe API Compatibility',
+        status: 'error',
+        details: {
+          error: error.message,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+}
+
+// API endpoint to run database health checks
+export async function paymentDatabaseHealthCheckHandler(req, res) {
+  const healthChecker = new PaymentDatabaseHealthCheck();
+  
+  try {
+    const schemaResults = await healthChecker.validatePaymentSchema();
+    const stripeCompatibility = await healthChecker.validateStripeCompatibility();
+    
+    const results = [...schemaResults, stripeCompatibility];
+    
+    // Calculate overall health
+    const isHealthy = results.every(r => r.status === 'healthy');
+    
+    res.status(isHealthy ? 200 : 500).json({
+      status: isHealthy ? 'healthy' : 'unhealthy',
+      checks: results,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+</example>
+
+<example>
+// Good: Database migration with schema validation
+// src/db/migrations/20230501123456_add_payment_tables.ts
+import { Prisma, PrismaClient } from '@prisma/client';
+
+export async function up(prisma: PrismaClient) {
+  // Create User table if it doesn't exist
+  const userTableExists = await prisma.$queryRaw`
+    SELECT EXISTS (
+      SELECT FROM information_schema.tables
+      WHERE table_name = 'User'
+    );
+  `;
+  
+  if (!userTableExists[0].exists) {
+    await prisma.$executeRaw`
+      CREATE TABLE "User" (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email TEXT UNIQUE NOT NULL,
+        name TEXT,
+        stripe_customer_id TEXT UNIQUE,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+      );
+    `;
+  } else {
+    // Check if User table has stripe_customer_id column
+    const stripeCustomerIdExists = await prisma.$queryRaw`
+      SELECT EXISTS (
+        SELECT FROM information_schema.columns
+        WHERE table_name = 'User'
+        AND column_name = 'stripe_customer_id'
+      );
+    `;
+    
+    if (!stripeCustomerIdExists[0].exists) {
+      await prisma.$executeRaw`
+        ALTER TABLE "User"
+        ADD COLUMN stripe_customer_id TEXT UNIQUE;
+      `;
+    }
+  }
+  
+  // Create Subscription table
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS "Subscription" (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
+      stripe_subscription_id TEXT UNIQUE NOT NULL,
+      stripe_customer_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      tier TEXT NOT NULL,
+      current_period_start TIMESTAMP WITH TIME ZONE NOT NULL,
+      current_period_end TIMESTAMP WITH TIME ZONE NOT NULL,
+      cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+      canceled_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    );
+  `;
+  
+  // Create required indexes
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS "Subscription_user_id_idx" ON "Subscription"(user_id);
+    CREATE INDEX IF NOT EXISTS "Subscription_status_idx" ON "Subscription"(status);
+    CREATE INDEX IF NOT EXISTS "Subscription_period_end_idx" ON "Subscription"(current_period_end);
+    CREATE INDEX IF NOT EXISTS "Subscription_stripe_ids_idx" ON "Subscription"(stripe_subscription_id, stripe_customer_id);
+  `;
+  
+  // Create WebhookEvent table
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS "WebhookEvent" (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      stripe_event_id TEXT UNIQUE NOT NULL,
+      event_type TEXT NOT NULL,
+      event_data JSONB NOT NULL,
+      processed BOOLEAN NOT NULL DEFAULT FALSE,
+      processing_error TEXT,
+      processing_attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    );
+  `;
+  
+  // Create WebhookEvent indexes
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS "WebhookEvent_processed_created_at_idx" ON "WebhookEvent"(processed, created_at);
+    CREATE INDEX IF NOT EXISTS "WebhookEvent_event_type_idx" ON "WebhookEvent"(event_type);
+  `;
+  
+  // Validate schema after migration
+  // Check that required indexes exist
+  const subscriptionIndexes = await prisma.$queryRaw`
+    SELECT indexname FROM pg_indexes WHERE tablename = 'Subscription';
+  `;
+  
+  const requiredIndexes = [
+    'Subscription_user_id_idx',
+    'Subscription_status_idx',
+    'Subscription_period_end_idx',
+    'Subscription_stripe_ids_idx',
+  ];
+  
+  const missingIndexes = requiredIndexes.filter(idx => 
+    !subscriptionIndexes.some(i => i.indexname === idx)
+  );
+  
+  if (missingIndexes.length > 0) {
+    throw new Error(`Migration failed: Missing required indexes: ${missingIndexes.join(', ')}`);
+  }
+  
+  // Check that required constraints exist
+  const subscriptionConstraints = await prisma.$queryRaw`
+    SELECT constraint_name
+    FROM information_schema.table_constraints
+    WHERE table_name = 'Subscription'
+      AND constraint_type IN ('PRIMARY KEY', 'FOREIGN KEY', 'UNIQUE');
+  `;
+  
+  const requiredConstraints = [
+    'Subscription_pkey',
+    'Subscription_stripe_subscription_id_key',
+  ];
+  
+  const missingConstraints = requiredConstraints.filter(constraint => 
+    !subscriptionConstraints.some(c => c.constraint_name === constraint)
+  );
+  
+  if (missingConstraints.length > 0) {
+    throw new Error(`Migration failed: Missing required constraints: ${missingConstraints.join(', ')}`);
+  }
+}
+
+export async function down(prisma: PrismaClient) {
+  await prisma.$executeRaw`
+    DROP TABLE IF EXISTS "WebhookEvent";
+    DROP TABLE IF EXISTS "Subscription";
+    ALTER TABLE "User" DROP COLUMN IF EXISTS stripe_customer_id;
+  `;
+}
+</example>
+
+<example type="invalid">
+// Bad: Migration without validation
+// migrations/20230501000000_add_stripe.js
+exports.up = function(knex) {
+  // Create tables without validation
+  return knex.schema
+    .createTable('subscriptions', function(table) {
+      table.increments('id');
+      table.integer('user_id').references('users.id');
+      table.string('stripe_id');
+      table.string('status');
+      // Missing indexes, constraints, and fields
+    });
+};
+
+exports.down = function(knex) {
+  return knex.schema.dropTable('subscriptions');
+};
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Data security patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - CRITICAL: Inspect payment data models!
+  ```bash
+  ./.cursor/tools/inspect-model.sh Payment
+  ./.cursor/tools/inspect-model.sh Subscription
+  ./.cursor/tools/inspect-model.sh Invoice
+  ```
+- **`.cursor/tools/check-schema-changes.sh`** - Validate schema changes
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (Prisma schema first!)
+- @020-payment-security.mdc - Payment security
+- @065-database-access-patterns.mdc - Database patterns
+- @066-database-migration-standards.mdc - Migration standards
+- @067-database-security.mdc - Database security
+- @376-database-test-isolation.mdc - Database testing
+
+### Quick Start
+1. **ALWAYS:** `.cursor/tools/inspect-model.sh` (check models BEFORE coding!)
+2. **Follow:** @002-rule-application.mdc (Prisma schema is source of truth)
+3. **Validate:** `.cursor/tools/check-schema-changes.sh` (before committing)

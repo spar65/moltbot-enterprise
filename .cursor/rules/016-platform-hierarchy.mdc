@@ -1,0 +1,182 @@
+---
+description: Use when handling platform-level data to ensure proper hierarchy and isolation.
+globs: "**/models/**/*.ts, **/api/**/*.ts"
+---
+
+# Platform Hierarchy Guidelines
+
+## Context
+- AgentMinder has a multi-tiered hierarchy: Platform > Organizations > Groups > Users > Agents
+- Data at the platform level must be properly isolated from organization-specific data
+- Access controls must be enforced at each level of the hierarchy
+
+## Requirements
+
+### Data Isolation
+- Scope platform-level queries to exclude org-specific data unless explicitly requested
+- Use clear field names to distinguish platform-level data from org-level data (e.g., `platformId` vs `orgId`)
+- Store platform-level configurations separate from org configurations
+
+### Platform-Level Queries
+- Use dedicated endpoints for platform-level operations
+- Include explicit security checks for platform-level access
+- Test platform-level features with multiple organizations and users
+
+### Security Boundaries
+- Implement role-based checks for all platform-level operations
+- Separate database collections/tables for platform and org data
+- Add audit logging for all platform-level data access and modifications
+
+## Examples
+
+### Database Query Patterns
+
+```typescript
+// Good - Explicit platform scope
+const platformData = await db.find({ platformId: 'fountain-ai' });
+
+// Bad - No platform isolation
+const allData = await db.find({}); // Includes org-specific data
+
+// Good - Clear isolation with explicit joins
+const platformStats = await db.platformStats.aggregate([
+  { $match: { platformId: 'fountain-ai' }},
+  { $lookup: {
+      from: 'organizations',
+      localField: 'platformId',
+      foreignField: 'platformId',
+      as: 'organizations'
+    }
+  },
+  // Process data with clear boundaries
+]);
+
+// Bad - Mixing platform and org data
+const mixedData = await db.find({ 
+  $or: [
+    { platformId: 'fountain-ai' },
+    { orgId: someOrgId }
+  ]
+}); // Confuses boundaries
+```
+
+### API Security
+
+```typescript
+// Good - Platform-level security check
+export async function GET(request: Request) {
+  // Get authenticated session
+  const session = await getServerSession();
+  if (!session?.user) {
+    return new NextResponse(null, { status: 401 });
+  }
+  
+  // Check for platform access
+  if (!hasPlatformAccess(session.user)) {
+    return new NextResponse(null, { status: 403 });
+  }
+  
+  // Now safe to return platform-level data
+  const platformStats = await getPlatformStats();
+  return NextResponse.json(platformStats);
+}
+
+// Bad - Missing platform-level checks
+export async function GET(request: Request) {
+  // Get authenticated session
+  const session = await getServerSession();
+  if (!session?.user) {
+    return new NextResponse(null, { status: 401 });
+  }
+  
+  // Immediate data return without platform role check
+  const platformStats = await getPlatformStats();
+  return NextResponse.json(platformStats);
+}
+```
+
+### Testing Patterns
+
+```typescript
+// Good - Testing across multiple orgs
+describe('Platform API', () => {
+  beforeEach(async () => {
+    // Set up test data with multiple organizations
+    await setupTestOrg('org1');
+    await setupTestOrg('org2');
+    await setupPlatformUser();
+  });
+  
+  test('platform stats aggregate across all orgs', async () => {
+    // Set up platform user context
+    const session = mockPlatformUserSession();
+    getServerSession.mockResolvedValue(session);
+    
+    const response = await GET(
+      new Request('https://example.com/api/platform/stats')
+    );
+    
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    
+    // Verify data includes aggregated info from both orgs
+    expect(data.totalOrgs).toBe(2);
+    expect(data.totalUsers).toBe(
+      (await getOrgUsers('org1')).length + 
+      (await getOrgUsers('org2')).length
+    );
+  });
+});
+```
+
+## Best Practices for Platform Features
+
+1. **Consistent Naming**: Use consistent naming patterns for platform-level resources
+2. **Access Validation**: Double-check role permissions at both API and service layers
+3. **Feature Flagging**: Add platform-specific feature flags for controlling rollout
+4. **Multi-tenant Awareness**: Always design with multi-tenancy in mind
+5. **Audit Trails**: Log all platform-level operations with detailed context
+
+These guidelines ensure proper data hierarchy and isolation, enhancing security and maintainability in the platform-level features of AgentMinder. 
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Platform hierarchy workflows
+- **`.cursor/docs/tools-guide.md`** - Schema inspection guide
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - CRITICAL: Check platform data models!
+  ```bash
+  ./.cursor/tools/inspect-model.sh Organization
+  ./.cursor/tools/inspect-model.sh User
+  ./.cursor/tools/inspect-model.sh Platform
+  # Check organizationId foreign keys!
+  ```
+- **`.cursor/tools/check-schema-changes.sh`** - Validate hierarchy changes
+- **`.cursor/tools/check-infrastructure.sh`** - Verify platform infrastructure
+- **`.cursor/tools/analyze-performance.sh`** - Monitor query performance
+
+### Guides
+- **`guides/Multi-Tenant-Architecture-Complete-Guide.md`** ⭐ **NEW!** - Comprehensive multi-tenancy guide
+- **`guides/Database-Operations-Complete-Guide.md`** - Database management
+- **`guides/Monitoring-Complete-Guide.md`** - Platform monitoring
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (Prisma schema first!)
+- @012-api-security.mdc - API security (organization-scoped!)
+- @015-white-labeling-consolidated.mdc - White-labeling patterns
+- @017-platform-user-features.mdc - Platform user management
+- @025-multi-tenancy.mdc - Multi-tenant isolation (CRITICAL!)
+- @060-api-standards.mdc - Organization-scoped API patterns
+- @208-database-operations.mdc - Database operations
+- @221-application-monitoring.mdc - Application monitoring
+- @376-database-test-isolation.mdc - Database testing with organizationId
+- @380-comprehensive-testing-standards.mdc - Testing framework
+
+### Quick Start
+1. **ALWAYS:** `.cursor/tools/inspect-model.sh Organization` (check hierarchy!)
+2. **READ:** `guides/Multi-Tenant-Architecture-Complete-Guide.md` (complete patterns!)
+3. **Follow:** @025-multi-tenancy.mdc (isolation patterns)
+4. **Secure:** Every API must be organization-scoped per @060-api-standards.mdc
+5. **Monitor:** Use @221-application-monitoring.mdc for platform health

@@ -1,0 +1,64 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply accounting integration standards when implementing payment features to ensure proper revenue recognition and financial reporting
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Accounting Integration Standards
+
+## Revenue Recognition
+- Implement automated revenue recognition entries
+- Apply proper accounting for deferred revenue
+- Create consistent handling of refunds and credits
+- Document revenue recognition rules by product type
+- Implement proper reconciliation with payment processor
+
+## Accounting System Integration
+- Create standardized export formats for accounting systems
+- Implement proper transaction categorization
+- Apply consistent naming conventions for ledger entries
+- Document integration points with accounting software
+- Create audit trails for financial transactions
+
+## Financial Reporting
+- Implement standardized financial report generation
+- Create proper MRR and ARR calculation methods
+- Apply consistent period closing procedures
+- Document financial reporting schedules and deadlines
+- Implement proper handling of currency conversion for reporting
+
+## Audit Support
+- Create audit-ready documentation for payment processes
+- Implement transaction history with complete audit trails
+- Apply proper controls for financial data access
+- Document compliance with accounting standards
+- Create export capabilities for audit requests
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Integration patterns
+- **`.cursor/docs/security-checklist.md`** - Integration validation
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Check accounting API keys
+- **`.cursor/tools/check-env-vars.sh`** - Validate integration configuration
+- **`.cursor/tools/inspect-model.sh`** - Check accounting data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @011-env-var-security.mdc - API key management
+- @020-payment-security.mdc - Payment data security
+- @074-tax-and-compliance-standards.mdc - Tax compliance
+- @078-payment-testing-standards.mdc - Testing integration
+- @330-third-party-integration-testing.mdc - Integration testing patterns
+
+### Quick Start
+1. **Scan:** `.cursor/tools/scan-secrets.sh` (accounting keys)
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Test:** See @330-third-party-integration-testing.mdc

@@ -1,0 +1,79 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply subscription management standards when implementing recurring billing to ensure consistent subscription lifecycle management
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Subscription Management Standards
+
+## Subscription Creation
+- Implement standardized subscription creation flow
+- Validate plan selection before creation
+- Apply consistent trial period handling
+- Store relevant subscription metadata
+- Create clear user feedback for subscription status
+
+## Plan Changes
+- Implement standardized upgrade/downgrade flows
+- Apply consistent proration rules
+- Create clear user confirmation for plan changes
+- Validate plan compatibility before changes
+- Store plan change history for auditing
+
+## Cancellation & Renewal
+- Implement standardized cancellation flow
+- Provide clear feedback on subscription end date
+- Create reactivation path for canceled subscriptions
+- Apply consistent renewal notification pattern
+- Document subscription lifecycle edge cases
+
+## Subscription Data Access
+- Create standardized subscription data access patterns
+- Implement proper caching for subscription status
+- Apply appropriate access controls to subscription data
+- Create consistent formatting for subscription information
+- Document subscription data structure
+
+## Self-Service Management
+- Implement customer portal for subscription management
+- Create consistent UI for plan selection and changes
+- Apply proper validation for customer actions
+- Provide clear confirmation for all subscription changes
+- Document self-service capabilities and limitations
+
+## Automated Lifecycle Management
+- Implement win-back campaigns for canceled users
+- Create usage-based upgrade recommendations
+- Apply seasonal retention campaigns
+- Develop subscription lifecycle analytics
+- Implement automated renewal reminders
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Subscription patterns
+- **`.cursor/docs/security-checklist.md`** - Validation checklist
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check Subscription data model
+- **`.cursor/tools/scan-secrets.sh`** - Check Stripe key exposure
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @020-payment-security.mdc - Payment security
+- @020-stripe-integration.mdc - Stripe patterns
+- @021-stripe-subscription-implementation.mdc - Subscription implementation
+- @026-subscription-access-control.mdc - Access control
+- @072-subscription-health-monitoring.mdc - Health monitoring
+- @078-payment-testing-standards.mdc - Testing subscriptions
+- @331-high-risk-feature-testing.mdc - Critical testing
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh Subscription`
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Test:** See @078-payment-testing-standards.mdc

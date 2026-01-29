@@ -1,0 +1,136 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+---
+
+description: Enforce consistent testing patterns for admin interfaces to ensure reliable test suites
+globs: ["tests/admin/**/*.test.tsx", "tests/admin/**/*.test.ts", "tests/utils/admin-test-utils.tsx"]
+
+---
+
+# Admin Testing Patterns
+
+## Context
+
+- Admin interfaces require authentication and authorization mocking
+- Tests often fail due to conflicting global and local mocks
+- Component structure affects how tests find and interact with elements
+- Test what exists, not what you wish existed
+
+## Requirements
+
+### Mock Setup and Configuration
+
+- **REQUIRED**: Use `renderWithAdminProviders` from admin-test-utils for all admin component tests
+- **REQUIRED**: Ensure AdminGuard and AdminContext are properly mocked in jest.setup.js
+- Mock Auth0's useUser to return consistent admin user data
+- Mock Next.js router as a jest function to allow proper overrides
+- Clear all mocks in beforeEach to prevent test pollution
+
+### Component Testing Patterns
+
+- Match exact text including punctuation and formatting
+- Understand DOM structure (e.g., links may be inside container divs)
+- Use proper selectors: `closest('div')` then `querySelector('a')` for nested elements
+- Test actual behavior, not imagined behavior (e.g., don't test router.push if using <a> tags)
+- Verify security wrappers (AdminGuard, DocumentationLayout) are present
+
+### Mock Data Consistency
+
+- Use standard mock users from admin-test-utils (mockAdminUser, mockRegularUser)
+- Leverage createMockApiResponses for consistent API response mocking
+- Override specific mock data using the options parameter in renderWithAdminProviders
+- Ensure mock data matches component expectations (e.g., user.name vs user.email)
+
+### Common Pitfalls to Avoid
+
+- Don't create conflicting mocks between jest.setup.js and test files
+- Don't assume navigation uses router.push - check if it's using regular links
+- Don't forget periods and exact punctuation in text assertions
+- Don't test for elements that don't exist in the actual component
+- Don't use jest.doMock when global mocks exist - override their return values instead
+
+## Examples
+
+<example>
+// GOOD: Proper admin component test setup
+import { renderWithAdminProviders, mockAdminUser } from '../utils/admin-test-utils';
+
+describe('AdminComponent', () => {
+beforeEach(() => {
+jest.clearAllMocks();
+});
+
+it('should render with admin user', () => {
+const { mockRouter } = renderWithAdminProviders(<AdminComponent />, {
+user: mockAdminUser,
+});
+
+    expect(screen.getByText('Welcome to the VibeCoder Admin Dashboard, Admin User')).toBeInTheDocument();
+
+});
+});
+</example>
+
+<example type="invalid">
+// BAD: Creating conflicting mocks
+jest.mock('@auth0/nextjs-auth0'); // Already mocked globally!
+
+describe('AdminComponent', () => {
+beforeEach(() => {
+// This creates conflicts with global mocks
+(useUser as jest.Mock).mockReturnValue({ user: mockUser });
+});
+});
+</example>
+
+<example>
+// GOOD: Finding nested links in admin tiles
+const tile = screen.getByText('User Management').closest('div');
+const link = tile?.querySelector('a');
+expect(link).toHaveAttribute('href', '/admin/users');
+</example>
+
+<example type="invalid">
+// BAD: Assuming direct link structure
+const link = screen.getByText('User Management').closest('a'); // May be null!
+fireEvent.click(link); // Will throw error
+</example>
+
+## Testing Checklist
+
+- [ ] Using renderWithAdminProviders for all admin component tests
+- [ ] Mocks are cleared in beforeEach
+- [ ] Text assertions match exactly (including punctuation)
+- [ ] DOM queries account for actual component structure
+- [ ] Not testing non-existent functionality
+- [ ] Mock data is consistent with admin-test-utils
+- [ ] No conflicting mock declarations
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Admin testing workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check admin data models
+- **`.cursor/tools/check-auth-config.sh`** - Verify admin auth
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @012-api-security.mdc - Admin API security
+- @025-multi-tenancy.mdc - Admin multi-tenant access
+- @300-testing-standards.mdc - General testing standards
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @400-auth-testing-patterns.mdc - Auth testing for admin
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (admin models)
+2. **Auth:** See @400-auth-testing-patterns.mdc (admin permissions)
+3. **Test:** Follow @380-comprehensive-testing-standards.mdc

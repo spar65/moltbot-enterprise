@@ -1,0 +1,399 @@
+---
+description: Use when implementing authentication, user management, and access control to ensure secure practices and avoid custom authentication solutions
+globs: "**/auth/**/*.{js,ts,jsx,tsx}, **/pages/api/auth/**/*.{js,ts}, **/app/api/auth/**/*.{js,ts}, **/middleware.{js,ts}, **/AuthProvider.{jsx,tsx}, **/*[Aa]uth*.{js,ts,jsx,tsx}"
+---
+
+# Third-Party Authentication Implementation
+
+## Context
+- Authentication is a critical security feature that is complex to implement correctly
+- Common authentication vulnerabilities include weak password handling, session management flaws, and CSRF vulnerabilities
+- Authentication libraries are maintained by security specialists who stay updated on threats
+- Custom authentication solutions often miss edge cases, security features, or become outdated
+- Managed authentication providers handle security updates, compliance, and best practices
+
+## Requirements
+
+### Authentication Provider Selection
+- **REQUIRED**: Use established authentication providers instead of custom solutions
+- Choose providers based on your application requirements and tech stack
+- Consider authentication features, pricing, compliance certifications, and integration complexity
+- Document the selection process and security considerations for your chosen provider
+- Maintain awareness of the provider's security track record and responsiveness to vulnerabilities
+
+```markdown
+# Recommended Authentication Providers
+
+## Frontend + Backend Solutions:
+- **Clerk**: Complete user management with advanced session handling
+- **Auth0**: Enterprise-grade identity platform with extensive customization
+- **Firebase Authentication**: Google-backed authentication with Firebase integration
+- **Amazon Cognito**: AWS authentication service with scalable user directories
+- **Supabase Auth**: Open-source authentication with PostgreSQL integration
+
+## Framework-Specific:
+- **NextAuth.js**: Authentication for Next.js applications
+- **Devise**: Authentication for Ruby on Rails
+- **Passport.js**: Authentication middleware for Node.js
+- **Django Authentication**: Built-in authentication for Django
+- **Spring Security**: Authentication for Spring applications
+```
+
+### Implementation Best Practices
+- **REQUIRED**: Follow provider documentation precisely for proper implementation
+- **REQUIRED**: Protect all routes and API endpoints that require authentication
+- Use the provider's recommended approach for each platform/framework
+- Implement proper error handling for authentication failures
+- Keep authentication libraries and SDKs updated
+- Follow the principle of least privilege for authenticated operations
+
+```typescript
+// GOOD: Next.js with Clerk - properly protecting API routes
+// src/app/api/protected-route/route.ts
+import { auth } from '@clerk/nextjs';
+import { NextResponse } from 'next/server';
+
+export async function GET() {
+  const { userId } = auth();
+  
+  if (!userId) {
+    return new NextResponse(null, { status: 401 });
+  }
+  
+  // Process authenticated request
+  return NextResponse.json({ data: 'Protected data' });
+}
+
+// GOOD: Next.js with Clerk - protecting client routes
+// src/middleware.ts
+import { authMiddleware } from '@clerk/nextjs';
+
+export default authMiddleware({
+  // Routes that can be accessed while signed out
+  publicRoutes: [
+    '/',
+    '/sign-in*',
+    '/sign-up*',
+    '/api/webhook/clerk',
+    '/legal/*'
+  ]
+});
+
+export const config = {
+  matcher: ['/((?!.+\\.[\\w]+$|_next).*)', '/', '/(api|trpc)(.*)'],
+};
+```
+
+### Security Configuration
+- Configure multi-factor authentication (MFA) when available
+- Implement proper password policies (complexity, expiration, history)
+- Set appropriate session timeouts and refresh mechanisms
+- Configure brute force protection (rate limiting, account lockouts)
+- Enable security alerts for suspicious activities
+- Configure proper authorization in addition to authentication
+
+```typescript
+// GOOD: Configuring MFA with Clerk
+import { ClerkProvider } from '@clerk/nextjs';
+
+function MyApp({ Component, pageProps }) {
+  return (
+    <ClerkProvider
+      appearance={{
+        // UI customization
+      }}
+      localization={{
+        // Custom text
+      }}
+      // Configure required authentication methods
+      signInOptions={{
+        secondFactor: {
+          // Require MFA for all users
+          required: true,
+        },
+      }}
+    >
+      <Component {...pageProps} />
+    </ClerkProvider>
+  );
+}
+
+export default MyApp;
+
+// GOOD: Configuring proper session management with NextAuth
+import NextAuth from 'next-auth';
+import CredentialsProvider from 'next-auth/providers/credentials';
+
+export default NextAuth({
+  providers: [
+    // Your providers here
+  ],
+  session: {
+    // Use JWT for stateless sessions
+    strategy: "jwt",
+    // Set max session age to 1 hour
+    maxAge: 60 * 60,
+  },
+  callbacks: {
+    // Custom JWT handling
+    async jwt({ token, user, account }) {
+      // Initial sign in
+      if (account && user) {
+        return {
+          ...token,
+          accessToken: account.access_token,
+          refreshToken: account.refresh_token,
+          accessTokenExpires: account.expires_at * 1000,
+        };
+      }
+
+      // Return previous token if not expired
+      if (Date.now() < token.accessTokenExpires) {
+        return token;
+      }
+
+      // Access token expired, try to refresh
+      return refreshAccessToken(token);
+    },
+    // Session callback to pass token data to client
+    async session({ session, token }) {
+      session.user.accessToken = token.accessToken;
+      session.user.roles = token.roles;
+      return session;
+    },
+  },
+  pages: {
+    signIn: '/auth/signin',
+    error: '/auth/error',
+  },
+  debug: process.env.NODE_ENV === 'development',
+});
+```
+
+### Social Authentication
+- Implement proper OAuth 2.0 / OpenID Connect flows when using social logins
+- Handle account linking correctly for users with multiple authentication methods
+- Securely manage OAuth tokens and refresh procedures
+- Configure appropriate scopes to request only necessary permissions
+- Consider privacy implications of social login data access
+- Test social authentication edge cases (e.g., account deletion on provider)
+
+```typescript
+// GOOD: Clerk implementation with multiple social providers
+import { ClerkProvider } from '@clerk/nextjs';
+
+function MyApp({ Component, pageProps }) {
+  return (
+    <ClerkProvider
+      appearance={{
+        // UI customization
+      }}
+      // Configure social login options
+      socialProviderStrategies={{
+        // Recommended flow using OAuth
+        google: "oauth",
+        github: "oauth"
+      }}
+    >
+      <Component {...pageProps} />
+    </ClerkProvider>
+  );
+}
+
+export default MyApp;
+```
+
+### Role-Based Access Control
+- Implement proper role-based access control (RBAC) with your auth provider
+- Define clear roles and permissions for your application
+- Check roles and permissions at both API and UI levels
+- Keep role permissions synced with auth provider
+- Test authorization rules thoroughly
+- Implement the principle of least privilege
+
+```typescript
+// GOOD: Role-based authorization with Clerk
+// src/app/api/admin/route.ts
+import { auth } from '@clerk/nextjs';
+import { NextResponse } from 'next/server';
+import { getUserRole } from '@/lib/user-roles';
+
+export async function GET() {
+  const { userId } = auth();
+  
+  if (!userId) {
+    return new NextResponse(null, { status: 401 });
+  }
+  
+  // Get user role and check if admin
+  const userRole = await getUserRole(userId);
+  
+  if (userRole !== 'admin') {
+    return new NextResponse(null, { status: 403 });
+  }
+  
+  // Process admin request
+  return NextResponse.json({ data: 'Admin data' });
+}
+
+// GOOD: Role-based UI rendering
+// src/components/AdminPanel.tsx
+import { useAuth } from '@clerk/nextjs';
+import { useUserRole } from '@/hooks/useUserRole';
+
+export function AdminPanel() {
+  const { isSignedIn } = useAuth();
+  const { role, isLoading } = useUserRole();
+  
+  if (!isSignedIn || isLoading) {
+    return <div>Loading...</div>;
+  }
+  
+  if (role !== 'admin') {
+    return <div>Access denied</div>;
+  }
+  
+  return (
+    <div>
+      <h1>Admin Panel</h1>
+      {/* Admin UI components */}
+    </div>
+  );
+}
+```
+
+### Testing and Monitoring
+- Create thorough tests for authentication flows
+- Test edge cases like expired tokens, invalid credentials, etc.
+- Implement authentication monitoring and alerting
+- Track failed login attempts and suspicious patterns
+- Use development/testing environments provided by your auth provider
+- Monitor auth-related logs for security issues
+
+```typescript
+// GOOD: Testing auth with Clerk test accounts
+import { expect, test } from '@playwright/test';
+
+test.describe('Authentication', () => {
+  test('should allow sign in with valid credentials', async ({ page }) => {
+    // Visit sign-in page
+    await page.goto('/sign-in');
+    
+    // Use Clerk test account credentials
+    await page.fill('input[name="emailAddress"]', 'test@example.com');
+    await page.fill('input[name="password"]', 'test-password');
+    await page.click('button[type="submit"]');
+    
+    // Verify successful sign in
+    await expect(page).toHaveURL('/dashboard');
+    await expect(page.locator('text=Welcome back')).toBeVisible();
+  });
+  
+  test('should show error with invalid credentials', async ({ page }) => {
+    await page.goto('/sign-in');
+    
+    // Use invalid credentials
+    await page.fill('input[name="emailAddress"]', 'test@example.com');
+    await page.fill('input[name="password"]', 'wrong-password');
+    await page.click('button[type="submit"]');
+    
+    // Verify error message
+    await expect(page.locator('text=Invalid email or password')).toBeVisible();
+  });
+});
+```
+
+### Security Monitoring and Response
+- Set up monitoring for authentication-related events
+- Monitor for unusual login patterns or suspicious activities
+- Implement proper error handling that doesn't leak sensitive information
+- Have an incident response plan for authentication-related security events
+- Stay updated with security advisories from your auth provider
+- Have a plan for switching providers if necessary
+
+```typescript
+// GOOD: Monitoring login attempts
+// src/pages/api/auth/[...nextauth].js with NextAuth.js
+import NextAuth from 'next-auth';
+
+export default NextAuth({
+  // Other config
+  events: {
+    async signIn({ user, account, profile, isNewUser }) {
+      // Log successful sign-in
+      await logAuthEvent({
+        type: 'sign_in',
+        userId: user.id,
+        provider: account.provider,
+        success: true,
+      });
+    },
+    async signOut({ token, session }) {
+      // Log sign-out
+      await logAuthEvent({
+        type: 'sign_out',
+        userId: token.sub,
+        success: true,
+      });
+    },
+    async createUser({ user }) {
+      // Log user creation
+      await logAuthEvent({
+        type: 'user_create',
+        userId: user.id,
+        success: true,
+      });
+    },
+    async linkAccount({ user, account, profile }) {
+      // Log account linking
+      await logAuthEvent({
+        type: 'account_link',
+        userId: user.id,
+        provider: account.provider,
+        success: true,
+      });
+    },
+    async session({ session, token }) {
+      // Optionally log session creation for suspicious pattern detection
+    },
+  },
+  // Other config
+});
+```
+
+## Implementation Checklist
+
+- [ ] Select an appropriate authentication provider for your project
+- [ ] Follow provider documentation for implementation
+- [ ] Configure security features (MFA, password policies, etc.)
+- [ ] Protect all routes and API endpoints that require authentication
+- [ ] Implement proper role-based access control
+- [ ] Set up monitoring for auth-related events
+- [ ] Test authentication flows thoroughly
+- [ ] Keep authentication libraries and SDKs updated
+- [ ] Document your authentication implementation and security considerations
+``` 
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Step-by-step Auth0 setup
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Pre-deployment checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate Auth0 configuration
+  ```bash
+  ./.cursor/tools/check-auth-config.sh
+  # Validates: Env vars, secret strength, cookie security, SDK version
+  ```
+- **`.cursor/tools/check-env-vars.sh`** - Ensure secrets not exposed
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @019-auth0-integration.mdc - Auth0 integration standards
+- @046-session-validation.mdc - Session security
+
+### Quick Start
+1. **Validate:** `.cursor/tools/check-auth-config.sh` (check configuration)
+2. **Follow:** `.cursor/docs/security-workflows.md#auth0-integration-workflow`
+3. **Deploy:** `.cursor/docs/security-checklist.md#authentication-authorization`

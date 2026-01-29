@@ -1,0 +1,709 @@
+---
+
+description: Use when orchestrating multiple MindStudio agents to ensure coordinated, efficient, and maintainable AI system interactions
+globs: "src/\*_/_.{js,jsx,ts,tsx}"
+
+---
+
+# MindStudio Multi-Agent Orchestration
+
+## Context
+
+- Modern AI applications often require coordination between multiple specialized agents
+- Each agent should handle specific tasks while maintaining isolation and clear boundaries
+- Orchestration patterns prevent chaos and ensure predictable, scalable AI workflows
+- Proper coordination enables the "Dragon Orchestra" approach described in VibeCoding methodology
+
+## Requirements
+
+### Agent Specialization and Boundaries
+
+- **REQUIRED**: Define clear responsibilities for each agent in the orchestration
+- **REQUIRED**: Avoid overlapping functionality between agents to prevent conflicts
+- **REQUIRED**: Implement consistent input/output interfaces across all agents
+- **REQUIRED**: Document agent capabilities and limitations for team understanding
+- **REQUIRED**: Maintain agent isolation to prevent cross-contamination of concerns
+
+### Request Routing and Coordination
+
+- **REQUIRED**: Implement a central orchestrator that routes requests to appropriate agents
+- **REQUIRED**: Use consistent routing logic based on request type and content
+- **REQUIRED**: Handle agent unavailability with appropriate fallback mechanisms
+- **REQUIRED**: Implement proper sequencing for multi-step workflows
+- **REQUIRED**: Maintain organization context throughout multi-agent workflows
+
+### Workflow Management
+
+- **REQUIRED**: Design workflows that can handle partial failures gracefully
+- **REQUIRED**: Implement compensation patterns for failed multi-step operations
+- **REQUIRED**: Use async patterns for long-running orchestrated workflows
+- **REQUIRED**: Provide workflow status tracking and user feedback
+- **REQUIRED**: Implement timeout handling for the entire workflow chain
+
+### Data Flow and State Management
+
+- **REQUIRED**: Design clear data flow patterns between agents
+- **REQUIRED**: Avoid shared mutable state between agents
+- **REQUIRED**: Implement proper data transformation between agent boundaries
+- **REQUIRED**: Handle data validation at each agent boundary
+- **REQUIRED**: Maintain audit trails for multi-agent workflows
+
+## Examples
+
+<example>
+// Good: Specialized agent definitions with clear boundaries
+enum AgentType {
+  CREATIVE = 'creative',
+  ANALYSIS = 'analysis',
+  CODE = 'code',
+  KNOWLEDGE = 'knowledge',
+  GUARDIAN = 'guardian'
+}
+
+interface AgentCapability {
+type: AgentType;
+description: string;
+inputSchema: string;
+outputSchema: string;
+maxTokens: number;
+averageLatency: number;
+}
+
+// Define the Dragon Orchestra agents
+const AGENT_REGISTRY: Record<AgentType, AgentCapability> = {
+[AgentType.CREATIVE]: {
+type: AgentType.CREATIVE,
+description: 'Handles creative content generation, storytelling, and marketing copy',
+inputSchema: 'ContentGenerationInput',
+outputSchema: 'CreativeOutput',
+maxTokens: 2000,
+averageLatency: 3000
+},
+[AgentType.ANALYSIS]: {
+type: AgentType.ANALYSIS,
+description: 'Performs data analysis, pattern recognition, and insights generation',
+inputSchema: 'AnalysisInput',
+outputSchema: 'AnalysisOutput',
+maxTokens: 1500,
+averageLatency: 5000
+},
+[AgentType.CODE]: {
+type: AgentType.CODE,
+description: 'Generates code, technical documentation, and API responses',
+inputSchema: 'CodeGenerationInput',
+outputSchema: 'CodeOutput',
+maxTokens: 3000,
+averageLatency: 4000
+},
+[AgentType.KNOWLEDGE]: {
+type: AgentType.KNOWLEDGE,
+description: 'Retrieves information, answers questions, and provides research',
+inputSchema: 'KnowledgeQuery',
+outputSchema: 'KnowledgeOutput',
+maxTokens: 1000,
+averageLatency: 2000
+},
+[AgentType.GUARDIAN]: {
+type: AgentType.GUARDIAN,
+description: 'Content moderation, safety checks, and compliance validation',
+inputSchema: 'ModerationInput',
+outputSchema: 'ModerationOutput',
+maxTokens: 500,
+averageLatency: 1000
+}
+};
+</example>
+
+<example>
+// Good: Central orchestrator with intelligent routing
+class DragonOrchestrator {
+  private agents: Map<AgentType, MindStudioAgentWrapper>;
+  private routingRules: RoutingRule[];
+  private workflowEngine: WorkflowEngine;
+  private logger: Logger;
+
+constructor(
+agents: Map<AgentType, MindStudioAgentWrapper>,
+logger: Logger
+) {
+this.agents = agents;
+this.logger = logger;
+this.workflowEngine = new WorkflowEngine(agents, logger);
+this.initializeRoutingRules();
+}
+
+async orchestrateRequest(
+request: OrchestrationRequest
+): Promise<OrchestrationResult> {
+const workflowId = generateWorkflowId();
+const context: WorkflowContext = {
+workflowId,
+organizationId: request.organizationId,
+userId: request.userId,
+startTime: new Date(),
+steps: []
+};
+
+    try {
+      // Route request to appropriate workflow
+      const workflow = this.determineWorkflow(request);
+
+      this.logger.info('Starting orchestrated workflow', {
+        workflowId,
+        workflowType: workflow.type,
+        organizationId: request.organizationId
+      });
+
+      // Execute workflow with proper error handling
+      const result = await this.workflowEngine.execute(workflow, request, context);
+
+      this.logger.info('Workflow completed successfully', {
+        workflowId,
+        duration: Date.now() - context.startTime.getTime(),
+        stepsCompleted: context.steps.length
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.error('Workflow failed', {
+        workflowId,
+        error: error.message,
+        context
+      });
+
+      throw new OrchestrationError(
+        `Workflow ${workflowId} failed: ${error.message}`,
+        context
+      );
+    }
+
+}
+
+private determineWorkflow(request: OrchestrationRequest): Workflow {
+// Intelligent routing based on request characteristics
+if (request.type === 'content_creation') {
+return new ContentCreationWorkflow();
+} else if (request.type === 'data_analysis') {
+return new DataAnalysisWorkflow();
+} else if (request.type === 'code_assistance') {
+return new CodeAssistanceWorkflow();
+} else if (request.type === 'research') {
+return new ResearchWorkflow();
+} else {
+return new DefaultWorkflow();
+}
+}
+}
+</example>
+
+<example>
+// Good: Multi-step workflow with proper coordination
+class ContentCreationWorkflow implements Workflow {
+  type = 'content_creation';
+
+async execute(
+request: OrchestrationRequest,
+context: WorkflowContext,
+agents: Map<AgentType, MindStudioAgentWrapper>
+): Promise<OrchestrationResult> {
+const steps: WorkflowStep[] = [];
+
+    try {
+      // Step 1: Guardian Dragon - Content safety check
+      const safetyCheck = await this.executeStep(
+        'safety_check',
+        agents.get(AgentType.GUARDIAN)!,
+        {
+          content: request.input.prompt,
+          organizationId: request.organizationId
+        },
+        context
+      );
+
+      if (!safetyCheck.approved) {
+        throw new WorkflowError('Content failed safety check', safetyCheck.reason);
+      }
+
+      steps.push({
+        stepId: 'safety_check',
+        agentType: AgentType.GUARDIAN,
+        status: 'completed',
+        output: safetyCheck
+      });
+
+      // Step 2: Knowledge Dragon - Research and context
+      const research = await this.executeStep(
+        'research',
+        agents.get(AgentType.KNOWLEDGE)!,
+        {
+          query: request.input.topic,
+          depth: 'moderate',
+          organizationId: request.organizationId
+        },
+        context
+      );
+
+      steps.push({
+        stepId: 'research',
+        agentType: AgentType.KNOWLEDGE,
+        status: 'completed',
+        output: research
+      });
+
+      // Step 3: Creative Dragon - Content generation
+      const content = await this.executeStep(
+        'content_generation',
+        agents.get(AgentType.CREATIVE)!,
+        {
+          prompt: request.input.prompt,
+          context: research.summary,
+          style: request.input.style || 'professional',
+          organizationId: request.organizationId
+        },
+        context
+      );
+
+      steps.push({
+        stepId: 'content_generation',
+        agentType: AgentType.CREATIVE,
+        status: 'completed',
+        output: content
+      });
+
+      // Step 4: Analysis Dragon - Quality assessment
+      const qualityCheck = await this.executeStep(
+        'quality_assessment',
+        agents.get(AgentType.ANALYSIS)!,
+        {
+          content: content.result,
+          criteria: ['clarity', 'accuracy', 'engagement'],
+          organizationId: request.organizationId
+        },
+        context
+      );
+
+      steps.push({
+        stepId: 'quality_assessment',
+        agentType: AgentType.ANALYSIS,
+        status: 'completed',
+        output: qualityCheck
+      });
+
+      return {
+        success: true,
+        workflowId: context.workflowId,
+        result: {
+          content: content.result,
+          qualityScore: qualityCheck.score,
+          research: research.summary,
+          metadata: {
+            steps: steps.length,
+            totalCost: steps.reduce((sum, step) => sum + (step.output.billingCost || 0), 0),
+            processingTime: Date.now() - context.startTime.getTime()
+          }
+        },
+        steps
+      };
+    } catch (error) {
+      // Mark failed step
+      const failedStep = steps[steps.length - 1];
+      if (failedStep) {
+        failedStep.status = 'failed';
+        failedStep.error = error.message;
+      }
+
+      throw error;
+    }
+
+}
+
+private async executeStep(
+stepId: string,
+agent: MindStudioAgentWrapper,
+input: any,
+context: WorkflowContext
+): Promise<any> {
+const stepStart = Date.now();
+
+    try {
+      const result = await agent.execute(input);
+
+      context.steps.push({
+        stepId,
+        agentType: agent.type,
+        status: 'completed',
+        startTime: new Date(stepStart),
+        endTime: new Date(),
+        input,
+        output: result
+      });
+
+      return result;
+    } catch (error) {
+      context.steps.push({
+        stepId,
+        agentType: agent.type,
+        status: 'failed',
+        startTime: new Date(stepStart),
+        endTime: new Date(),
+        input,
+        error: error.message
+      });
+
+      throw error;
+    }
+
+}
+}
+</example>
+
+<example>
+// Good: Async workflow with status tracking
+class AsyncWorkflowManager {
+  private activeWorkflows = new Map<string, WorkflowStatus>();
+  private eventEmitter = new EventEmitter();
+
+async startAsyncWorkflow(
+request: OrchestrationRequest
+): Promise<{ workflowId: string; statusUrl: string }> {
+const workflowId = generateWorkflowId();
+
+    // Initialize workflow status
+    this.activeWorkflows.set(workflowId, {
+      id: workflowId,
+      status: 'started',
+      progress: 0,
+      steps: [],
+      startTime: new Date(),
+      organizationId: request.organizationId
+    });
+
+    // Start workflow in background
+    this.executeAsyncWorkflow(workflowId, request).catch(error => {
+      this.updateWorkflowStatus(workflowId, {
+        status: 'failed',
+        error: error.message
+      });
+    });
+
+    return {
+      workflowId,
+      statusUrl: `/api/workflows/${workflowId}/status`
+    };
+
+}
+
+private async executeAsyncWorkflow(
+workflowId: string,
+request: OrchestrationRequest
+): Promise<void> {
+const orchestrator = new DragonOrchestrator(this.agents, this.logger);
+
+    try {
+      // Update progress as workflow executes
+      this.updateWorkflowStatus(workflowId, {
+        status: 'processing',
+        progress: 10
+      });
+
+      const result = await orchestrator.orchestrateRequest(request);
+
+      this.updateWorkflowStatus(workflowId, {
+        status: 'completed',
+        progress: 100,
+        result,
+        endTime: new Date()
+      });
+
+      // Notify completion via webhook if configured
+      if (request.callbackUrl) {
+        await this.notifyCompletion(request.callbackUrl, workflowId, result);
+      }
+    } catch (error) {
+      this.updateWorkflowStatus(workflowId, {
+        status: 'failed',
+        progress: this.activeWorkflows.get(workflowId)?.progress || 0,
+        error: error.message,
+        endTime: new Date()
+      });
+    }
+
+}
+
+getWorkflowStatus(workflowId: string): WorkflowStatus | null {
+return this.activeWorkflows.get(workflowId) || null;
+}
+
+private updateWorkflowStatus(workflowId: string, update: Partial<WorkflowStatus>): void {
+const current = this.activeWorkflows.get(workflowId);
+if (current) {
+const updated = { ...current, ...update };
+this.activeWorkflows.set(workflowId, updated);
+
+      // Emit status update event
+      this.eventEmitter.emit('workflow:status', updated);
+    }
+
+}
+}
+</example>
+
+<example>
+// Good: Parallel agent execution for independent tasks
+class ParallelOrchestrator {
+  async executeParallelAnalysis(
+    request: ParallelAnalysisRequest
+  ): Promise<ParallelAnalysisResult> {
+    const tasks = [
+      // Independent tasks that can run in parallel
+      this.agents.get(AgentType.ANALYSIS)!.execute({
+        type: 'sentiment_analysis',
+        content: request.content,
+        organizationId: request.organizationId
+      }),
+      this.agents.get(AgentType.KNOWLEDGE)!.execute({
+        type: 'fact_check',
+        content: request.content,
+        organizationId: request.organizationId
+      }),
+      this.agents.get(AgentType.GUARDIAN)!.execute({
+        type: 'content_moderation',
+        content: request.content,
+        organizationId: request.organizationId
+      })
+    ];
+
+    try {
+      // Execute all tasks in parallel
+      const [sentimentResult, factCheckResult, moderationResult] = await Promise.all(tasks);
+
+      return {
+        sentiment: sentimentResult,
+        factCheck: factCheckResult,
+        moderation: moderationResult,
+        metadata: {
+          executionTime: Date.now() - request.startTime,
+          totalCost: [sentimentResult, factCheckResult, moderationResult]
+            .reduce((sum, result) => sum + (result.billingCost || 0), 0)
+        }
+      };
+    } catch (error) {
+      // Handle partial failures
+      const results = await Promise.allSettled(tasks);
+
+      const successful = results
+        .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled')
+        .map(result => result.value);
+
+      const failed = results
+        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+        .map(result => result.reason);
+
+      throw new PartialFailureError('Some parallel tasks failed', {
+        successful,
+        failed
+      });
+    }
+
+}
+}
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Agents with overlapping responsibilities
+const confusedAgents = {
+  // Both agents handle content generation - creates conflicts
+  contentAgent: 'generates marketing content',
+  creativeAgent: 'generates creative marketing content', // Overlap!
+  
+  // Both agents do analysis - unclear which to use
+  analyticsAgent: 'analyzes data patterns',
+  dataAgent: 'analyzes data and generates insights' // Overlap!
+};
+
+// ❌ AVOID: No central coordination
+async function chaosOrchestration(request: any) {
+// Random agent selection without coordination
+const agents = [agent1, agent2, agent3];
+const randomAgent = agents[Math.floor(Math.random() * agents.length)];
+return await randomAgent.process(request);
+}
+
+// ❌ AVOID: Shared mutable state between agents
+let sharedState = { data: null, processing: false };
+
+async function badOrchestration() {
+// Agent 1 modifies shared state
+sharedState.processing = true;
+const result1 = await agent1.process(sharedState);
+sharedState.data = result1;
+
+// Agent 2 also modifies same shared state - race conditions!
+const result2 = await agent2.process(sharedState);
+sharedState.processing = false;
+
+return result2;
+}
+
+// ❌ AVOID: No error handling in multi-step workflows
+async function fragileWorkflow() {
+const step1 = await agent1.process(input);
+const step2 = await agent2.process(step1); // Fails if step1 fails
+const step3 = await agent3.process(step2); // Fails if step2 fails
+return step3; // No recovery or partial results
+}
+
+// ❌ AVOID: Missing organization context in orchestration
+async function unsafeOrchestration(userInput: any) {
+// No organization isolation - potential data leakage
+const result1 = await creativeAgent.generate(userInput);
+const result2 = await analysisAgent.analyze(result1);
+return result2;
+}
+</example>
+
+## Orchestration Patterns
+
+### Sequential Workflow Pattern
+
+```typescript
+// For workflows where each step depends on the previous
+class SequentialWorkflow {
+  async execute(steps: WorkflowStep[]): Promise<any> {
+    let result = null;
+
+    for (const step of steps) {
+      result = await this.executeStep(step, result);
+    }
+
+    return result;
+  }
+}
+```
+
+### Parallel Execution Pattern
+
+```typescript
+// For independent tasks that can run simultaneously
+class ParallelWorkflow {
+  async execute(tasks: Task[]): Promise<any[]> {
+    return await Promise.all(tasks.map((task) => this.executeTask(task)));
+  }
+}
+```
+
+### Conditional Routing Pattern
+
+```typescript
+// For workflows that branch based on conditions
+class ConditionalWorkflow {
+  async execute(request: any): Promise<any> {
+    const condition = await this.evaluateCondition(request);
+
+    if (condition.requiresCreative) {
+      return await this.creativeWorkflow.execute(request);
+    } else if (condition.requiresAnalysis) {
+      return await this.analysisWorkflow.execute(request);
+    } else {
+      return await this.defaultWorkflow.execute(request);
+    }
+  }
+}
+```
+
+### Compensation Pattern
+
+```typescript
+// For handling failures in multi-step workflows
+class CompensatingWorkflow {
+  async execute(steps: CompensatingStep[]): Promise<any> {
+    const completedSteps: CompensatingStep[] = [];
+
+    try {
+      for (const step of steps) {
+        await this.executeStep(step);
+        completedSteps.push(step);
+      }
+    } catch (error) {
+      // Compensate completed steps in reverse order
+      for (const step of completedSteps.reverse()) {
+        try {
+          await step.compensate();
+        } catch (compensationError) {
+          console.error("Compensation failed", { step, compensationError });
+        }
+      }
+      throw error;
+    }
+  }
+}
+```
+
+## Performance Optimization
+
+- Implement caching for frequently used agent combinations
+- Use connection pooling for MindStudio API calls
+- Implement request batching where appropriate
+- Monitor and optimize agent selection algorithms
+- Use async patterns for long-running orchestrations
+
+## Monitoring and Observability
+
+- Track workflow success rates and performance metrics
+- Monitor individual agent performance within orchestrations
+- Implement distributed tracing for multi-agent workflows
+- Set up alerts for orchestration failures and performance degradation
+- Maintain dashboards for orchestration health and usage patterns
+
+## Integration with Other Rules
+
+- Builds on [117-mindstudio-agent-integration.mdc](mdc:117-mindstudio-agent-integration.mdc) for basic agent setup
+- Uses [118-mindstudio-type-safety.mdc](mdc:118-mindstudio-type-safety.mdc) for type-safe orchestration
+- Requires [119-mindstudio-error-handling.mdc](mdc:119-mindstudio-error-handling.mdc) for resilient workflows
+- Supports [025-multi-tenancy.mdc](mdc:025-multi-tenancy.mdc) for organization isolation
+- Complements [060-api-standards.mdc](mdc:060-api-standards.mdc) for consistent API patterns
+
+## See Also
+
+### Related MindStudio Rules (Complete Domain)
+
+- @115-mindstudio-integration.mdc - Core MindStudio API integration
+- @117-mindstudio-agent-integration.mdc - **CRITICAL:** Secure agent integration patterns
+- @118-mindstudio-type-safety.mdc - **CRITICAL:** Type safety with `npx mindstudio sync`
+- @119-mindstudio-error-handling.mdc - **CRITICAL:** Error handling and retry logic
+- @121-mindstudio-testing.mdc - **CRITICAL:** Testing AI agent integrations
+
+### Related Domain Rules
+
+- @025-multi-tenancy.mdc - Organization isolation patterns
+- @060-api-standards.mdc - API design standards
+- @069-database-resilience-patterns.mdc - Resilience patterns
+- @221-application-monitoring.mdc - Monitoring orchestrations
+
+### Tools & Documentation
+
+- **`.cursor/docs/ai-workflows.md`** - AI orchestration workflows
+
+### Comprehensive Guides
+
+- **`guides/AI-Agent-Orchestration-Guide.md`** ⭐ **Essential** - "Dragon Orchestra" methodology
+- **`guides/MindStudio-Integration-Complete-Guide.md`** - Complete integration guide
+
+### Quick Start - "Dragon Orchestra" Pattern
+
+```typescript
+// 1. Define specialized agents
+const agents = {
+  analyzer: client.workers.DataAnalyzer,
+  generator: client.workers.ContentGenerator,
+  reviewer: client.workers.QualityReviewer,
+};
+
+// 2. Sequential orchestration
+const analysis = await agents.analyzer.analyze({ data });
+const content = await agents.generator.generate({ analysis });
+const review = await agents.reviewer.review({ content });
+
+// 3. Return coordinated result
+return { content, review, metadata: { analysis } };
+```

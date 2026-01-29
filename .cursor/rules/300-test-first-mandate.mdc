@@ -1,0 +1,425 @@
+---
+description: 
+globs: ""
+alwaysApply: false
+---
+___
+description: Use when writing tests to ensure complete coverage of success, failure, and edge cases before implementing features
+globs: "**/*.test.{tsx,ts,jsx,js}"
+___
+
+# Test-First Mandate
+
+## Context
+- AgentMinder requires a test-first development approach
+- Every code block must include Jest tests before implementation
+- Tests must cover success scenarios, failure cases, and edge conditions
+- This approach keeps "vibe coding" in check and ensures UX components work as expected
+
+## Requirements
+
+### Test Coverage Expectations
+- Unit tests for individual functions and components
+- Integration tests for component interactions
+- All public methods and functions must have test coverage
+- UI components must have render and interaction tests
+
+### Success, Failure, and Edge Cases
+- Test the happy path (successful operations)
+- Test all error scenarios and exception handling
+- Test edge cases like empty inputs, large datasets, and boundary conditions
+- Test accessibility requirements for UI components
+
+### Test Organization
+- Group tests in logical describe blocks
+- Use clear test descriptions that explain what is being tested
+- Mock external dependencies appropriately
+- Set up and tear down test data properly
+
+## Examples
+
+<example>
+// Good: Complete component test with success, failure, and edge cases
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { FeatureToggle } from '@/components/FeatureToggle';
+import { useToast } from '@/components/ui/use-toast';
+
+// Mock the toast module
+jest.mock('@/components/ui/use-toast', () => ({
+  useToast: jest.fn()
+}));
+
+describe('FeatureToggle Component', () => {
+  const mockOnToggle = jest.fn();
+  const mockToast = { toast: jest.fn() };
+  
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (useToast as jest.Mock).mockReturnValue(mockToast);
+  });
+
+  it('renders correctly with initial state', () => {
+    render(
+      <FeatureToggle 
+        featureId="test-feature" 
+        initialState={false} 
+        onToggle={mockOnToggle} 
+      />
+    );
+    
+    expect(screen.getByRole('button')).toHaveTextContent('Disabled');
+  });
+
+  it('toggles state and calls onToggle when clicked', async () => {
+    mockOnToggle.mockResolvedValue(undefined);
+    
+    render(
+      <FeatureToggle 
+        featureId="test-feature" 
+        initialState={false} 
+        onToggle={mockOnToggle} 
+      />
+    );
+    
+    // Click the toggle button
+    await userEvent.click(screen.getByRole('button'));
+    
+    // Button should show loading state
+    expect(screen.getByRole('button')).toHaveTextContent('Updating...');
+    
+    // Wait for the async operation to complete
+    await waitFor(() => {
+      expect(mockOnToggle).toHaveBeenCalledWith('test-feature', true);
+      expect(screen.getByRole('button')).toHaveTextContent('Enabled');
+    });
+    
+    // Verify toast was shown
+    expect(mockToast.toast).toHaveBeenCalledWith({
+      title: "Feature updated",
+      description: "Feature test-feature is now enabled."
+    });
+  });
+
+  it('handles errors appropriately', async () => {
+    // Mock a failed toggle operation
+    mockOnToggle.mockRejectedValue(new Error('Failed to update'));
+    
+    render(
+      <FeatureToggle 
+        featureId="test-feature" 
+        initialState={true} 
+        onToggle={mockOnToggle} 
+      />
+    );
+    
+    await userEvent.click(screen.getByRole('button'));
+    
+    // Wait for the async operation to fail
+    await waitFor(() => {
+      expect(mockOnToggle).toHaveBeenCalledWith('test-feature', false);
+      // State should not change on error
+      expect(screen.getByRole('button')).toHaveTextContent('Enabled');
+    });
+    
+    // Verify error toast was shown
+    expect(mockToast.toast).toHaveBeenCalledWith({
+      title: "Error updating feature",
+      description: "Could not update the feature. Please try again.",
+      variant: "destructive"
+    });
+  });
+
+  it('handles edge case: multiple rapid clicks', async () => {
+    mockOnToggle.mockResolvedValue(undefined);
+    
+    render(
+      <FeatureToggle 
+        featureId="test-feature" 
+        initialState={false} 
+        onToggle={mockOnToggle} 
+      />
+    );
+    
+    // Click multiple times rapidly
+    await userEvent.click(screen.getByRole('button'));
+    await userEvent.click(screen.getByRole('button'));
+    await userEvent.click(screen.getByRole('button'));
+    
+    // Should be disabled during loading
+    expect(screen.getByRole('button')).toBeDisabled();
+    
+    // Only one call should be made
+    expect(mockOnToggle).toHaveBeenCalledTimes(1);
+  });
+});
+</example>
+
+<example type="invalid">
+// Bad: Incomplete test with only the happy path
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { FeatureToggle } from '@/components/FeatureToggle';
+
+describe('FeatureToggle', () => {
+  it('renders with initial state', () => {
+    render(
+      <FeatureToggle 
+        featureId="test-feature" 
+        initialState={false} 
+        onToggle={() => Promise.resolve()} 
+      />
+    );
+    
+    expect(screen.getByRole('button')).toHaveTextContent('Disabled');
+  });
+
+  it('changes when clicked', async () => {
+    render(
+      <FeatureToggle 
+        featureId="test-feature" 
+        initialState={false} 
+        onToggle={() => Promise.resolve()} 
+      />
+    );
+    
+    await userEvent.click(screen.getByRole('button'));
+    
+    // No assertions about loading state
+    // No waiting for async operation
+    // No verification of onToggle being called with correct params
+    // No error handling tested
+    
+    expect(screen.getByRole('button')).toHaveTextContent('Enabled');
+  });
+});
+</example>
+
+### Test Implementation Checklist
+- ✅ Test component rendering
+- ✅ Test user interactions
+- ✅ Test all state changes
+- ✅ Test API calls and async operations
+- ✅ Test error scenarios
+- ✅ Test edge cases
+- ✅ Test accessibility requirements
+- ✅ Test performance considerations (if applicable)
+
+## Mock Strategies
+
+### External Dependencies
+- Mock API calls and external services
+- Use Jest mock functions for callbacks and event handlers
+- Create test doubles for complex dependencies
+- Use msw for mocking network requests
+
+```typescript
+// Good: Mock API service
+jest.mock('@/services/api', () => ({
+  fetchFeatures: jest.fn(),
+  updateFeature: jest.fn()
+}));
+
+import { fetchFeatures, updateFeature } from '@/services/api';
+
+describe('Feature Management', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+  
+  it('loads and displays features', async () => {
+    // Mock API response
+    (fetchFeatures as jest.Mock).mockResolvedValue([
+      { id: 'feature1', enabled: true },
+      { id: 'feature2', enabled: false }
+    ]);
+    
+    render(<FeatureManagement />);
+    
+    // Verify loading state
+    expect(screen.getByText('Loading features...')).toBeInTheDocument();
+    
+    // Verify features are displayed after loading
+    await waitFor(() => {
+      expect(screen.getByText('feature1')).toBeInTheDocument();
+      expect(screen.getByText('feature2')).toBeInTheDocument();
+    });
+    
+    // Verify API was called correctly
+    expect(fetchFeatures).toHaveBeenCalledTimes(1);
+  });
+});
+```
+
+### Context and State
+- Mock React context providers
+- Create test fixtures for different state scenarios
+- Use wrapper components to provide test context
+- Reset state between tests
+
+```typescript
+// Good: Mock context providers
+const mockAuthContext = {
+  user: { id: 'user1', role: 'admin' },
+  isAuthenticated: true,
+  login: jest.fn(),
+  logout: jest.fn()
+};
+
+describe('Protected Feature', () => {
+  it('renders for authenticated users', () => {
+    render(
+      <AuthContext.Provider value={mockAuthContext}>
+        <ProtectedFeature />
+      </AuthContext.Provider>
+    );
+    
+    expect(screen.getByText('Protected Content')).toBeInTheDocument();
+  });
+  
+  it('shows login prompt for unauthenticated users', () => {
+    render(
+      <AuthContext.Provider value={{ ...mockAuthContext, isAuthenticated: false }}>
+        <ProtectedFeature />
+      </AuthContext.Provider>
+    );
+    
+    expect(screen.getByText('Please log in')).toBeInTheDocument();
+    expect(screen.queryByText('Protected Content')).not.toBeInTheDocument();
+  });
+});
+```
+
+## Test Data Management
+
+### Test Fixtures
+- Create reusable test fixtures
+- Organize fixtures by domain area
+- Include variations for different test scenarios
+- Keep fixtures maintainable and focused
+
+```typescript
+// Good: Organized test fixtures
+// fixtures/users.ts
+export const testUsers = {
+  admin: {
+    id: 'user1',
+    name: 'Admin User',
+    email: 'admin@example.com',
+    role: 'admin',
+    permissions: ['read:all', 'write:all', 'delete:all']
+  },
+  regularUser: {
+    id: 'user2',
+    name: 'Regular User',
+    email: 'user@example.com',
+    role: 'user',
+    permissions: ['read:own', 'write:own']
+  },
+  guest: {
+    id: 'guest1',
+    name: 'Guest User',
+    email: 'guest@example.com',
+    role: 'guest',
+    permissions: ['read:public']
+  }
+};
+
+// fixtures/features.ts
+export const testFeatures = {
+  allEnabled: [
+    { id: 'feature1', name: 'Feature 1', enabled: true },
+    { id: 'feature2', name: 'Feature 2', enabled: true }
+  ],
+  allDisabled: [
+    { id: 'feature1', name: 'Feature 1', enabled: false },
+    { id: 'feature2', name: 'Feature 2', enabled: false }
+  ],
+  mixed: [
+    { id: 'feature1', name: 'Feature 1', enabled: true },
+    { id: 'feature2', name: 'Feature 2', enabled: false }
+  ]
+};
+```
+
+### Test Helpers
+- Create helper functions for common test operations
+- Build utilities to generate test data
+- Use factories for complex object creation
+- Maintain consistency across similar tests
+
+```typescript
+// Good: Test helper functions
+// test-utils.ts
+import { render, RenderOptions } from '@testing-library/react';
+import { AuthContext } from '@/contexts/AuthContext';
+import { FeatureContext } from '@/contexts/FeatureContext';
+import { testUsers } from './fixtures/users';
+import { testFeatures } from './fixtures/features';
+
+// Custom renderer with providers
+export function renderWithProviders(
+  ui: React.ReactElement,
+  {
+    user = testUsers.regularUser,
+    features = testFeatures.mixed,
+    ...renderOptions
+  } = {}
+) {
+  function Wrapper({ children }: { children: React.ReactNode }) {
+    return (
+      <AuthContext.Provider value={{ user, isAuthenticated: !!user }}>
+        <FeatureContext.Provider value={{ features }}>
+          {children}
+        </FeatureContext.Provider>
+      </AuthContext.Provider>
+    );
+  }
+  
+  return render(ui, { wrapper: Wrapper, ...renderOptions });
+}
+```
+
+## Test Implementation Workflow
+
+1. Write tests for function/component requirements
+2. Include tests for success, failure, and edge cases
+3. Run tests and verify they fail (red)
+4. Implement the minimum code needed to pass tests (green)
+5. Refactor while keeping tests passing
+6. Add tests for additional requirements or edge cases
+7. Repeat the process
+
+This workflow ensures that all code is covered by tests and meets requirements before being deployed.
+
+## Common Testing Pitfalls
+
+1. **Testing implementation details** rather than behavior
+2. **Brittle tests** that break with minor code changes
+3. **Missing edge cases** in test coverage
+4. **Over-mocking** dependencies
+5. **Missing async behavior** tests
+6. **Test isolation problems** (tests affecting each other)
+7. **Poor test names** that don't describe what's being tested 
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Test-first workflows
+- **`.cursor/docs/tools-guide.md`** - Testing automation
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Inspect models BEFORE writing tests
+- **`.cursor/tools/check-schema-changes.sh`** - Validate schema
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (schema-first!)
+- @300-testing-standards.mdc - General testing standards
+- @375-api-test-first-time-right.mdc - API testing (95% first-run success!)
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Quick Start
+1. **Schema First:** `.cursor/tools/inspect-model.sh YourModel` (ALWAYS FIRST!)
+2. **Write Test:** Follow @375-api-test-first-time-right.mdc
+3. **Then Code:** Implement to pass the test

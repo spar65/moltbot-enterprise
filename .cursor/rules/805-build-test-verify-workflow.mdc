@@ -1,0 +1,763 @@
+---
+description: ALWAYS follow the Build-Test-Verify workflow when developing features to ensure continuous quality and prevent issues from accumulating
+globs: "**/*.{ts,tsx,js,jsx,py,go,java}"
+---
+
+# Build-Test-Verify Workflow
+
+**Priority**: P0 (REQUIRED - Core Workflow)  
+**Domain**: Workflow Standards (800-series)  
+**Applies To**: All feature development, bug fixes, refactoring
+
+---
+
+## 🎯 **Why This Rule Exists**
+
+### **The Problem We Solve**:
+Without continuous verification, issues accumulate and are discovered late:
+- ❌ Tests written at end of week → bugs found late
+- ❌ Build checked only at deployment → integration issues surface late
+- ❌ Type errors ignored during development → break CI/CD
+- ❌ Issues pile up → stressful debugging sessions
+
+### **The Solution**:
+**Continuous Build-Test-Verify** workflow catches issues immediately:
+- ✅ Test first → Design validated before coding
+- ✅ Build continuously → Integration issues caught early
+- ✅ Verify immediately → Bugs fixed while fresh in memory
+- ✅ Commit with confidence → Clean, working code always
+
+---
+
+## 🔄 **The Core Workflow**
+
+### **MANDATORY Cycle for EVERY Change**:
+
+```
+For EVERY feature, component, or fix:
+
+1. 📝 WRITE TEST FIRST
+   ↓
+2. 🔨 BUILD
+   npm run build
+   ↓
+3. ✅ RUN TEST
+   npm run test -- [your-test-file]
+   ↓
+4. 🔧 FIX (if needed)
+   Fix failing tests or build errors
+   ↓
+5. 🔄 RE-BUILD
+   npm run build
+   ↓
+6. ✔️ VERIFY
+   All tests pass, build succeeds
+   ↓
+7. 💾 COMMIT
+   git commit (with passing tests & build)
+```
+
+---
+
+## 📋 **Requirements**
+
+### **REQUIRED Before ANY Commit**:
+
+**Test Requirements**:
+- ✅ **MUST** write tests before implementation
+- ✅ **MUST** run tests before committing
+- ✅ **MUST** have all tests passing
+- ✅ **MUST** achieve minimum coverage (per project standards)
+
+**Build Requirements**:
+- ✅ **MUST** run `npm run build` before committing
+- ✅ **MUST** have build succeed with zero errors
+- ✅ **MUST** fix all TypeScript errors
+- ✅ **MUST** fix all linting errors
+
+**Verification Requirements**:
+- ✅ **MUST** manually test in dev mode (`npm run dev`)
+- ✅ **MUST** verify feature works as expected
+- ✅ **MUST** check no regressions introduced
+- ✅ **MUST** verify in browser/environment if UI change
+
+---
+
+## 💻 **Daily Development Workflow**
+
+### **Morning: Starting Work**
+
+```bash
+# 1. Pull latest changes
+git pull origin [branch]
+
+# 2. Clean install (if dependencies changed)
+npm install
+
+# 3. Verify baseline
+npm run build
+npm test
+
+# 4. Start dev server
+npm run dev
+
+# ✅ Ready to work with clean baseline
+```
+
+---
+
+### **During Development: Feature Implementation**
+
+#### **Step 1: Write Test FIRST**
+
+```typescript
+// Example: Adding new Dashboard component
+// File: __tests__/unit/ui/dashboard-stats.test.tsx
+
+describe('DashboardStats', () => {
+  it('renders all 4 stat cards', () => {
+    const { container } = render(<DashboardStats stats={mockStats} />);
+    const cards = container.querySelectorAll('[class*="card"]');
+    expect(cards.length).toBe(4);
+  });
+  
+  it('displays total tests count', () => {
+    render(<DashboardStats stats={mockStats} />);
+    expect(screen.getByText('45')).toBeInTheDocument();
+  });
+});
+```
+
+**Checkpoint 1**:
+```bash
+# Verify test file compiles
+npx tsc --noEmit __tests__/unit/ui/dashboard-stats.test.tsx
+```
+
+---
+
+#### **Step 2: Build to Verify Test Setup**
+
+```bash
+# Build entire project
+npm run build
+
+# Expected: Build should succeed (test exists but component doesn't yet)
+# If build fails: Fix TypeScript/import errors in test file
+```
+
+---
+
+#### **Step 3: Implement Component**
+
+```typescript
+// File: components/dashboard/DashboardStats.tsx
+
+export function DashboardStats({ stats }: DashboardStatsProps) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <StatCard title="Total Tests" value={stats.totalTests} />
+      <StatCard title="Average Score" value={stats.averageScore} />
+      <StatCard title="Recent Activity" value={stats.recentActivity} />
+      <StatCard title="Trend" value={stats.trend} />
+    </div>
+  );
+}
+```
+
+**Checkpoint 2**:
+```bash
+# Build with new component
+npm run build
+
+# Expected: Build succeeds
+# If fails: Fix TypeScript errors immediately
+```
+
+---
+
+#### **Step 4: Run Tests**
+
+```bash
+# Run specific test
+npm run test:unit -- dashboard-stats.test.tsx
+
+# Expected: Tests pass
+# If fails: Debug and fix immediately (code is fresh in memory)
+```
+
+---
+
+#### **Step 5: Verify in Dev Mode**
+
+```bash
+# If not already running
+npm run dev
+
+# Manual verification:
+# 1. Navigate to dashboard in browser
+# 2. Verify component renders correctly
+# 3. Check responsive behavior
+# 4. Test interactions
+```
+
+---
+
+#### **Step 6: Final Verification Before Commit**
+
+```bash
+# 1. Run all affected tests
+npm run test:unit -- dashboard
+
+# 2. Full build
+npm run build
+
+# 3. Type check
+npm run type-check
+
+# 4. Lint
+npm run lint
+
+# 5. One final dev test
+npm run dev
+# Quick smoke test in browser
+
+# ✅ All passing? Ready to commit!
+```
+
+---
+
+#### **Step 7: Commit**
+
+```bash
+# Stage changes
+git add components/dashboard/DashboardStats.tsx
+git add __tests__/unit/ui/dashboard-stats.test.tsx
+
+# Commit with descriptive message
+git commit -m "feat(dashboard): add DashboardStats component
+
+- Displays 4 stat cards (total tests, avg score, activity, trend)
+- Responsive grid layout
+- Fully tested with React Testing Library
+- Build verified, all tests passing"
+
+# ✅ Clean commit with working code!
+```
+
+---
+
+## 🚨 **Quality Gates - DO NOT PROCEED Without**
+
+### **Gate 1: After Writing Test**
+```bash
+✅ Test file compiles (npx tsc --noEmit)
+✅ Test imports are correct
+✅ Mock data is properly typed
+```
+
+### **Gate 2: After Implementation**
+```bash
+✅ npm run build succeeds
+✅ No TypeScript errors
+✅ No linting errors
+✅ Component renders in dev mode
+```
+
+### **Gate 3: After Testing**
+```bash
+✅ All new tests passing
+✅ No existing tests broken (regression check)
+✅ Coverage meets minimum threshold
+✅ Edge cases tested
+```
+
+### **Gate 4: Before Commit**
+```bash
+✅ Full build succeeds
+✅ All tests passing
+✅ Type check passes
+✅ Lint passes
+✅ Manual verification in browser/environment
+```
+
+**STOP**: If ANY quality gate fails, fix immediately before proceeding!
+
+---
+
+## 🔧 **Build Troubleshooting**
+
+### **Common Build Failures & Fixes**:
+
+#### **1. TypeScript Errors**
+
+```bash
+# Error: Property 'X' does not exist on type 'Y'
+# Fix: Check component prop interfaces
+
+# Run type check to see all errors
+npm run type-check
+
+# Fix errors one by one
+# Then rebuild
+npm run build
+```
+
+#### **2. Import Errors**
+
+```bash
+# Error: Cannot find module '@/components/...'
+# Fix: Check tsconfig.json paths configuration
+
+# Verify import path
+cat components/dashboard/DashboardStats.tsx | grep import
+
+# Fix import
+# Then rebuild
+npm run build
+```
+
+#### **3. Missing Dependencies**
+
+```bash
+# Error: Cannot find package 'X'
+# Fix: Install dependency
+
+npm install [package-name]
+npm run build
+```
+
+#### **4. Build Succeeds but Dev Mode Fails**
+
+```bash
+# Check dev server logs
+npm run dev
+
+# Look for runtime errors
+# Fix issues
+# Rebuild
+npm run build
+npm run dev
+```
+
+---
+
+## 📊 **Workflow Examples**
+
+### **Example 1: Adding New Page**
+
+```bash
+# 1. Write test
+touch app/__tests__/unit/pages/settings.test.tsx
+# Write page component tests
+
+# 2. Build (should fail - page doesn't exist yet)
+npm run build
+# Note the expected errors
+
+# 3. Create page
+touch app/(app)/settings/page.tsx
+# Implement page
+
+# 4. Build (should succeed now)
+npm run build
+
+# 5. Run tests
+npm run test:unit -- settings.test.tsx
+
+# 6. Verify in dev
+npm run dev
+# Navigate to /settings
+
+# 7. Final checks
+npm run build && npm run test && npm run type-check && npm run lint
+
+# 8. Commit
+git commit -m "feat(settings): add settings page with profile and API keys tabs"
+```
+
+---
+
+### **Example 2: Fixing Bug**
+
+```bash
+# 1. Write failing test that reproduces bug
+# File: __tests__/unit/ui/dashboard-stats.test.tsx
+it('handles null values gracefully', () => {
+  const statsWithNulls = { totalTests: null, averageScore: null };
+  render(<DashboardStats stats={statsWithNulls} />);
+  expect(screen.getByText('—')).toBeInTheDocument(); // Should show placeholder
+});
+
+# 2. Run test (should fail - proves bug exists)
+npm run test:unit -- dashboard-stats.test.tsx
+# ❌ FAIL: Test fails as expected
+
+# 3. Fix bug in component
+# Update DashboardStats to handle null values
+
+# 4. Build
+npm run build
+# ✅ Build succeeds
+
+# 5. Run test (should pass now)
+npm run test:unit -- dashboard-stats.test.tsx
+# ✅ PASS: Bug fixed!
+
+# 6. Verify in dev
+npm run dev
+# Test with null data manually
+
+# 7. Commit fix
+git commit -m "fix(dashboard): handle null stats values gracefully
+
+- Show '—' placeholder for null values
+- Add null handling test
+- Verified in dev mode"
+```
+
+---
+
+### **Example 3: Refactoring**
+
+```bash
+# 1. Run existing tests (baseline)
+npm run test:unit -- dashboard
+# ✅ All passing (before refactor)
+
+# 2. Refactor code
+# Extract shared logic, rename variables, etc.
+
+# 3. Build after each small refactor
+npm run build
+# Catch TypeScript errors immediately
+
+# 4. Run tests after each change
+npm run test:unit -- dashboard
+# Ensure no regressions
+
+# 5. Final verification
+npm run build && npm run test
+
+# 6. Manual smoke test
+npm run dev
+# Verify behavior unchanged
+
+# 7. Commit
+git commit -m "refactor(dashboard): extract StatCard to shared component
+
+- Move StatCard to components/ui/
+- Update imports in DashboardStats
+- No behavior changes
+- All tests passing"
+```
+
+---
+
+## 🎯 **Integration with Existing Rules**
+
+### **This Rule Implements**:
+
+**Core Principles**:
+- @000-core-guidelines.mdc - Development best practices
+- @003-do-no-harm.mdc - Prevent breaking changes
+
+**Testing Standards**:
+- @300-test-first-mandate.mdc - Write tests before code
+- @380-comprehensive-testing-standards.mdc - Coverage requirements
+- @381-react-testing-library-patterns.mdc - UI testing patterns
+
+**Build & Deployment**:
+- @203-ci-cd-pipeline-standards.mdc - Automation standards
+- @203-production-deployment-safety.mdc - Safety checks
+
+**Quality Standards**:
+- @105-typescript-linter-standards.mdc - Type safety
+- @101-code-review-standards.mdc - Code quality
+
+---
+
+## 📚 **See Also**
+
+### **Related Rules**:
+- @300-test-first-mandate.mdc - Test-first development mandate
+- @380-comprehensive-testing-standards.mdc - Testing standards
+- @203-ci-cd-pipeline-standards.mdc - CI/CD integration
+- @105-typescript-linter-standards.mdc - Type checking standards
+- @101-code-review-standards.mdc - Code review requirements
+- @003-do-no-harm.mdc - Safety and rollback procedures
+- @800-workflow-guidelines.mdc - General workflow guidance
+- @802-git-workflow-standards.mdc - Git commit standards
+
+### **Tools & Scripts**:
+- **`npm run build`** - Production build verification
+- **`npm run test`** - Run all tests
+- **`npm run test:unit`** - Run unit tests
+- **`npm run test:integration`** - Run integration tests
+- **`npm run type-check`** - TypeScript type checking
+- **`npm run lint`** - Code linting
+- **`npm run dev`** - Development server
+
+### **Comprehensive Guides**:
+- **`guides/Testing-Complete-Guide.md`** - Complete testing guide
+- **`guides/Development-Workflow-Guide.md`** - Daily workflow guide
+- **`.cursor/docs/ai-workflows.md`** - AI-assisted workflows
+
+---
+
+## 🚀 **Quick Start**
+
+### **For New Features**:
+```bash
+# 1. Test first
+touch __tests__/unit/[feature].test.tsx
+# Write tests
+
+# 2. Build-test-verify cycle
+npm run build
+npm run test -- [feature]
+npm run dev
+# Manual verification
+
+# 3. Commit
+git commit -m "feat: add [feature]"
+```
+
+### **For Bug Fixes**:
+```bash
+# 1. Write failing test
+# (proves bug exists)
+
+# 2. Fix bug
+# (make test pass)
+
+# 3. Build-test-verify
+npm run build && npm run test
+
+# 4. Commit
+git commit -m "fix: [description]"
+```
+
+### **For Refactoring**:
+```bash
+# 1. Run tests (baseline)
+npm run test
+
+# 2. Refactor incrementally
+# Build after each change
+
+# 3. Verify no regressions
+npm run test
+
+# 4. Commit
+git commit -m "refactor: [description]"
+```
+
+---
+
+## ⚠️ **Anti-Patterns to Avoid**
+
+### **❌ DON'T: Delay Testing**
+```bash
+# WRONG
+# Build all features first, test later
+npm run build  # Day 1
+# ... more features ...
+npm run build  # Day 2
+# ... more features ...
+npm test      # Day 5 ❌ Tests fail, hard to debug
+```
+
+### **✅ DO: Test Continuously**
+```bash
+# RIGHT
+# Test each feature immediately
+npm run build && npm run test  # After each feature ✅
+```
+
+---
+
+### **❌ DON'T: Ignore Build Errors**
+```bash
+# WRONG
+npm run build
+# Build has errors but "it works in dev mode"
+git commit  # ❌ Broken build in CI/CD
+```
+
+### **✅ DO: Fix Build Immediately**
+```bash
+# RIGHT
+npm run build
+# ❌ Errors found
+# Fix errors immediately
+npm run build  # ✅ Build succeeds
+git commit
+```
+
+---
+
+### **❌ DON'T: Skip Manual Verification**
+```bash
+# WRONG
+npm run test  # Tests pass
+git commit    # ❌ Never saw it in browser, visual bug exists
+```
+
+### **✅ DO: Always Verify Manually**
+```bash
+# RIGHT
+npm run test   # Tests pass
+npm run dev    # Verify in browser
+# Looks good!
+git commit     # ✅ Confidence in commit
+```
+
+---
+
+## 🎓 **Learning from Mistakes**
+
+### **Case Study: Week 1 & 2 Implementation**
+
+**What Happened**:
+- Built all components (Week 1 & 2)
+- Tested at end of Week 2
+- Found 79 failing tests
+- Had to fix interfaces and mocks
+
+**What Went Wrong**:
+- Testing delayed until end
+- Build checked only occasionally
+- Issues accumulated
+
+**What Should Have Happened**:
+```bash
+# Day 1: Dashboard page
+npm run build && npm run test -- dashboard
+git commit
+
+# Day 2: Test config form  
+npm run build && npm run test -- test-config
+git commit
+
+# Day 3: Test progress (SSE)
+npm run build && npm run test -- test-progress
+git commit
+
+# Result: No accumulated issues, high confidence
+```
+
+**Lesson Learned**:
+✅ This rule now prevents this pattern from repeating!
+
+---
+
+## 📈 **Success Metrics**
+
+### **Before This Rule**:
+- 79 failing tests discovered late
+- Build errors at deployment
+- Stressful debugging sessions
+- Low confidence in commits
+
+### **After This Rule**:
+- Issues caught immediately (< 5 min after writing)
+- Clean builds always
+- Stress-free development
+- High confidence in every commit
+
+### **Expected Improvements**:
+- 🎯 **95%+ first-time-right** tests (up from ~40%)
+- 🎯 **Zero build surprises** at deployment
+- 🎯 **50% less debugging time** (catch early)
+- 🎯 **100% commit confidence** (verified before commit)
+
+---
+
+## 🔄 **Continuous Improvement**
+
+### **After Each Sprint/Week**:
+1. Review build-test failures
+2. Identify patterns
+3. Update workflow if needed
+4. Share learnings with team
+
+### **Metrics to Track**:
+- Time from code to commit (should be < 30 min for small changes)
+- Build failures per day (should be 0 at commit time)
+- Test failures caught (should catch 95%+ before commit)
+- Regression rate (should be < 1%)
+
+---
+
+## ✅ **Enforcement**
+
+### **Code Review Checklist**:
+- [ ] Tests written before implementation?
+- [ ] Build verified before commit?
+- [ ] All tests passing?
+- [ ] Manual verification done?
+- [ ] No TypeScript errors?
+- [ ] No linting errors?
+
+### **CI/CD Integration**:
+```yaml
+# .github/workflows/ci.yml
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install
+        run: npm install
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npm test
+      - name: Type Check
+        run: npm run type-check
+      - name: Lint
+        run: npm run lint
+```
+
+---
+
+## 🏆 **Summary**
+
+**This Rule Ensures**:
+- ✅ Tests written before code
+- ✅ Builds verified continuously
+- ✅ Issues caught immediately
+- ✅ High quality commits always
+
+**Core Cycle**:
+```
+Write Test → Build → Run Test → Fix → Re-Build → Verify → Commit
+```
+
+**Quality Gates**:
+```
+Before Commit:
+✅ Tests passing
+✅ Build succeeds
+✅ Types valid
+✅ Lint clean
+✅ Manually verified
+```
+
+**Expected Outcome**:
+- 🎯 Zero build surprises
+- 🎯 95%+ test success rate
+- 🎯 Clean commits always
+- 🎯 High development confidence
+
+---
+
+**Priority**: P0 (REQUIRED)  
+**Status**: ✅ Active  
+**Last Updated**: December 8, 2024  
+**Created From**: Week 1 & 2 lessons learned

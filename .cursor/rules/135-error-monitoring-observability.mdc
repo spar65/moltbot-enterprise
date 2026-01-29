@@ -1,0 +1,801 @@
+---
+description: Implement production error monitoring and observability when deploying applications to ensure proactive error detection, impact analysis, and rapid resolution
+globs: ["**/*.{ts,tsx,js,jsx}", "**/monitoring/**/*", "**/sentry.*.{ts,js}"]
+---
+
+# Error Monitoring & Observability
+
+## Context
+
+You can't fix errors you can't see. Production error monitoring provides real-time visibility into errors, their frequency, impact, and patterns. This rule establishes standards for implementing comprehensive error monitoring using modern observability platforms.
+
+**The Error Monitoring Stack**:
+1. **Error Tracking** - Capture, aggregate, and alert on errors
+2. **User Impact** - How many users affected, severity assessment
+3. **Error Context** - Reproduction info, user journey, environment
+4. **Performance Impact** - How errors affect performance metrics
+5. **Error Trends** - Patterns, regressions, improvements
+
+## Requirements
+
+### 1. Error Tracking Platform Setup
+
+**Recommended Platforms** (Choose one):
+
+```typescript
+// Sentry (Recommended for most projects)
+// Features: Best error tracking, releases, performance, affordable
+// Cost: Free tier generous, $26/month for production
+
+// Datadog
+// Features: Full observability, APM, infrastructure
+// Cost: Starting at $15/host/month
+
+// New Relic
+// Features: Full-stack observability, AI insights
+// Cost: Free tier available, $99/month for production
+
+// LogRocket
+// Features: Session replay + error tracking
+// Cost: $99/month
+```
+
+**Platform Selection Criteria**:
+
+| Criteria | Sentry | Datadog | New Relic | LogRocket |
+|----------|--------|---------|-----------|-----------|
+| **Error Tracking** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| **Session Replay** | ⭐⭐⭐ | ❌ | ❌ | ⭐⭐⭐⭐⭐ |
+| **Performance** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
+| **Infrastructure** | ❌ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ❌ |
+| **Ease of Setup** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| **Cost (MVP)** | ⭐⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ |
+| **Best For** | Most apps | Enterprise | Large scale | UX debugging |
+
+### 2. Sentry Implementation (Recommended)
+
+**Installation & Setup**:
+
+```bash
+# Install Sentry SDK
+npm install @sentry/nextjs --save
+# or for React
+npm install @sentry/react --save
+
+# Initialize Sentry
+npx @sentry/wizard@latest -i nextjs
+```
+
+**Configuration**:
+
+```typescript
+// sentry.client.config.ts
+import * as Sentry from "@sentry/nextjs";
+
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  
+  // Environment
+  environment: process.env.NODE_ENV,
+  
+  // Release tracking (enables release-based filtering)
+  release: process.env.NEXT_PUBLIC_APP_VERSION || "development",
+  
+  // Performance Monitoring
+  tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
+  
+  // Session Replay
+  replaysSessionSampleRate: 0.1, // 10% of sessions
+  replaysOnErrorSampleRate: 1.0, // 100% of error sessions
+  
+  // Integrations
+  integrations: [
+    new Sentry.BrowserTracing({
+      // Track navigation performance
+      tracePropagationTargets: [
+        "localhost",
+        /^https:\/\/yourdomain\.com/
+      ],
+    }),
+    new Sentry.Replay({
+      // Mask all text and media by default
+      maskAllText: true,
+      blockAllMedia: true,
+    }),
+  ],
+  
+  // Filter out noise
+  ignoreErrors: [
+    // Browser extensions
+    "top.GLOBALS",
+    "canvas.contentDocument",
+    // Network errors that are expected
+    "NetworkError",
+    "AbortError",
+    // Third-party errors
+    /gtm\.js/,
+    /google-analytics\.com/,
+  ],
+  
+  // Before send hook (scrub sensitive data)
+  beforeSend(event, hint) {
+    // Remove sensitive data
+    if (event.request) {
+      delete event.request.cookies;
+      if (event.request.headers) {
+        delete event.request.headers.Authorization;
+        delete event.request.headers.Cookie;
+      }
+    }
+    
+    // Add custom context
+    event.tags = {
+      ...event.tags,
+      deployment: process.env.VERCEL_GIT_COMMIT_SHA || "local",
+    };
+    
+    return event;
+  },
+});
+```
+
+**Server-Side Configuration**:
+
+```typescript
+// sentry.server.config.ts
+import * as Sentry from "@sentry/nextjs";
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  release: process.env.NEXT_PUBLIC_APP_VERSION,
+  
+  // Lower sample rate for server
+  tracesSampleRate: 0.05,
+  
+  // Server integrations
+  integrations: [
+    new Sentry.Integrations.Http({ tracing: true }),
+    new Sentry.Integrations.OnUncaughtException(),
+    new Sentry.Integrations.OnUnhandledRejection(),
+  ],
+  
+  beforeSend(event) {
+    // Scrub database connection strings
+    if (event.exception?.values) {
+      event.exception.values = event.exception.values.map(exception => {
+        if (exception.value) {
+          exception.value = exception.value.replace(
+            /postgresql:\/\/[^@]+@/g,
+            "postgresql://***:***@"
+          );
+        }
+        return exception;
+      });
+    }
+    
+    return event;
+  },
+});
+```
+
+### 3. Error Context Enrichment
+
+**User Context**:
+
+```typescript
+// lib/monitoring/user-context.ts
+import * as Sentry from "@sentry/nextjs";
+
+export function setUserContext(user: {
+  id: string;
+  email?: string;
+  organizationId?: string;
+  role?: string;
+}) {
+  Sentry.setUser({
+    id: user.id,
+    email: user.email,
+    organizationId: user.organizationId,
+    role: user.role,
+  });
+}
+
+export function clearUserContext() {
+  Sentry.setUser(null);
+}
+```
+
+**Request Context**:
+
+```typescript
+// middleware.ts
+import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
+
+export function middleware(request: NextRequest) {
+  // Set request context for all errors
+  Sentry.setContext("request", {
+    url: request.url,
+    method: request.method,
+    headers: {
+      userAgent: request.headers.get("user-agent"),
+      referer: request.headers.get("referer"),
+    },
+    query: Object.fromEntries(request.nextUrl.searchParams),
+  });
+  
+  return NextResponse.next();
+}
+```
+
+**Custom Tags**:
+
+```typescript
+// lib/monitoring/tags.ts
+import * as Sentry from "@sentry/nextjs";
+
+export function setErrorTags(tags: {
+  feature?: string;
+  component?: string;
+  apiEndpoint?: string;
+  errorType?: string;
+}) {
+  Object.entries(tags).forEach(([key, value]) => {
+    if (value) {
+      Sentry.setTag(key, value);
+    }
+  });
+}
+
+// Usage in components
+export function PaymentForm() {
+  useEffect(() => {
+    setErrorTags({
+      feature: "payments",
+      component: "PaymentForm",
+    });
+  }, []);
+  
+  // Component logic...
+}
+```
+
+### 4. Error Severity & Prioritization
+
+**Severity Levels**:
+
+```typescript
+// lib/monitoring/severity.ts
+import * as Sentry from "@sentry/nextjs";
+
+export enum ErrorSeverity {
+  FATAL = "fatal",     // System unusable
+  ERROR = "error",     // User-facing error
+  WARNING = "warning", // Unexpected but recoverable
+  INFO = "info",       // Informational
+  DEBUG = "debug",     // Debug information
+}
+
+export function captureError(
+  error: Error,
+  severity: ErrorSeverity,
+  context?: {
+    tags?: Record<string, string>;
+    extra?: Record<string, any>;
+  }
+) {
+  const level = severity as Sentry.SeverityLevel;
+  
+  Sentry.captureException(error, {
+    level,
+    tags: context?.tags,
+    extra: context?.extra,
+  });
+}
+
+// Usage examples
+try {
+  await processPayment(data);
+} catch (error) {
+  captureError(error as Error, ErrorSeverity.FATAL, {
+    tags: {
+      feature: "payments",
+      impact: "revenue",
+    },
+    extra: {
+      paymentAmount: data.amount,
+      paymentMethod: data.method,
+    },
+  });
+  throw error;
+}
+```
+
+**Impact Assessment**:
+
+```typescript
+// lib/monitoring/impact.ts
+export enum ErrorImpact {
+  CRITICAL = "critical",   // Affects all users
+  HIGH = "high",          // Affects many users or revenue
+  MEDIUM = "medium",      // Affects some users
+  LOW = "low",           // Affects few users
+}
+
+export function assessErrorImpact(error: Error): ErrorImpact {
+  const errorString = error.message.toLowerCase();
+  
+  // Critical: Database, auth, payment failures
+  if (
+    errorString.includes("database") ||
+    errorString.includes("authentication") ||
+    errorString.includes("payment")
+  ) {
+    return ErrorImpact.CRITICAL;
+  }
+  
+  // High: API failures, data corruption
+  if (
+    errorString.includes("api") ||
+    errorString.includes("data")
+  ) {
+    return ErrorImpact.HIGH;
+  }
+  
+  // Medium: UI errors, validation
+  if (
+    errorString.includes("validation") ||
+    errorString.includes("render")
+  ) {
+    return ErrorImpact.MEDIUM;
+  }
+  
+  // Low: Everything else
+  return ErrorImpact.LOW;
+}
+```
+
+### 5. Error Alerting Configuration
+
+**Alert Rules**:
+
+```typescript
+// Alert configuration in Sentry dashboard
+// Create alerts for:
+
+// 1. High error rate (P0)
+// Condition: Error rate > 1% for 5 minutes
+// Action: Page on-call engineer
+// Channels: PagerDuty, Slack #incidents
+
+// 2. New error type (P1)
+// Condition: First occurrence of error
+// Action: Notify team
+// Channels: Slack #errors
+
+// 3. Error spike (P1)
+// Condition: 300% increase in error rate
+// Action: Notify team
+// Channels: Slack #alerts
+
+// 4. Regression (P1)
+// Condition: Error reappears after being resolved
+// Action: Notify team, block release
+// Channels: Slack #releases
+
+// 5. User impact threshold (P0)
+// Condition: > 100 users affected
+// Action: Page on-call engineer
+// Channels: PagerDuty, Slack #incidents
+```
+
+**Slack Integration**:
+
+```typescript
+// .github/workflows/notify-errors.yml
+name: Error Notifications
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # Every 6 hours
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Sentry Errors
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Query Sentry API for recent errors
+            const response = await fetch(
+              `https://sentry.io/api/0/projects/${ORG}/${PROJECT}/issues/`,
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}`,
+                },
+              }
+            );
+            
+            const errors = await response.json();
+            
+            // Send to Slack if high-priority errors
+            const criticalErrors = errors.filter(
+              e => e.level === "error" && e.count > 10
+            );
+            
+            if (criticalErrors.length > 0) {
+              // Post to Slack
+              await fetch(process.env.SLACK_WEBHOOK_URL, {
+                method: "POST",
+                body: JSON.stringify({
+                  text: `🚨 ${criticalErrors.length} critical errors detected`,
+                  blocks: [
+                    // Format error details
+                  ],
+                }),
+              });
+            }
+```
+
+### 6. Error Dashboards
+
+**Key Metrics to Display**:
+
+```typescript
+// components/ErrorDashboard.tsx
+export function ErrorDashboard() {
+  return (
+    <div className="error-dashboard">
+      {/* Overview */}
+      <div className="metrics">
+        <Metric
+          title="Error Rate"
+          value="0.3%"
+          trend="-0.1%"
+          status="good"
+        />
+        <Metric
+          title="Users Affected"
+          value="47"
+          trend="+12"
+          status="warning"
+        />
+        <Metric
+          title="MTTR"
+          value="23 min"
+          trend="-5 min"
+          status="good"
+        />
+      </div>
+      
+      {/* Error Timeline */}
+      <ErrorTimeline
+        data={errorsByHour}
+        threshold={100}
+      />
+      
+      {/* Top Errors */}
+      <ErrorList
+        errors={topErrors}
+        sortBy="frequency"
+        limit={10}
+      />
+      
+      {/* Error Distribution */}
+      <ErrorBreakdown
+        byBrowser={browserStats}
+        byDevice={deviceStats}
+        byLocation={locationStats}
+      />
+    </div>
+  );
+}
+```
+
+### 7. Error Budget Integration
+
+**Track Error Budget Consumption**:
+
+```typescript
+// lib/monitoring/error-budget.ts
+import * as Sentry from "@sentry/nextjs";
+
+export interface ErrorBudgetMetrics {
+  totalRequests: number;
+  errorCount: number;
+  errorRate: number;
+  budgetRemaining: number;
+  budgetConsumed: number;
+}
+
+export async function calculateErrorBudget(
+  timeRangeHours: number = 24
+): Promise<ErrorBudgetMetrics> {
+  // Query Sentry for error count
+  const stats = await Sentry.getStats({
+    stat: "received",
+    since: Date.now() - timeRangeHours * 60 * 60 * 1000,
+  });
+  
+  const totalRequests = stats.totalRequests || 0;
+  const errorCount = stats.errorCount || 0;
+  const errorRate = totalRequests > 0 ? errorCount / totalRequests : 0;
+  
+  // SLO: 99.9% uptime (0.1% error budget)
+  const errorBudget = 0.001;
+  const budgetConsumed = errorRate;
+  const budgetRemaining = errorBudget - budgetConsumed;
+  
+  return {
+    totalRequests,
+    errorCount,
+    errorRate,
+    budgetRemaining: Math.max(0, budgetRemaining),
+    budgetConsumed,
+  };
+}
+```
+
+### 8. Source Maps & Symbolication
+
+**Upload Source Maps to Sentry**:
+
+```javascript
+// next.config.js
+const { withSentryConfig } = require("@sentry/nextjs");
+
+module.exports = withSentryConfig(
+  {
+    // Next.js config
+  },
+  {
+    // Sentry webpack plugin options
+    silent: true,
+    org: process.env.SENTRY_ORG,
+    project: process.env.SENTRY_PROJECT,
+    
+    // Upload source maps on build
+    widenClientFileUpload: true,
+    transpileClientSDK: true,
+    tunnelRoute: "/monitoring",
+    hideSourceMaps: true,
+    disableLogger: true,
+  }
+);
+```
+
+## Examples
+
+<example>
+// ✅ GOOD - Comprehensive error monitoring setup
+
+// lib/monitoring/init.ts
+import * as Sentry from "@sentry/nextjs";
+import { setUserContext } from "./user-context";
+import { captureError, ErrorSeverity } from "./severity";
+
+export function initializeMonitoring() {
+  // Initialize Sentry
+  Sentry.init({
+    dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+    environment: process.env.NODE_ENV,
+    release: process.env.NEXT_PUBLIC_APP_VERSION,
+    
+    tracesSampleRate: 0.1,
+    replaysSessionSampleRate: 0.1,
+    replaysOnErrorSampleRate: 1.0,
+    
+    beforeSend(event) {
+      // Scrub sensitive data
+      if (event.request?.headers) {
+        delete event.request.headers.Authorization;
+        delete event.request.headers.Cookie;
+      }
+      return event;
+    },
+  });
+  
+  // Set up global error handler
+  window.addEventListener("error", (event) => {
+    captureError(event.error, ErrorSeverity.ERROR, {
+      tags: {
+        source: "global-handler",
+      },
+    });
+  });
+  
+  // Set up unhandled rejection handler
+  window.addEventListener("unhandledrejection", (event) => {
+    captureError(
+      new Error(event.reason),
+      ErrorSeverity.ERROR,
+      {
+        tags: {
+          source: "unhandled-rejection",
+        },
+      }
+    );
+  });
+}
+
+// Usage in _app.tsx
+export default function App({ Component, pageProps }) {
+  useEffect(() => {
+    initializeMonitoring();
+  }, []);
+  
+  return <Component {...pageProps} />;
+}
+</example>
+
+<example type="invalid">
+// ❌ BAD - No error monitoring
+
+// Just console.log errors
+try {
+  await apiCall();
+} catch (error) {
+  console.error(error); // Lost in production!
+}
+
+// No way to:
+// - See production errors
+// - Track error frequency
+// - Understand user impact
+// - Debug with context
+</example>
+
+## Common Pitfalls
+
+### ❌ Not Filtering Noise
+
+```typescript
+// BAD: Capture everything (alert fatigue)
+Sentry.captureException(error); // Too noisy!
+
+// GOOD: Filter and prioritize
+if (isUserFacing(error) && !isExpected(error)) {
+  Sentry.captureException(error);
+}
+```
+
+### ❌ Missing Context
+
+```typescript
+// BAD: No context
+Sentry.captureException(error);
+
+// GOOD: Rich context
+Sentry.captureException(error, {
+  tags: {
+    feature: "payments",
+    component: "CheckoutForm",
+  },
+  extra: {
+    userId: user.id,
+    cartTotal: cart.total,
+    paymentMethod: method,
+  },
+});
+```
+
+### ❌ Not Scrubbing Sensitive Data
+
+```typescript
+// BAD: Leak sensitive data
+Sentry.captureException(error, {
+  extra: {
+    password: user.password, // ❌ NEVER!
+    creditCard: payment.card, // ❌ NEVER!
+  },
+});
+
+// GOOD: Scrub sensitive data
+Sentry.captureException(error, {
+  extra: {
+    userId: user.id, // ✅ Safe
+    paymentMethod: payment.method, // ✅ Safe (not card number)
+  },
+});
+```
+
+## See Also
+
+### Related Rules
+
+**Error Handling & Logging**:
+- @090-error-handling.mdc - Error classes, patterns, validation
+- @130-error-handling.mdc - User-facing errors, toasts
+- @130-logging-standards.mdc - Structured logging
+- @140-troubleshooting-standards.mdc - Error codes, debug tools
+- @136-error-recovery-resilience.mdc - Error recovery patterns
+- @137-error-budget-slo.mdc - Error budgets and SLOs
+- @138-frontend-error-patterns.mdc - Frontend-specific error handling
+- @139-error-context-debugging.mdc - Error context enrichment
+
+**Production Operations**:
+- @221-application-monitoring.mdc - General application monitoring
+- @222-metrics-alerting.mdc - Metrics and alerting
+- @210-operations-incidents.mdc - Incident response procedures
+- @202-rollback-procedures.mdc - Emergency rollback
+
+**Testing**:
+- @141-error-testing-strategies.mdc - Testing error scenarios
+- @300-testing-standards.mdc - General testing
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Tools & Documentation
+
+**Monitoring Setup Tools**:
+- **`.cursor/tools/setup-sentry.sh`** - Automated Sentry setup
+  ```bash
+  ./.cursor/tools/setup-sentry.sh
+  # Installs Sentry, configures Next.js, creates config files
+  ```
+- **`.cursor/tools/check-error-rates.sh`** - Query current error rates
+  ```bash
+  ./.cursor/tools/check-error-rates.sh
+  # Shows: Error rate, affected users, top errors
+  ```
+- **`.cursor/tools/analyze-errors.sh`** - Detailed error analysis
+  ```bash
+  ./.cursor/tools/analyze-errors.sh --last 24h
+  # Analyzes: Patterns, trends, impact
+  ```
+
+**Documentation Resources**:
+- **`.cursor/docs/monitoring-setup.md`** - Step-by-step monitoring setup
+- **`.cursor/docs/error-playbooks.md`** - Error response playbooks
+
+### Comprehensive Guides
+
+**Essential Monitoring Guides**:
+- **`guides/Error-Handling-Complete-Guide.md`** ⭐ **ESSENTIAL** - End-to-end error handling strategy
+- **`guides/Production-Monitoring-Complete-Guide.md`** ⭐ **ESSENTIAL** - Complete monitoring setup
+- **`guides/Incident-Response-Complete-Guide.md`** - Incident response procedures
+
+### Quick Start - Setting Up Error Monitoring
+
+```bash
+# 1. Install Sentry (recommended)
+npm install @sentry/nextjs
+npx @sentry/wizard@latest -i nextjs
+
+# 2. Configure environment variables
+# Add to .env.local:
+# NEXT_PUBLIC_SENTRY_DSN=your_dsn
+# SENTRY_ORG=your_org
+# SENTRY_PROJECT=your_project
+
+# 3. Add user context in auth callback
+# See example above for setUserContext()
+
+# 4. Test error tracking
+# Trigger a test error, verify in Sentry dashboard
+
+# 5. Configure alerts
+# Set up Slack integration and alert rules
+
+# 6. Create dashboard
+# Build error metrics dashboard
+```
+
+### Common Monitoring Scenarios
+
+| Scenario | Monitoring Strategy | Alert Threshold |
+|----------|-------------------|-----------------|
+| **API Errors** | Track by endpoint, status code | > 1% error rate |
+| **Frontend Errors** | Group by component, browser | > 100 users affected |
+| **Payment Failures** | Track by payment method | Any failure |
+| **Auth Failures** | Track by failure reason | > 5% failure rate |
+| **Database Errors** | Track by query type | Any connection error |
+
+---
+
+**Integration**: This rule works with @221-application-monitoring.mdc (general monitoring) and @222-metrics-alerting.mdc (alerting)
+
+**Status**: ✅ Active  
+**Priority**: P0 (Critical for production)  
+**Generated**: November 20, 2025

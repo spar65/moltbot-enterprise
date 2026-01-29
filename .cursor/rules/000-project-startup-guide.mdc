@@ -1,0 +1,758 @@
+---
+description: USE when STARTING NEW PROJECT to GUIDE through complete startup sequence from concept to production-ready specifications
+globs: []
+alwaysApply: false
+---
+
+# Project Startup Guide
+
+## Context
+
+Starting a new project requires careful planning across multiple dimensions: tech stack selection, comprehensive documentation, workflow setup, and implementation planning. This guide orchestrates all project startup rules into a cohesive, proven sequence that transforms initial concepts into production-ready specifications.
+
+**When properly followed, this system**:
+
+- Reduces initial planning from weeks to days
+- Prevents architectural rework (saves 40-80 hours)
+- Enables immediate development with clear specs
+- Provides stakeholder-ready documentation
+- Establishes development workflow from day one
+
+## Requirements
+
+### When to Use This Guide
+
+**✅ Use this startup guide when**:
+
+- **REQUIRED**: Starting a completely new project (greenfield development)
+- **REQUIRED**: Major feature requiring comprehensive specs (20+ hours development)
+- **REQUIRED**: Project requiring stakeholder buy-in and approval
+- **REQUIRED**: Project with multiple developers or team collaboration
+- Building MVP for new product or service
+- Creating proof-of-concept requiring full documentation
+
+**❌ Do NOT use this guide when**:
+
+- Adding features to existing, well-documented projects
+- Day-to-day development and maintenance
+- Bug fixes or minor enhancements
+- Quick prototypes or experiments (< 20 hours)
+- Scripts, utilities, or throwaway code
+- Projects with existing comprehensive documentation
+
+### The 4-Phase Startup Sequence
+
+This guide orchestrates project startup through four sequential phases. Each phase builds on the previous, creating a comprehensive foundation for development.
+
+**Total Time Investment**: 8-13 hours  
+**Time Saved During Development**: 70-135 hours  
+**ROI**: 5-10x return on investment
+
+---
+
+## Phase 1: Tech Stack Selection (30-60 minutes)
+
+### Purpose
+
+Select optimal technology stack based on project requirements, team skills, budget, timeline, and scale needs.
+
+### Process
+
+**Step 1: Gather Requirements** (10 minutes)
+
+```markdown
+Document:
+
+- Application type (web app, mobile, API, etc.)
+- Expected scale (users, data volume, traffic)
+- Team skills and experience
+- Budget constraints (development and production)
+- Timeline requirements
+- Compliance needs (GDPR, HIPAA, etc.)
+```
+
+**Step 2: Apply Decision Framework** (20-40 minutes)
+
+Use **@900-tech-stack-selection.mdc** to:
+
+- Evaluate framework options across categories
+- Compare alternatives with decision matrices
+- Consider integration and ecosystem
+- Assess learning curve vs timeline
+- Calculate total cost of ownership
+
+**Step 3: Document Decision** (10 minutes)
+
+```markdown
+Create: docs/\_tech-stack-decision.md
+
+Include:
+
+- Chosen technologies with versions
+- Rationale for each decision
+- Alternatives considered
+- Trade-offs accepted
+- Migration path if needed
+```
+
+### Output
+
+- ✅ Tech stack decision document
+- ✅ Justification for all major technology choices
+- ✅ Awareness of trade-offs and limitations
+- ✅ Foundation for Phase 2 documentation
+
+### Common Mistakes to Avoid
+
+- ❌ Choosing tech based on hype vs project needs
+- ❌ Ignoring team skill level
+- ❌ Underestimating total cost (dev + production + maintenance)
+- ❌ Not considering scale requirements
+- ❌ Skipping comparison of alternatives
+
+---
+
+## Phase 2: Project Documentation (5-8 hours)
+
+### Purpose
+
+Generate comprehensive project specifications that enable immediate development without ambiguity. Create 15 interconnected documents covering all aspects from user stories to deployment.
+
+### Process
+
+**Step 1: Create Context Document** (30 minutes)
+
+Create `docs/_context.md`:
+
+```markdown
+# [PROJECT_NAME] - Context
+
+## Project Basics
+
+- Name: [Specific name]
+- Tagline: [One sentence value proposition]
+- Type: [Web app / Mobile app / API / etc.]
+
+## Problem Statement
+
+[2-3 paragraphs with specific data/stats]
+
+## Target Users
+
+1. [User Type] - [Specific description with needs]
+2. [User Type] - [Specific description with needs]
+3. [User Type] - [Specific description with needs]
+
+## Core Features (Priority Order)
+
+1. [Feature] - [Specific functionality description]
+2. [Feature] - [Specific functionality description]
+3. [Feature] - [Specific functionality description]
+   [3-5 total features]
+
+## Tech Stack (from Phase 1)
+
+- Frontend: [From Phase 1 decision]
+- Backend: [From Phase 1 decision]
+- Database: [From Phase 1 decision]
+- Deployment: [From Phase 1 decision]
+
+## Constraints
+
+- Budget: [Specific amount or "flexible"]
+- Timeline: [Specific weeks or "flexible"]
+- Team: [Size and skill level]
+- Compliance: [GDPR, HIPAA, etc. or "none"]
+
+## Success Criteria
+
+- [Measurable metric 1]
+- [Measurable metric 2]
+- [Measurable metric 3]
+```
+
+**Step 2: Generate 15 Documents** (4-6 hours)
+
+Follow **@801-project-documentation-structure.mdc** for document structure.
+
+Use **@802-ai-documentation-generation.mdc** for AI-assisted generation.
+
+**Document Generation Order** (CRITICAL - Do not skip ahead):
+
+**Foundation (00-04)** - 2-3 hours:
+
+1. `00-UserStories-MASTER.md` - 25-30 user stories organized by epics
+2. `01-project-overview.md` - Executive summary and project charter
+3. `02-tech-stack-architecture.md` - Technology decisions with detailed rationale
+4. `03-database-schema.md` - Complete database design with Prisma schema
+5. `04-user-stories-requirements.md` - Detailed technical requirements
+
+**Technical Specs (05-09)** - 2-3 hours: 6. `05-ui-ux-design-specs.md` - Design system with code examples 7. `06-component-library-guide.md` - Component catalog with props 8. `07-data-structure.md` - Core content/data schema 9. `08-api-endpoints-specification.md` - Complete API documentation 10. `09-security-privacy-considerations.md` - Security measures and compliance
+
+**Quality & Operations (10-14)** - 1-2 hours: 11. `10-testing-strategy.md` - Testing approach with examples 12. `11-deployment-configuration.md` - Deployment guide 13. `12-development-workflow.md` - Git workflow and code standards 14. `13-pwa-implementation.md` - PWA features (optional) 15. `14-implementation-roadmap.md` - Phased development plan
+
+**Step 3: Validation** (1 hour)
+
+Run 4 validation prompts (from @802-ai-documentation-generation.mdc):
+
+1. **Cross-Reference Check**: Identify inconsistencies between documents
+2. **Implementation Order**: Verify roadmap dependencies and timeline
+3. **Completeness**: Check for gaps in requirements, APIs, security
+4. **Developer Handoff**: Ensure specs are unambiguous and actionable
+
+Fix all critical issues before proceeding to Phase 3.
+
+### Output
+
+- ✅ 15 comprehensive specification documents (4,000-6,000 total lines)
+- ✅ All user stories have corresponding API endpoints and database support
+- ✅ All technical decisions are justified
+- ✅ Security and testing are comprehensive
+- ✅ Developer can start building immediately
+
+### Quality Validation Checklist
+
+Before proceeding to Phase 3, verify:
+
+- [ ] All 15 documents generated (or 14 if skipping PWA)
+- [ ] Each document meets minimum length requirements
+- [ ] No placeholder text ("TODO", "Add details")
+- [ ] All user stories have API endpoints
+- [ ] All API endpoints reference database tables
+- [ ] All UI components have accessibility specs
+- [ ] Security considerations are comprehensive
+- [ ] Testing strategy has concrete examples
+- [ ] Implementation roadmap is realistic
+- [ ] All 4 validation prompts run and issues fixed
+
+---
+
+## Phase 3: Workflow Setup (1-2 hours)
+
+### Purpose
+
+Establish development workflows, Git strategy, CI/CD pipeline, and team collaboration processes before writing any code.
+
+### Process
+
+**Step 1: Repository Setup** (20 minutes)
+
+```bash
+# 1. Initialize repository
+git init
+git branch -M main
+
+# 2. Create .gitignore
+# Use framework-specific template
+
+# 3. Create README.md
+# Link to docs/ folder
+# Include quick start guide
+
+# 4. Commit documentation
+git add docs/
+git commit -m "docs: add comprehensive project specifications"
+
+# 5. Push to remote
+git remote add origin [REPO_URL]
+git push -u origin main
+```
+
+**Step 2: Configure Workflow** (30-60 minutes)
+
+Use **@800-workflow-guidelines.mdc** to configure:
+
+1. **Branching Strategy**:
+
+   ```
+   main - Production-ready code
+   develop - Integration branch (optional)
+   feature/* - Feature branches
+   bugfix/* - Bug fix branches
+   hotfix/* - Production emergency fixes
+   ```
+
+2. **Commit Message Convention**:
+
+   ```
+   feat: add user authentication
+   fix: resolve login redirect issue
+   docs: update API documentation
+   test: add user service tests
+   chore: update dependencies
+   ```
+
+3. **Code Review Process**:
+
+   - PR template (description, testing notes, checklist)
+   - Review checklist (code standards, tests, security)
+   - Approval requirements (1-2 reviewers)
+
+4. **CI/CD Pipeline** (if applicable):
+   ```yaml
+   # .github/workflows/ci.yml
+   name: CI
+   on: [push, pull_request]
+   jobs:
+     test:
+       runs-on: ubuntu-latest
+       steps:
+         - uses: actions/checkout@v2
+         - name: Install dependencies
+           run: npm ci
+         - name: Run linter
+           run: npm run lint
+         - name: Run tests
+           run: npm test
+         - name: Build
+           run: npm run build
+   ```
+
+**Step 3: Development Standards** (10 minutes)
+
+Document in `docs/12-development-workflow.md`:
+
+- Code style guide (linting rules)
+- Testing requirements (coverage minimums)
+- Documentation standards
+- Review process
+- Deployment process
+
+Use **@802-git-workflow-standards.mdc** for Git best practices.
+
+### Output
+
+- ✅ Repository initialized with documentation
+- ✅ Branching strategy defined
+- ✅ Commit message convention established
+- ✅ PR template and review process configured
+- ✅ CI/CD pipeline set up (if applicable)
+- ✅ Development standards documented
+
+---
+
+## Phase 4: Implementation Planning (1-2 hours)
+
+### Purpose
+
+Break down the comprehensive specifications into actionable phases with clear milestones, success criteria, and risk mitigation strategies.
+
+### Process
+
+**Step 1: Review Implementation Roadmap** (20 minutes)
+
+Review `docs/14-implementation-roadmap.md` from Phase 2:
+
+- Phases and milestones
+- Feature priorities
+- Dependencies
+- Timeline estimates
+
+**Step 2: Create Detailed Phase Plan** (40-60 minutes)
+
+Use **@801-implementation-plan.mdc** to create detailed plan for Phase 1 (MVP):
+
+```markdown
+# Implementation Plan - Phase 1: MVP
+
+## Phase Information
+
+| Field             | Description        |
+| ----------------- | ------------------ |
+| Phase Name        | MVP Core Features  |
+| Priority          | High               |
+| Start Date        | [Date]             |
+| Target Completion | [Date + 4-6 weeks] |
+| Team Lead         | [Name]             |
+
+## Features in This Phase
+
+1. User authentication and accounts
+2. Core feature 1 [from user stories]
+3. Core feature 2 [from user stories]
+4. Basic admin dashboard
+
+## Implementation Steps
+
+### Week 1: Foundation
+
+- [x] Set up development environment
+- [x] Initialize database with Prisma schema
+- [ ] Implement authentication (Auth0/NextAuth)
+- [ ] Create base UI components
+- [ ] Set up testing infrastructure
+
+### Week 2-3: Core Features
+
+- [ ] Implement feature 1 (3 user stories)
+- [ ] Implement feature 2 (4 user stories)
+- [ ] Write tests (aim for 80% coverage)
+- [ ] API documentation (OpenAPI spec)
+
+### Week 4: Admin & Polish
+
+- [ ] Admin dashboard
+- [ ] Error handling and logging
+- [ ] Performance optimization
+- [ ] Security audit
+
+## Risk Assessment
+
+| Risk                          | Likelihood | Impact | Mitigation                                        |
+| ----------------------------- | ---------- | ------ | ------------------------------------------------- |
+| Auth integration takes longer | Medium     | High   | Use managed service (Auth0), allocate buffer time |
+| Database schema changes       | Low        | Medium | Use migrations, version control schema            |
+
+## Testing Strategy
+
+- Unit tests: All business logic functions
+- Integration tests: API endpoints with database
+- E2E tests: Critical user journeys
+- Manual testing: UI/UX flows
+
+## Success Criteria
+
+- [ ] All MVP user stories implemented
+- [ ] 80%+ test coverage
+- [ ] All API endpoints documented
+- [ ] Performance: < 2s page load
+- [ ] Security: No critical vulnerabilities
+- [ ] Deployed to staging environment
+```
+
+**Step 3: Set Up Project Tracking** (10 minutes)
+
+Choose project management tool:
+
+- GitHub Projects (free, integrated)
+- Linear (developer-friendly)
+- Jira (enterprise)
+
+Create issues/tickets from user stories:
+
+```markdown
+Title: [US-01] User can create account
+Labels: feature, auth, priority-high
+Description:
+As a new user, I want to create an account so that I can access the platform.
+
+Acceptance Criteria:
+
+- [ ] Email/password registration form
+- [ ] Email verification flow
+- [ ] Account creation confirmation
+- [ ] Redirect to onboarding
+
+Technical Notes:
+
+- Use Auth0 for user management
+- Implement email verification via SendGrid
+- Create user record in database (see 03-database-schema.md)
+
+Estimated: 8 hours
+```
+
+**Step 4: Team Kickoff** (30 minutes)
+
+If working with a team:
+
+- Review all documentation together
+- Assign initial tasks
+- Establish communication channels
+- Schedule regular check-ins (daily standups, weekly reviews)
+
+### Output
+
+- ✅ Detailed implementation plan for Phase 1 (MVP)
+- ✅ Risk assessment and mitigation strategies
+- ✅ Project tracking system set up
+- ✅ Initial issues/tickets created from user stories
+- ✅ Team aligned on approach and timeline
+
+---
+
+## Post-Startup: Ready to Build
+
+### You've Completed Project Startup When:
+
+- ✅ **Phase 1**: Tech stack selected and justified
+- ✅ **Phase 2**: 15 comprehensive specification documents generated
+- ✅ **Phase 3**: Repository, workflow, and CI/CD configured
+- ✅ **Phase 4**: Implementation plan created with milestones
+
+### Next Steps: Begin Development
+
+**From this point forward**:
+
+1. This startup guide is no longer active
+2. Follow implementation plan from Phase 4
+3. Use specification documents as single source of truth
+4. Apply normal development rules (not startup rules)
+5. Update documentation as project evolves
+
+**Development Rules to Follow**:
+
+- @100-coding-patterns.mdc - Code standards
+- @105-typescript-linter-standards.mdc - TypeScript best practices
+- @300-testing-standards.mdc - Testing requirements
+- @012-api-security.mdc - API security
+- @025-multi-tenancy.mdc - Multi-tenant patterns (if applicable)
+
+**Workflow Rules**:
+
+- @802-git-workflow-standards.mdc - Git practices
+- @803-pull-request-workflow.mdc - PR process
+- @101-code-review-standards.mdc - Code review
+
+---
+
+## Success Metrics
+
+### Quantitative Metrics
+
+**Documentation Quality**:
+
+- ✅ 15 specification documents (or 14 without PWA)
+- ✅ 4,000-6,000 total lines of documentation
+- ✅ 25-30+ user stories
+- ✅ 20-30+ API endpoints
+- ✅ 8-12+ database models
+
+**Time Investment**:
+
+- Phase 1: 30-60 minutes
+- Phase 2: 5-8 hours
+- Phase 3: 1-2 hours
+- Phase 4: 1-2 hours
+- **Total**: 8-13 hours
+
+**Time Saved**:
+
+- Requirements clarification: 20-40 hours
+- Architecture refactoring: 20-40 hours
+- Debugging prevented: 15-30 hours
+- Deployment issues: 10-15 hours
+- Workflow setup: 5-10 hours
+- **Total**: 70-135 hours
+
+**ROI**: 5-10x return on time invested
+
+### Qualitative Indicators
+
+**You know startup was successful when**:
+
+- ✅ Developer can start building immediately without questions
+- ✅ Stakeholders approve approach and timeline
+- ✅ No ambiguous requirements remain
+- ✅ All technical decisions are justified and documented
+- ✅ Security and testing are comprehensive
+- ✅ Team is aligned on approach
+- ✅ Git workflow is clear and followed
+- ✅ CI/CD pipeline is configured and working
+
+---
+
+## Common Pitfalls
+
+### ❌ Rushing Through Documentation (Phase 2)
+
+**Symptoms**: Thin documents, missing details, generic content, placeholders
+
+**Prevention**:
+
+- Allocate full 5-8 hours for Phase 2
+- Review each document for 15+ minutes before proceeding
+- Use AI refinement prompts when output is generic
+- Run all 4 validation prompts
+
+**Impact if Skipped**: 40-80 hours wasted on rework during development
+
+### ❌ Skipping Tech Stack Justification (Phase 1)
+
+**Symptoms**: Tech choices questioned later, wrong tools for scale, costly migrations
+
+**Prevention**:
+
+- Document rationale for every major decision
+- Compare alternatives with specific criteria
+- Consider total cost of ownership
+- Get stakeholder buy-in on decisions
+
+**Impact if Skipped**: 10-30 hours on tech stack changes or migrations
+
+### ❌ Not Setting Up Workflow (Phase 3)
+
+**Symptoms**: Inconsistent commits, merge conflicts, unclear process, deployment issues
+
+**Prevention**:
+
+- Configure Git workflow before first feature
+- Set up CI/CD early
+- Document and communicate process
+- Use PR templates and review checklists
+
+**Impact if Skipped**: 5-15 hours on workflow friction and coordination
+
+### ❌ Starting Development Without Phase 4 Plan
+
+**Symptoms**: Unclear priorities, missed dependencies, timeline slips, scope creep
+
+**Prevention**:
+
+- Break roadmap into actionable phases
+- Identify dependencies explicitly
+- Set clear milestones and success criteria
+- Track progress from day one
+
+**Impact if Skipped**: 10-20 hours on replanning and coordination
+
+### ❌ Treating Documentation as Static
+
+**Symptoms**: Specs drift from implementation, confusion, duplicate work
+
+**Prevention**:
+
+- Update docs when requirements change
+- Review specs during PRs for accuracy
+- Version documentation with code
+- Schedule quarterly doc reviews
+
+**Impact if Skipped**: Documentation becomes obsolete, loses value
+
+---
+
+## See Also
+
+### Related Rules (Apply These During Startup)
+
+**Phase 1 - Tech Stack**:
+
+- @900-tech-stack-selection.mdc - Comprehensive tech stack decision framework
+- @002-rule-application.mdc - Source of Truth Hierarchy for decisions
+
+**Phase 2 - Documentation**:
+
+- @801-project-documentation-structure.mdc - 15-document structure and standards
+- @802-ai-documentation-generation.mdc - AI-assisted documentation generation
+- @105-typescript-linter-standards.mdc - TypeScript standards (if using TypeScript)
+
+**Phase 3 - Workflow**:
+
+- @800-workflow-guidelines.mdc - Complete development workflow guide
+- @802-git-workflow-standards.mdc - Git branching and commit standards
+- @803-pull-request-workflow.mdc - PR creation and review process
+- @203-ci-cd-pipeline-standards.mdc - CI/CD setup and best practices
+
+**Phase 4 - Implementation**:
+
+- @801-implementation-plan.mdc - Feature implementation planning template
+- @804-hotfix-procedures.mdc - Emergency procedures (know before you need)
+
+### Tools & Documentation
+
+**Startup Tools**:
+
+- **`.cursor/tools/inspect-model.sh`** - Inspect Prisma models (use during Phase 2 database design)
+- **`.cursor/tools/check-env-vars.sh`** - Validate environment variables (use during Phase 3 setup)
+
+**Documentation Resources**:
+
+- **`.cursor/docs/rules-guide.md`** - How to use the 152-rule system effectively
+- **`.cursor/docs/tools-guide.md`** - Automation tools guide
+- **`.cursor/docs/ai-workflows.md`** - AI-assisted development patterns
+
+### Comprehensive Guides
+
+**Essential Startup Guides**:
+
+- **`guides/Project-Requirements-Generation-Complete-Guide.md`** ⭐ **Essential for Phase 2** - Complete step-by-step documentation generation process
+- **`guides/Git-Workflow-Complete-Guide.md`** - Complete Git workflow patterns for Phase 3
+- **`guides/Code-Review-Complete-Guide.md`** - Code review standards for Phase 3
+
+**Development Guides** (Use After Startup):
+
+- **`guides/Multi-Tenant-Architecture-Complete-Guide.md`** - If building multi-tenant application
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Performance optimization patterns
+- **`guides/Monitoring-Complete-Guide.md`** - Application monitoring setup
+
+### Quick Start - Using This Guide
+
+```bash
+# 1. Starting a new project?
+"I'm starting a new project. Use @000-project-startup-guide.mdc"
+
+# 2. Cursor will guide you through 4 phases:
+# Phase 1: Tech Stack Selection (30-60 min)
+# Phase 2: Documentation Generation (5-8 hrs)
+# Phase 3: Workflow Setup (1-2 hrs)
+# Phase 4: Implementation Planning (1-2 hrs)
+
+# 3. After completion, this guide is no longer active
+# Proceed with normal development using spec documents
+
+# 4. Reference specific rules as needed:
+"@900-tech-stack-selection.mdc" # Phase 1
+"@802-ai-documentation-generation.mdc" # Phase 2
+"@800-workflow-guidelines.mdc" # Phase 3
+"@801-implementation-plan.mdc" # Phase 4
+```
+
+### Common Startup Scenarios
+
+| Scenario                    | Phases to Use   | Estimated Time | Key Rules                         |
+| --------------------------- | --------------- | -------------- | --------------------------------- |
+| **New Web App**             | All 4 phases    | 8-13 hours     | @900, @801, @802, @800, @801-impl |
+| **New Mobile App**          | All 4 phases    | 8-13 hours     | @900, @801, @802, @800, @801-impl |
+| **New API Service**         | Phases 1,2,3,4  | 8-13 hours     | @900, @801, @802, @800, @801-impl |
+| **Major Feature (20+ hrs)** | Phases 2,4      | 6-9 hours      | @801, @802, @801-impl             |
+| **Quick Prototype**         | Skip this guide | N/A            | Use normal dev rules              |
+
+---
+
+## Proven Success
+
+### NCLB Survey Application (Real Example)
+
+**Project**: Educational survey platform for schools  
+**Timeline**: 6 weeks to production  
+**Team**: 2 developers
+
+**Startup Phase Results**:
+
+- Phase 1: Tech stack (Next.js, PostgreSQL, Vercel) - 45 minutes
+- Phase 2: 15 comprehensive documents, 5,200+ lines - 8 hours
+- Phase 3: Git workflow, CI/CD, PR templates - 1.5 hours
+- Phase 4: 4-phase implementation roadmap - 1.5 hours
+- **Total**: 11.5 hours
+
+**Development Results**:
+
+- 40 user stories → 308 automated tests (100% pass rate)
+- Zero major architecture changes needed
+- Deployed to production in 6 weeks
+- Seamless developer onboarding
+- Stakeholder approval without rework
+
+**Time Saved**: ~95 hours (based on retrospective analysis)  
+**ROI**: 8.3x return on 11.5-hour investment
+
+---
+
+## Related System Resources
+
+**Essential Reading** (Read These First):
+
+- @003-cursor-system-overview.mdc - Complete Cursor system overview
+- @000-core-guidelines.mdc - Core development guidelines
+- @002-rule-application.mdc - How to apply rules by priority
+
+**Rules Registry**:
+
+- @000-cursor-rules-registry2.mdc - Complete registry of all 152+ rules
+
+---
+
+**Generated**: November 20, 2025  
+**Type**: Master Project Startup Guide  
+**Status**: ✅ Active (opt-in only, alwaysApply: false)  
+**Integration**: Phases 1-4 → Normal Development Rules

@@ -1,0 +1,420 @@
+---
+description: Use enhanced browser console + terminal logs for systematic real-time testing when debugging complex data flow issues, based on successful UUID migration and PRD troubleshooting patterns
+globs: "**/*.{ts,tsx,js,jsx}"
+---
+
+# Enhanced Systematic Frontend Testing with Console Monitoring
+
+## Context
+
+- Complex data flow issues require real-time visibility into both frontend state and backend persistence
+- Browser console JavaScript + terminal logs provide powerful debugging combination when used systematically
+- Proven methodology from August 2025 UUID migration and PRD troubleshooting that successfully identified silent failures
+- Enhanced patterns detect organization consistency issues, UUID casting problems, and database constraint violations
+- This methodology proven effective for PRD creation, task generation, organization assignment, and AI enhancement debugging
+
+## Requirements
+
+### Enhanced Real-Time Console Monitoring
+
+- Create comprehensive monitoring functions that track data flow at each step with UUID validation
+- Use fetch() calls to check API endpoints and database state with organization consistency verification
+- Implement timestamp logging for temporal issue tracking with session management
+- Store test session data in window variables for cross-step tracking and correlation
+- Include automatic UUID format validation and organization ID consistency checking
+
+### Systematic Step Verification with Critical Alerts
+
+- Monitor critical data points after each user action with immediate issue detection
+- Verify organization assignment consistency throughout workflows with cross-endpoint validation
+- Track status transitions and data persistence with real-time verification
+- Alert immediately when critical issues detected (missing org IDs, UUID format errors, silent failures)
+- Implement success/failure indicators based on actual database state, not just API responses
+
+### Terminal Log Correlation with Silent Failure Detection
+
+- Monitor terminal logs for backend success/failure messages with correlation to frontend state
+- Correlate frontend console data with backend database operations using systematic verification
+- Identify silent failures where logs show success but data doesn't persist to database
+- Use terminal logs to identify constraint violations and transaction rollbacks
+- Cross-verify frontend "success" indicators with actual database persistence
+
+### Comprehensive Session Tracking with Issue Classification
+
+- Initialize testing sessions with clear objectives and automatic cleanup management
+- Track progress through all phases of complex workflows with cross-step data correlation
+- Store intermediate results for cross-phase verification and issue pattern detection
+- Document issues with exact step and timestamp information plus severity classification
+- Implement session cleanup and archival for post-debugging analysis
+
+## Enhanced Implementation Guidelines
+
+### Console Monitoring Functions with UUID Validation
+
+```javascript
+// Enhanced template for step-by-step monitoring with UUID validation
+const monitorWorkflowStep = (stepName, apiEndpoint) => {
+  fetch(apiEndpoint)
+    .then((r) => r.json())
+    .then((data) => {
+      const latestItem = data.prds?.[0] || data.items?.[0] || data;
+      const analysis = {
+        timestamp: new Date().toLocaleTimeString(),
+        stepName: stepName,
+        // Critical data points with enhanced validation
+        itemId: latestItem?.id,
+        organizationId: latestItem?.organization_id || "NULL",
+        userOrgId: data.userOrganization?.id || "NULL",
+        organizationMatch:
+          latestItem?.organization_id === data.userOrganization?.id,
+        // UUID validation
+        uuidValid: {
+          itemId:
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+              latestItem?.id
+            ),
+          orgId:
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+              latestItem?.organization_id
+            ),
+        },
+        // Workflow-specific metrics
+        status: latestItem?.status,
+        currentStep: latestItem?.current_step,
+        dataIntegrity: !!latestItem?.requiredField,
+        // AI enhancement tracking
+        isAiEnhanced: latestItem?.is_ai_enhanced,
+        aiDataSaved: !!(
+          latestItem?.final_ai_response || latestItem?.ai_model_metadata
+        ),
+      };
+
+      console.log(`📊 ${stepName} VERIFICATION:`, analysis);
+
+      // Critical alerts based on proven patterns
+      if (!latestItem?.organization_id) {
+        console.log(`🚨 CRITICAL: Missing organization at ${stepName}`);
+        window.debugSession?.issues.push({
+          step: stepName,
+          issue: "Missing organization_id",
+          severity: "critical",
+          timestamp: Date.now(),
+        });
+      }
+
+      if (!analysis.organizationMatch) {
+        console.log(`⚠️ WARNING: Organization mismatch at ${stepName}`);
+        console.log(`   Item Org: ${latestItem?.organization_id}`);
+        console.log(`   User Org: ${data.userOrganization?.id}`);
+      }
+
+      if (!analysis.uuidValid.itemId || !analysis.uuidValid.orgId) {
+        console.log(
+          `🚨 UUID VALIDATION FAILED at ${stepName}:`,
+          analysis.uuidValid
+        );
+      }
+
+      // Store for cross-step tracking
+      window[`${stepName.toLowerCase().replace(/\s+/g, "")}Data`] = latestItem;
+
+      return analysis;
+    })
+    .catch((err) => console.error(`❌ ${stepName} monitor failed:`, err));
+};
+```
+
+### Real-Time Persistence Monitoring with Silent Failure Detection
+
+```javascript
+// Enhanced template for monitoring database persistence with silent failure detection
+const monitorPersistence = (
+  resourceType,
+  checkEndpoint,
+  expectedCount = null
+) => {
+  console.log(`⏱️ REAL-TIME ${resourceType.toUpperCase()} MONITORING STARTED`);
+
+  let checkCount = 0;
+  const maxChecks = 30; // 1 minute at 2-second intervals
+
+  const checkPersistence = () => {
+    checkCount++;
+
+    fetch(checkEndpoint)
+      .then((r) => r.json())
+      .then((data) => {
+        const analysis = {
+          timestamp: new Date().toLocaleTimeString(),
+          checkNumber: checkCount,
+          count: data.summary?.total || data.count || data.items?.length || 0,
+          success: data.success,
+          organizationMatch: data.organizationMatch,
+          expectedCount: expectedCount,
+          silentFailure:
+            data.success && (data.summary?.total || 0) === 0 && checkCount > 5,
+        };
+
+        console.log(
+          `⏱️ ${resourceType} Check ${checkCount}/${maxChecks}:`,
+          analysis
+        );
+
+        // Silent failure detection
+        if (analysis.silentFailure) {
+          console.log(
+            `🚨 SILENT FAILURE DETECTED: API shows success but no ${resourceType} persisted`
+          );
+        }
+
+        // Success detection
+        if (analysis.count > 0 && analysis.success) {
+          console.log(
+            `✅ ${resourceType.toUpperCase()} PERSISTENCE SUCCESS: ${
+              analysis.count
+            } items found!`
+          );
+          clearInterval(interval);
+        }
+
+        return analysis;
+      })
+      .catch((err) =>
+        console.error(`❌ ${resourceType} persistence check failed:`, err)
+      );
+  };
+
+  const interval = setInterval(checkPersistence, 2000);
+  setTimeout(() => clearInterval(interval), maxChecks * 2000);
+
+  return interval;
+};
+```
+
+### Enhanced Session Management with Issue Classification
+
+```javascript
+// Enhanced template for testing session management with comprehensive tracking
+const initializeEnhancedTestSession = (testType, objective, options = {}) => {
+  const sessionId = `debug-${Date.now()}`;
+
+  window.debugSession = {
+    id: sessionId,
+    type: testType,
+    objective: objective,
+    startTime: Date.now(),
+    steps: [],
+    issues: [],
+    currentPhase: 1,
+    monitoring: {
+      intervals: [],
+      watchers: [],
+    },
+    config: {
+      autoMonitor: options.autoMonitor !== false,
+      alertOnIssues: options.alertOnIssues !== false,
+      validateUUIDs: options.validateUUIDs !== false,
+      checkOrgConsistency: options.checkOrgConsistency !== false,
+    },
+  };
+
+  console.log(`🧪 ${testType} ENHANCED DEBUG SESSION STARTED`);
+  console.log(`🆔 Session ID: ${sessionId}`);
+  console.log(`🎯 Objective: ${objective}`);
+  console.log(`🕐 Started: ${new Date().toLocaleTimeString()}`);
+  console.log(`⚙️ Enhanced Config:`, window.debugSession.config);
+
+  return sessionId;
+};
+
+const recordEnhancedTestStep = (stepName, data, issues = []) => {
+  if (!window.debugSession) return;
+
+  window.debugSession.steps.push({
+    step: stepName,
+    timestamp: Date.now(),
+    data: data,
+    issues: issues,
+  });
+
+  console.log(`📝 Recorded: ${stepName} (${issues.length} issues)`);
+
+  // Add issues to session tracking
+  issues.forEach((issue) => {
+    window.debugSession.issues.push({
+      step: stepName,
+      ...issue,
+      timestamp: Date.now(),
+    });
+  });
+};
+```
+
+## Enhanced Examples
+
+<example>
+// Excellent: Comprehensive PRD creation monitoring with UUID validation
+const monitorPRDCreationEnhanced = (stepNumber) => {
+  fetch('/api/tools/prd-basic/dashboard-list')
+    .then(r => r.json())
+    .then(data => {
+      const latestPrd = data.prds[0];
+      const analysis = {
+        timestamp: new Date().toLocaleTimeString(),
+        stepNumber: stepNumber,
+        prdId: latestPrd?.id,
+        title: latestPrd?.title,
+        organizationId: latestPrd?.organization_id || 'NULL',
+        userOrgId: data.userOrganization?.id || 'NULL',
+        organizationMatch: latestPrd?.organization_id === data.userOrganization?.id,
+        currentStep: latestPrd?.current_step,
+        status: latestPrd?.status,
+        // Enhanced UUID validation
+        uuidValid: {
+          prdId: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(latestPrd?.id),
+          orgId: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(latestPrd?.organization_id)
+        },
+        // AI enhancement tracking
+        isAiEnhanced: latestPrd?.is_ai_enhanced,
+        aiDataSaved: !!(latestPrd?.final_ai_response || latestPrd?.ai_model_metadata)
+      };
+      
+      console.log(`📊 Step ${stepNumber} ENHANCED VERIFICATION:`, analysis);
+      
+      // Critical issue detection
+      const issues = [];
+      if (!latestPrd?.organization_id) {
+        issues.push({ issue: 'Missing organization_id', severity: 'critical' });
+        console.log('🚨 CRITICAL: Organization missing at Step', stepNumber);
+      }
+      if (!analysis.uuidValid.prdId || !analysis.uuidValid.orgId) {
+        issues.push({ issue: 'Invalid UUID format', severity: 'critical' });
+        console.log('🚨 UUID VALIDATION FAILED:', analysis.uuidValid);
+      }
+      
+      recordEnhancedTestStep(`Step ${stepNumber}`, analysis, issues);
+      return analysis;
+    });
+};
+</example>
+
+<example>
+// Excellent: Real-time task persistence monitoring with silent failure detection
+const monitorTaskPersistenceEnhanced = (prdId) => {
+  console.log(`⏱️ ENHANCED TASK PERSISTENCE MONITORING: ${prdId}`);
+  
+  let checkCount = 0;
+  const maxChecks = 30;
+  
+  const checkTasks = () => {
+    checkCount++;
+    
+    Promise.all([
+      fetch(`/api/tools/task-manager/tasks?prdId=${prdId}`).then(r => r.json()),
+      fetch('/api/tools/prd-basic/dashboard-list').then(r => r.json())
+    ])
+    .then(([taskData, prdData]) => {
+      const prd = prdData.prds.find(p => p.id === prdId);
+      const analysis = {
+        timestamp: new Date().toLocaleTimeString(),
+        checkNumber: checkCount,
+        tasks: taskData.summary?.total_tasks || taskData.tasks?.length || 0,
+        success: taskData.success,
+        organizationMatch: prd?.organization_id === prdData.userOrganization?.id,
+        // Silent failure detection
+        silentFailure: taskData.success && (taskData.summary?.total_tasks || 0) === 0 && checkCount > 5,
+        // Enhanced tracking
+        qualityScore: taskData.quality_metrics?.overall_quality_score,
+        errors: taskData.error ? [taskData.error] : []
+      };
+      
+      console.log(`⏱️ Enhanced Task Check ${checkCount}/${maxChecks}:`, analysis);
+      
+      if (analysis.silentFailure) {
+        console.log(`🚨 SILENT FAILURE: API success but no tasks persisted after ${checkCount} checks`);
+      }
+      
+      if (analysis.tasks > 0 && analysis.success) {
+        console.log(`✅ TASK PERSISTENCE SUCCESS: ${analysis.tasks} tasks confirmed!`);
+        clearInterval(interval);
+      }
+    });
+  };
+  
+  const interval = setInterval(checkTasks, 2000);
+  setTimeout(() => clearInterval(interval), maxChecks * 2000);
+  
+  return interval;
+};
+</example>
+
+<example type="invalid">
+// Bad: No systematic monitoring, no UUID validation, no organization consistency checking
+// Just clicking through workflow without verification
+// No real-time data flow tracking
+// No silent failure detection
+// No session management or issue classification
+</example>
+
+## Integration with Enhanced Rules
+
+- Works with [380-comprehensive-testing-standards.mdc](mdc:380-comprehensive-testing-standards.mdc) for overall testing approach
+- Supports [350-debug-test-failures.mdc](mdc:350-debug-test-failures.mdc) for systematic debugging
+- Complements [116-testing-environments.mdc](mdc:116-testing-environments.mdc) for test environment standards
+- Integrates with [025-multi-tenancy.mdc](mdc:025-multi-tenancy.mdc) for organization isolation verification
+
+## Enhanced Anti-Patterns to Avoid
+
+1. **Manual Testing Without UUID Validation**: Testing workflows without validating UUID formats
+2. **Ignoring Organization Consistency**: Not checking organization ID consistency across endpoints
+3. **Accepting Silent Failures**: Trusting API success responses without verifying database persistence
+4. **Single-Point Checks**: Only checking final results instead of step-by-step verification with real-time monitoring
+5. **No Session Management**: Testing without comprehensive session tracking and issue classification
+
+## Enhanced Success Validation
+
+- All critical data points monitored at each step with UUID format validation
+- Organization consistency verified throughout workflow across all endpoints
+- Real-time detection of data persistence issues with silent failure identification
+- Complete correlation between frontend state and backend reality with cross-verification
+- Systematic documentation of issues with exact step, timing, and severity classification
+- Session management with automatic cleanup and archival for post-debugging analysis
+
+## Proven Results from Real Implementation
+
+### UUID Migration Success (August 2025)
+
+- **Issue Detection**: < 30 seconds (vs. hours of manual debugging)
+- **Silent Failures**: 100% detection rate (caught all database persistence issues)
+- **Organization Consistency**: Immediate detection of multi-tenant boundary violations
+- **UUID Validation**: Prevented constraint violations before database operations
+
+### PRD Workflow Debugging Success
+
+- **Step-by-Step Tracking**: Complete visibility into 9-step workflow progression
+- **AI Enhancement Issues**: Real-time detection of metadata persistence failures
+- **Cross-System Correlation**: 100% accuracy in frontend vs. backend state verification
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Enhanced frontend testing workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools
+- **`.cursor/tools/check-env-vars.sh`** - Test environment setup
+- **`.cursor/tools/inspect-model.sh`** - Check data models for frontend tests
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @042-ui-component-architecture.mdc - Component patterns to test
+- @054-accessibility-requirements.mdc - A11y testing
+- @300-testing-standards.mdc - General testing standards
+- @310-component-visual-testing.mdc - Visual testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @390-systematic-frontend-testing.mdc - Base frontend testing patterns
+
+### Quick Start
+1. **Base:** Start with @390-systematic-frontend-testing.mdc
+2. **Enhance:** Apply enhanced patterns from this rule
+3. **Test:** Framework from @380-comprehensive-testing-standards.mdc

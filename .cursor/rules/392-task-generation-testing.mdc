@@ -1,0 +1,268 @@
+---
+
+description: Use when testing task generation workflow to ensure organization consistency, database persistence, and proper PRD-to-task data flow
+globs: "pages/api/vibecoder/\*_/_.{ts,js}"
+
+---
+
+# Task Generation Testing Standards
+
+## Context
+
+- Task generation involves complex PRD parsing, AI processing, and database operations
+- Organization consistency between PRD and generated tasks is critical for data visibility
+- Silent database failures can occur where terminal logs show success but no data persists
+- Real-time monitoring is essential to catch transaction rollbacks and constraint violations
+
+## Requirements
+
+### PRD-to-Task Organization Consistency
+
+- Verify task generation uses PRD's organization_id, not user's organization_id
+- Monitor organization alignment throughout task generation process
+- Check that generated tasks are accessible within same organization context
+- Alert if organization mismatch prevents task visibility
+
+### Database Persistence Verification
+
+- Monitor real-time task persistence during generation process
+- Correlate terminal "success" logs with actual database state
+- Detect silent transaction rollbacks and constraint violations
+- Verify task groups and individual tasks both persist correctly
+
+### Task Loading and Visibility
+
+- Validate generated tasks appear in task management interface
+- Check API responses include proper organization fields
+- Verify task-to-PRD relationship integrity
+- Monitor task count consistency across different API endpoints
+
+### Error Detection and Classification
+
+- Identify database constraint violations (UUID/VARCHAR mismatches)
+- Detect missing required fields causing transaction rollbacks
+- Monitor for foreign key constraint failures
+- Track Claude API token limit issues and fallback behavior
+
+## Implementation Guidelines
+
+### Pre-Generation Verification
+
+```javascript
+// Verify PRD readiness for task generation
+const verifyPRDForTaskGeneration = (prdId) => {
+  fetch("/api/tools/prd-basic/dashboard-list")
+    .then((r) => r.json())
+    .then((data) => {
+      const prd = data.prds.find((p) => p.id === prdId);
+      console.log("🔍 PRD TASK READINESS:", {
+        prdId: prd?.id,
+        prdStatus: prd?.status,
+        prdOrganization: prd?.organization_id || "NULL",
+        userOrganization: data.userOrganization?.id || "NULL",
+        organizationMatch: prd?.organization_id === data.userOrganization?.id,
+        completedSteps: prd?.completed_steps?.length,
+        readyForTasks: prd?.status === "completed" && !!prd?.organization_id,
+      });
+
+      if (!prd?.organization_id) {
+        console.log(
+          "🚨 CRITICAL: PRD has no organization - task generation will fail"
+        );
+      }
+    });
+};
+```
+
+### Real-Time Task Persistence Monitoring
+
+```javascript
+// Monitor task persistence during generation
+const monitorTaskPersistence = (prdId) => {
+  console.log("⏱️ TASK PERSISTENCE MONITORING STARTED");
+
+  const checkPersistence = () => {
+    fetch(`/api/tools/task-manager/tasks?prdId=${prdId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        console.log("⏱️ Persistence Check:", {
+          timestamp: new Date().toLocaleTimeString(),
+          success: data.success,
+          tasks: data.summary?.total_tasks || 0,
+          groups: data.taskGroups?.length || 0,
+          prdOrgId: data.prd?.organization_id || "NULL",
+          userOrgId: data.userOrganization?.id || "NULL",
+          organizationMatch:
+            data.prd?.organization_id === data.userOrganization?.id,
+          error: data.error,
+        });
+
+        // Detection patterns
+        if (data.taskGroups?.length > 0 && data.summary?.total_tasks === 0) {
+          console.log(
+            "❌ DETECTED: Task groups exist but no tasks - JOIN failure"
+          );
+        }
+        if (data.error?.includes("not found")) {
+          console.log("❌ DETECTED: PRD access denied - organization mismatch");
+        }
+      })
+      .catch((err) => console.log("❌ Persistence check failed:", err));
+  };
+
+  // Check every 2 seconds during generation
+  const interval = setInterval(checkPersistence, 2000);
+
+  // Stop monitoring after 90 seconds
+  setTimeout(() => {
+    clearInterval(interval);
+    console.log("⏱️ Monitoring stopped - final check in 3 seconds");
+    setTimeout(checkPersistence, 3000);
+  }, 90000);
+
+  return interval;
+};
+```
+
+### Terminal Log Correlation
+
+```javascript
+// Correlate frontend monitoring with terminal logs
+const correlateWithTerminalLogs = (operation) => {
+  console.log(`🔗 CORRELATING ${operation} with terminal logs:`);
+  console.log("🔍 Watch terminal for:");
+  console.log('  ✅ "ENHANCED SAVE: Task X saved successfully" messages');
+  console.log('  ❌ "ENHANCED SAVE: CRITICAL FAILURE" errors');
+  console.log('  🔧 "operator does not exist" constraint errors');
+  console.log('  💾 "Successfully saved ALL X tasks" confirmations');
+  console.log(
+    "⚠️ If terminal shows success but frontend shows 0 tasks = transaction rollback"
+  );
+};
+```
+
+## Examples
+
+<example>
+// Good: Complete task generation testing workflow
+// 1. Pre-generation verification
+verifyPRDForTaskGeneration(window.testPrdId);
+
+// 2. Start real-time monitoring  
+const monitor = monitorTaskPersistence(window.testPrdId);
+
+// 3. Generate tasks (user action)
+correlateWithTerminalLogs('TASK_GENERATION');
+
+// 4. Validate results
+setTimeout(() => {
+clearInterval(monitor);
+validateTaskGenerationResults(window.testPrdId);
+}, 60000);
+</example>
+
+<example>
+// Good: Organization consistency validation
+const validateOrganizationConsistency = (prdId) => {
+  Promise.all([
+    fetch('/api/tools/prd-basic/dashboard-list'),
+    fetch(`/api/tools/task-manager/tasks?prdId=${prdId}`)
+  ])
+  .then(([prdRes, taskRes]) => Promise.all([prdRes.json(), taskRes.json()]))
+  .then(([prdData, taskData]) => {
+    const prd = prdData.prds.find(p => p.id === prdId);
+    console.log('🔍 ORGANIZATION CONSISTENCY CHECK:', {
+      userOrg: prdData.userOrganization?.id,
+      prdOrg: prd?.organization_id,
+      taskPrdOrg: taskData.prd?.organization_id,
+      allMatch: !!(
+        prd?.organization_id === prdData.userOrganization?.id &&
+        prd?.organization_id === taskData.prd?.organization_id
+      )
+    });
+  });
+};
+</example>
+
+<example type="invalid">
+// Bad: Testing task generation without monitoring
+// Generate tasks without pre-verification
+// No real-time persistence checking
+// No organization consistency validation
+// Accepting terminal "success" logs without database verification
+</example>
+
+## Critical Checkpoints
+
+### Before Task Generation
+
+- [ ] PRD status = "completed"
+- [ ] PRD has organization_id assigned
+- [ ] Organization matches user's organization
+- [ ] All 9 steps completed
+
+### During Task Generation
+
+- [ ] Real-time monitoring active
+- [ ] Terminal logs correlation running
+- [ ] Organization consistency maintained
+- [ ] No database constraint errors
+
+### After Task Generation
+
+- [ ] Tasks count > 0 in database
+- [ ] Task groups created successfully
+- [ ] Tasks visible in UI
+- [ ] Organization alignment verified
+
+## Error Pattern Recognition
+
+### Silent Database Failures
+
+**Pattern**: Terminal shows "✅ Task saved successfully" but database has 0 tasks
+**Cause**: Transaction rollback due to constraint violations
+**Detection**: Real-time monitoring shows persistent 0 task count
+
+### Organization Mismatches
+
+**Pattern**: Tasks generated but not visible in UI
+**Cause**: Tasks saved to different organization than PRD belongs to
+**Detection**: Organization consistency check shows mismatch
+
+### Type Constraint Violations
+
+**Pattern**: "operator does not exist" errors in terminal
+**Cause**: Database schema type mismatches (UUID vs VARCHAR)
+**Detection**: Terminal logs show specific constraint error messages
+
+## Integration with Other Rules
+
+- Implements [390-systematic-frontend-testing.mdc](mdc:390-systematic-frontend-testing.mdc) console monitoring
+- Follows [380-comprehensive-testing-standards.mdc](mdc:380-comprehensive-testing-standards.mdc) visual organization
+- Supports [350-debug-test-failures.mdc](mdc:350-debug-test-failures.mdc) systematic debugging approach
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Task testing workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check Task data models
+  ```bash
+  ./.cursor/tools/inspect-model.sh Task
+  ./.cursor/tools/inspect-model.sh PRD
+  ```
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (schema first!)
+- @300-testing-standards.mdc - General testing standards
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @391-prd-testing-standards.mdc - PRD testing (tasks come from PRDs!)
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh Task` (check organizationId!)
+2. **Follow:** @375-api-test-first-time-right.mdc (schema-first)
+3. **Test:** Task generation, PRD-to-task flow, database persistence

@@ -1,0 +1,710 @@
+---
+
+description: Use when testing MindStudio agent integrations to ensure reliable, maintainable, and comprehensive test coverage
+globs: "src/\*_/_.{test,spec}.{js,jsx,ts,tsx}"
+
+---
+
+# MindStudio Testing Standards
+
+## Context
+
+- Testing AI agent integrations requires different strategies than traditional API testing
+- Agent responses can be non-deterministic, requiring flexible assertion patterns
+- Proper mocking prevents expensive API calls during development and CI/CD
+- Test reliability is critical for maintaining confidence in AI-powered features
+
+## Requirements
+
+### Test Strategy and Organization
+
+- **REQUIRED**: Separate unit tests, integration tests, and end-to-end tests for agent functionality
+- **REQUIRED**: Mock MindStudio agents for unit tests to avoid API costs and improve speed
+- **REQUIRED**: Use real agents in integration tests with dedicated test environments
+- **REQUIRED**: Implement contract tests to verify agent interface compatibility
+- **REQUIRED**: Create smoke tests for critical agent workflows
+
+### Mock Implementation Standards
+
+- **REQUIRED**: Create realistic mocks that match actual agent response schemas
+- **REQUIRED**: Implement different mock scenarios (success, failure, timeout, rate limiting)
+- **REQUIRED**: Use deterministic mock responses for consistent test results
+- **REQUIRED**: Mock billing costs and metadata for complete test coverage
+- **REQUIRED**: Version mock responses to match agent updates
+
+### Integration Testing Patterns
+
+- **REQUIRED**: Test agent integrations in isolated environments
+- **REQUIRED**: Validate end-to-end workflows with real agent calls
+- **REQUIRED**: Test error handling and retry logic with live agents
+- **REQUIRED**: Monitor test costs and implement cost controls
+- **REQUIRED**: Implement test data cleanup for multi-tenant scenarios
+
+### Test Data Management
+
+- **REQUIRED**: Use consistent test data across different test types
+- **REQUIRED**: Implement test data factories for complex agent inputs
+- **REQUIRED**: Ensure test data respects organization boundaries
+- **REQUIRED**: Create reusable test fixtures for common agent scenarios
+- **REQUIRED**: Implement test data versioning for agent schema changes
+
+## Examples
+
+<example>
+// Good: Comprehensive mock implementation for MindStudio agents
+import { jest } from '@jest/globals';
+import { MindStudio, MindStudioError } from 'mindstudio';
+
+// Mock factory for creating realistic agent responses
+class MindStudioMockFactory {
+static createSuccessResponse(result: string, options: Partial<any> = {}): any {
+return {
+success: true,
+result,
+threadId: options.threadId || `thread-${Date.now()}`,
+billingCost: options.billingCost || 0.001,
+tokensUsed: options.tokensUsed || 100,
+model: options.model || 'gpt-4',
+processingTime: options.processingTime || 1500,
+...options
+};
+}
+
+static createErrorResponse(message: string, errorType: 'validation' | 'workflow' | 'api' = 'workflow'): any {
+return {
+success: false,
+error: {
+message,
+type: errorType,
+code: errorType === 'validation' ? 'INVALID_INPUT' : 'WORKFLOW_FAILED'
+}
+};
+}
+
+static createRateLimitError(): any {
+return {
+success: false,
+error: {
+message: 'Rate limit exceeded',
+type: 'rate_limit',
+code: 'RATE_LIMIT_EXCEEDED',
+retryAfter: 5000
+}
+};
+}
+}
+
+// Mock implementation with different scenarios
+class MockMindStudioClient {
+private scenario: 'success' | 'error' | 'rate_limit' | 'timeout' = 'success';
+private callCount = 0;
+
+setScenario(scenario: 'success' | 'error' | 'rate_limit' | 'timeout'): void {
+this.scenario = scenario;
+this.callCount = 0;
+}
+
+async mockAgentCall(input: any): Promise<any> {
+this.callCount++;
+
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    switch (this.scenario) {
+      case 'success':
+        return MindStudioMockFactory.createSuccessResponse(
+          `Generated content for: ${input.prompt}`,
+          { billingCost: 0.002 * input.prompt.length / 100 }
+        );
+
+      case 'error':
+        throw new MindStudioError('Mock workflow error');
+
+      case 'rate_limit':
+        if (this.callCount <= 2) {
+          throw new Error('Rate limit exceeded');
+        }
+        return MindStudioMockFactory.createSuccessResponse('Success after retry');
+
+      case 'timeout':
+        throw new Error('Request timeout');
+
+      default:
+        throw new Error('Unknown mock scenario');
+    }
+
+}
+
+getCallCount(): number {
+return this.callCount;
+}
+}
+</example>
+
+<example>
+// Good: Unit tests with comprehensive mock scenarios
+describe('ContentService', () => {
+  let contentService: ContentService;
+  let mockClient: MockMindStudioClient;
+
+beforeEach(() => {
+mockClient = new MockMindStudioClient();
+contentService = new ContentService(mockClient as any);
+});
+
+describe('generateContent', () => {
+it('should generate content successfully with valid input', async () => {
+// Arrange
+mockClient.setScenario('success');
+const input: ContentGenerationInput = {
+prompt: 'Write a blog post about AI',
+organizationId: 'org-123' as OrganizationId,
+maxTokens: 1000
+};
+
+      // Act
+      const result = await contentService.generateContent(input);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+      expect(result.data!.result).toContain('Write a blog post about AI');
+      expect(result.data!.billingCost).toBeGreaterThan(0);
+      expect(result.data!.threadId).toMatch(/^thread-\d+$/);
+      expect(result.error).toBeNull();
+    });
+
+    it('should handle workflow errors gracefully', async () => {
+      // Arrange
+      mockClient.setScenario('error');
+      const input: ContentGenerationInput = {
+        prompt: 'Invalid prompt',
+        organizationId: 'org-123' as OrganizationId
+      };
+
+      // Act
+      const result = await contentService.generateContent(input);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.data).toBeNull();
+      expect(result.error).toContain('Mock workflow error');
+    });
+
+    it('should validate input parameters', async () => {
+      // Arrange
+      const invalidInput = {
+        prompt: '', // Empty prompt
+        organizationId: 'org-123' as OrganizationId
+      };
+
+      // Act
+      const result = await contentService.generateContent(invalidInput);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Prompt is required');
+    });
+
+    it('should include organization context in all calls', async () => {
+      // Arrange
+      mockClient.setScenario('success');
+      const input: ContentGenerationInput = {
+        prompt: 'Test prompt',
+        organizationId: 'org-456' as OrganizationId
+      };
+
+      // Act
+      await contentService.generateContent(input);
+
+      // Assert - verify organization context was passed
+      expect(mockClient.getCallCount()).toBe(1);
+      // In a real implementation, you'd verify the organizationId was passed to the agent
+    });
+
+});
+
+describe('retry logic', () => {
+it('should retry on rate limit errors', async () => {
+// Arrange
+mockClient.setScenario('rate_limit');
+const input: ContentGenerationInput = {
+prompt: 'Test prompt',
+organizationId: 'org-123' as OrganizationId
+};
+
+      // Act
+      const result = await contentService.generateContent(input);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(mockClient.getCallCount()).toBeGreaterThan(1); // Should have retried
+    });
+
+    it('should not retry on validation errors', async () => {
+      // Arrange
+      const input = {
+        prompt: '', // Invalid input
+        organizationId: 'org-123' as OrganizationId
+      };
+
+      // Act
+      const result = await contentService.generateContent(input);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(mockClient.getCallCount()).toBe(0); // Should not call agent with invalid input
+    });
+
+});
+});
+</example>
+
+<example>
+// Good: Integration tests with real agents in test environment
+describe('MindStudio Integration Tests', () => {
+  let realClient: MindStudio;
+  let testOrganizationId: OrganizationId;
+
+beforeAll(async () => {
+// Use test API key and environment
+const testApiKey = process.env.MINDSTUDIO_TEST_API_KEY;
+if (!testApiKey) {
+throw new Error('MINDSTUDIO_TEST_API_KEY required for integration tests');
+}
+
+    realClient = new MindStudio(testApiKey);
+    testOrganizationId = 'test-org-integration' as OrganizationId;
+
+});
+
+describe('Content Generation Agent', () => {
+it('should generate content with real agent', async () => {
+// Arrange
+const input = {
+prompt: 'Write a short test message for integration testing',
+organizationId: testOrganizationId,
+maxTokens: 50
+};
+
+      // Act
+      const startTime = Date.now();
+      const response = await realClient.workers.ContentGenerator.generateText(input);
+      const endTime = Date.now();
+
+      // Assert
+      expect(response.result).toBeDefined();
+      expect(response.result.length).toBeGreaterThan(0);
+      expect(response.billingCost).toBeGreaterThan(0);
+      expect(response.threadId).toBeDefined();
+      expect(endTime - startTime).toBeLessThan(10000); // Should complete within 10 seconds
+
+      // Log for monitoring
+      console.log('Integration test cost:', response.billingCost);
+    }, 15000); // Longer timeout for real API calls
+
+    it('should handle invalid input appropriately', async () => {
+      // Arrange
+      const invalidInput = {
+        prompt: '', // Empty prompt should fail
+        organizationId: testOrganizationId
+      };
+
+      // Act & Assert
+      await expect(
+        realClient.workers.ContentGenerator.generateText(invalidInput)
+      ).rejects.toThrow();
+    });
+
+});
+
+describe('Multi-agent workflow', () => {
+it('should execute complete content creation workflow', async () => {
+// Arrange
+const orchestrator = new DragonOrchestrator(
+new Map([
+[AgentType.CREATIVE, new MindStudioAgentWrapper(realClient, 'creative-agent-id')],
+[AgentType.GUARDIAN, new MindStudioAgentWrapper(realClient, 'guardian-agent-id')]
+]),
+console
+);
+
+      const request: OrchestrationRequest = {
+        type: 'content_creation',
+        organizationId: testOrganizationId,
+        userId: 'test-user' as UserId,
+        input: {
+          prompt: 'Write a professional welcome message',
+          style: 'professional'
+        }
+      };
+
+      // Act
+      const result = await orchestrator.orchestrateRequest(request);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.result).toBeDefined();
+      expect(result.steps.length).toBeGreaterThan(0);
+      expect(result.result.metadata.totalCost).toBeGreaterThan(0);
+
+      // Verify workflow steps
+      const safetyStep = result.steps.find(step => step.stepId === 'safety_check');
+      expect(safetyStep?.status).toBe('completed');
+
+      const contentStep = result.steps.find(step => step.stepId === 'content_generation');
+      expect(contentStep?.status).toBe('completed');
+    }, 30000); // Longer timeout for multi-step workflow
+
+});
+});
+</example>
+
+<example>
+// Good: Contract tests for agent interface compatibility
+describe('Agent Contract Tests', () => {
+  let client: MindStudio;
+
+beforeAll(() => {
+client = new MindStudio(process.env.MINDSTUDIO_TEST_API_KEY!);
+});
+
+describe('Content Generator Agent Contract', () => {
+it('should have expected input schema', async () => {
+// Test that the agent accepts the expected input format
+const validInput = {
+prompt: 'test',
+organizationId: 'test-org',
+maxTokens: 100,
+temperature: 0.7
+};
+
+      // This should not throw an error
+      await expect(
+        client.workers.ContentGenerator.generateText(validInput)
+      ).resolves.toBeDefined();
+    });
+
+    it('should return expected output schema', async () => {
+      // Arrange
+      const input = {
+        prompt: 'test prompt',
+        organizationId: 'test-org'
+      };
+
+      // Act
+      const response = await client.workers.ContentGenerator.generateText(input);
+
+      // Assert - verify response schema
+      expect(response).toHaveProperty('result');
+      expect(response).toHaveProperty('threadId');
+      expect(response).toHaveProperty('billingCost');
+      expect(typeof response.result).toBe('string');
+      expect(typeof response.threadId).toBe('string');
+      expect(typeof response.billingCost).toBe('number');
+    });
+
+    it('should reject invalid input schema', async () => {
+      // Test that agent properly validates input
+      const invalidInput = {
+        wrongField: 'test' // Missing required fields
+      };
+
+      await expect(
+        client.workers.ContentGenerator.generateText(invalidInput as any)
+      ).rejects.toThrow();
+    });
+
+});
+});
+</example>
+
+<example>
+// Good: Test data factories and fixtures
+class AgentTestDataFactory {
+  static createContentGenerationInput(overrides: Partial<ContentGenerationInput> = {}): ContentGenerationInput {
+    return {
+      prompt: 'Default test prompt for content generation',
+      organizationId: 'test-org-123' as OrganizationId,
+      userId: 'test-user-456' as UserId,
+      maxTokens: 500,
+      temperature: 0.7,
+      style: 'professional',
+      ...overrides
+    };
+  }
+
+static createOrchestrationRequest(overrides: Partial<OrchestrationRequest> = {}): OrchestrationRequest {
+return {
+type: 'content_creation',
+organizationId: 'test-org-123' as OrganizationId,
+userId: 'test-user-456' as UserId,
+input: {
+prompt: 'Test orchestration prompt',
+style: 'professional'
+},
+...overrides
+};
+}
+
+static createMultiTenantTestData(): {
+org1: { organizationId: OrganizationId; userId: UserId };
+org2: { organizationId: OrganizationId; userId: UserId };
+} {
+return {
+org1: {
+organizationId: 'test-org-tenant-1' as OrganizationId,
+userId: 'user-1-tenant-1' as UserId
+},
+org2: {
+organizationId: 'test-org-tenant-2' as OrganizationId,
+userId: 'user-1-tenant-2' as UserId
+}
+};
+}
+}
+
+// Test fixtures for common scenarios
+export const AgentTestFixtures = {
+validInputs: {
+shortPrompt: AgentTestDataFactory.createContentGenerationInput({
+prompt: 'Short test',
+maxTokens: 100
+}),
+longPrompt: AgentTestDataFactory.createContentGenerationInput({
+prompt: 'Very long test prompt '.repeat(50),
+maxTokens: 2000
+}),
+withStyle: AgentTestDataFactory.createContentGenerationInput({
+prompt: 'Styled content test',
+style: 'casual'
+})
+},
+
+invalidInputs: {
+emptyPrompt: AgentTestDataFactory.createContentGenerationInput({
+prompt: ''
+}),
+missingOrganization: {
+prompt: 'Test without organization',
+userId: 'test-user' as UserId
+} as any,
+negativeTokens: AgentTestDataFactory.createContentGenerationInput({
+prompt: 'Test',
+maxTokens: -100
+})
+},
+
+expectedResponses: {
+success: MindStudioMockFactory.createSuccessResponse('Test response'),
+error: MindStudioMockFactory.createErrorResponse('Test error'),
+rateLimit: MindStudioMockFactory.createRateLimitError()
+}
+};
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Testing without mocks (expensive and unreliable)
+describe('ContentService', () => {
+  it('should generate content', async () => {
+    // Using real API in unit tests - expensive and slow
+    const realClient = new MindStudio(process.env.MINDSTUDIO_KEY);
+    const service = new ContentService(realClient);
+    
+    const result = await service.generateContent({
+      prompt: 'test',
+      organizationId: 'org-123'
+    });
+    
+    expect(result).toBeDefined(); // Vague assertion
+  });
+});
+
+// ❌ AVOID: Non-deterministic test assertions
+it('should generate creative content', async () => {
+const result = await contentService.generateContent(input);
+
+// AI responses are non-deterministic - this will fail randomly
+expect(result.data.result).toBe('Exactly this specific text');
+});
+
+// ❌ AVOID: Missing error scenario testing
+describe('ContentService', () => {
+it('should work', async () => {
+// Only testing happy path - no error scenarios
+const result = await service.generateContent(validInput);
+expect(result.success).toBe(true);
+});
+});
+
+// ❌ AVOID: No organization context in tests
+it('should generate content', async () => {
+const input = {
+prompt: 'test'
+// Missing organizationId - not testing multi-tenancy
+};
+
+const result = await service.generateContent(input);
+expect(result).toBeDefined();
+});
+
+// ❌ AVOID: Hardcoded test data without factories
+describe('Multiple tests', () => {
+it('test 1', async () => {
+// Duplicated test data setup
+const input = {
+prompt: 'test prompt',
+organizationId: 'org-123',
+userId: 'user-456',
+maxTokens: 1000
+};
+// ... test logic
+});
+
+it('test 2', async () => {
+// Same test data duplicated - should use factory
+const input = {
+prompt: 'test prompt',
+organizationId: 'org-123',
+userId: 'user-456',
+maxTokens: 1000
+};
+// ... test logic
+});
+});
+</example>
+
+## Test Configuration and Setup
+
+### Jest Configuration for MindStudio Tests
+
+```javascript
+// jest.config.js
+module.exports = {
+  testEnvironment: "node",
+  setupFilesAfterEnv: ["<rootDir>/src/test/setup.ts"],
+  testMatch: [
+    "**/__tests__/**/*.(test|spec).(js|ts)",
+    "**/*.(test|spec).(js|ts)",
+  ],
+  collectCoverageFrom: ["src/**/*.{js,ts}", "!src/**/*.d.ts", "!src/test/**/*"],
+  coverageThreshold: {
+    global: {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80,
+    },
+  },
+  testTimeout: 10000, // Longer timeout for AI operations
+  maxWorkers: 2, // Limit concurrent tests to avoid rate limiting
+};
+```
+
+### Test Environment Setup
+
+```typescript
+// src/test/setup.ts
+import { jest } from "@jest/globals";
+
+// Global test configuration
+beforeAll(() => {
+  // Set test environment variables
+  process.env.NODE_ENV = "test";
+  process.env.MINDSTUDIO_TEST_API_KEY = "test-key-123";
+
+  // Mock console methods to reduce test noise
+  jest.spyOn(console, "log").mockImplementation(() => {});
+  jest.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+afterAll(() => {
+  // Cleanup
+  jest.restoreAllMocks();
+});
+
+// Global test utilities
+global.testHelpers = {
+  delay: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
+  generateTestId: () => `test-${Date.now()}-${Math.random()}`,
+  createMockLogger: () => ({
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  }),
+};
+```
+
+## Test Categorization and Organization
+
+### Test Categories
+
+1. **Unit Tests** - Fast, isolated, mocked
+2. **Integration Tests** - Real agents, test environment
+3. **Contract Tests** - Agent interface validation
+4. **End-to-End Tests** - Complete user workflows
+5. **Performance Tests** - Load and response time testing
+
+### Test File Organization
+
+```
+src/
+├── services/
+│   ├── ContentService.ts
+│   └── __tests__/
+│       ├── ContentService.unit.test.ts
+│       ├── ContentService.integration.test.ts
+│       └── ContentService.contract.test.ts
+├── orchestration/
+│   ├── DragonOrchestrator.ts
+│   └── __tests__/
+│       ├── DragonOrchestrator.unit.test.ts
+│       └── workflows.integration.test.ts
+└── test/
+    ├── setup.ts
+    ├── fixtures/
+    ├── mocks/
+    └── helpers/
+```
+
+## Continuous Integration Considerations
+
+- Run unit tests on every commit
+- Run integration tests on pull requests
+- Use different test environments for different branches
+- Monitor test costs and set budget alerts
+- Implement test result caching for faster CI/CD
+- Use test parallelization with rate limit awareness
+
+## Integration with Other Rules
+
+- Builds on [117-mindstudio-agent-integration.mdc](mdc:117-mindstudio-agent-integration.mdc) for integration patterns
+- Uses [118-mindstudio-type-safety.mdc](mdc:118-mindstudio-type-safety.mdc) for type-safe test implementations
+- Requires [119-mindstudio-error-handling.mdc](mdc:119-mindstudio-error-handling.mdc) for error scenario testing
+- Supports [120-mindstudio-orchestration.mdc](mdc:120-mindstudio-orchestration.mdc) for workflow testing
+- Complements [380-comprehensive-testing-standards.mdc](mdc:380-comprehensive-testing-standards.mdc) for overall test quality
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - AI testing workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check AI integration data models
+- **`.cursor/tools/check-env-vars.sh`** - Verify MindStudio API keys
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @115-mindstudio-integration.mdc - MindStudio integration patterns
+- @117-mindstudio-agent-integration.mdc - Agent integration
+- @119-mindstudio-error-handling.mdc - Error handling to test
+- @300-testing-standards.mdc - General testing standards
+- @330-third-party-integration-testing.mdc - Third-party testing patterns
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Quick Start
+1. **Validate:** `.cursor/tools/check-env-vars.sh` (MindStudio keys)
+2. **Follow:** @330-third-party-integration-testing.mdc (AI mocking patterns)
+3. **Test:** See @380-comprehensive-testing-standards.mdc

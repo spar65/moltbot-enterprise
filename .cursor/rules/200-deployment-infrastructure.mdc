@@ -1,0 +1,634 @@
+---
+description: Use when setting up deployment infrastructure, CI/CD pipelines, and production environment configurations
+globs: "**/vercel.json, **/netlify.toml, **/.github/workflows/*.yml, **/docker-compose.yml, **/Dockerfile, **/next.config.js, **/nginx/**/*.conf"
+---
+
+# Deployment & Infrastructure Guidelines
+
+## CRITICAL: Read These Rules First
+- **MANDATORY**: Apply @202-vercel-production-gotchas.mdc for Vercel deployments
+- **MANDATORY**: Apply @203-production-deployment-safety.mdc for all production deployments
+- These rules prevent catastrophic production failures that only manifest in production
+
+## Context
+- Modern web applications require secure and scalable deployment infrastructure
+- CI/CD pipelines improve development efficiency and deployment consistency
+- Security measures must be implemented at the infrastructure level
+- Different environments (development, staging, production) require specific configurations
+- Performance optimization needs to be considered at the deployment level
+- Vercel has specific runtime behaviors that differ from local/test environments
+
+## Infrastructure Requirements
+
+### Database-First Deployment Strategy (v2.1.1 Critical Lesson)
+
+- **🚨 MANDATORY ORDER**: Database schema changes MUST be deployed BEFORE code that uses them
+- **NEVER REVERSE**: Never deploy frontend code that expects database columns that don't exist yet
+- **REAL EXAMPLE**: v2.1.1 story points - deployed frontend expecting `story_points` column before migration = complete production failure
+- **DEPLOYMENT SEQUENCE**:
+  1. Deploy database migration to production
+  2. Verify migration success (check row counts, test queries)
+  3. Deploy application code that uses new schema
+  4. Monitor for errors after deployment
+- **ROLLBACK PLAN**: Always have rollback strategy for both database and application code
+
+### Web Application Firewall (WAF)
+- **REQUIRED**: All production deployments must include Web Application Firewall (WAF) protection
+- **REQUIRED**: Configure WAF to protect against OWASP Top 10 vulnerabilities
+- Enable bot protection to prevent automated attacks and scrapers
+- Set up challenge modes to validate human users when suspicious activities are detected
+- Implement rate limiting at the infrastructure level for all public endpoints
+- Configure geolocation blocking for regions with high attack volumes or no legitimate business need
+
+```javascript
+// Good: Vercel configuration with security headers
+// vercel.json
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' https://www.google-analytics.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.google-analytics.com; connect-src 'self' https://www.google-analytics.com; frame-ancestors 'none';"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+        }
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "permanent": true
+    }
+  ]
+}
+```
+
+#### Platform-Specific WAF Configuration
+
+##### Vercel WAF Setup
+- Enable Vercel's Advanced Protection in the dashboard settings
+- Configure Rate Limiting rules appropriate for your application's needs
+- Enable Bot Protection with appropriate challenge modes
+- Set up Logging for security events
+- Configure IP Blocking rules as needed
+
+```bash
+# Vercel CLI configuration for WAF
+vercel env add VERCEL_WEB_ANALYTICS_ID production
+vercel env add NEXT_PUBLIC_VERCEL_EDGE_ENABLED production 1
+vercel env add VERCEL_ADVANCED_PROTECTION production 1
+vercel env add VERCEL_PROTECTION_BYPASS_KEY production <secret-key>
+```
+
+##### Cloudflare WAF Setup
+- Enable Cloudflare WAF for your domain
+- Configure Managed Ruleset with appropriate sensitivity 
+- Set up Rate Limiting rules (e.g., 100 requests per minute per IP)
+- Enable Bot Fight Mode and Challenge Passage
+- Configure specific Firewall Rules for sensitive endpoints
+
+```bash
+# Example Cloudflare Terraform configuration
+resource "cloudflare_waf_package" "owasp" {
+  zone_id = var.cloudflare_zone_id
+  package_id = "a25a9a7e9c00afc1fb2e0245519d725b"
+  sensitivity = "high"
+  action_mode = "challenge"
+}
+
+resource "cloudflare_rate_limit" "login_limit" {
+  zone_id = var.cloudflare_zone_id
+  threshold = 5
+  period = 60
+  match {
+    request {
+      url_pattern = "${var.domain}/api/auth/login"
+      schemes = ["HTTP", "HTTPS"]
+      methods = ["POST"]
+    }
+  }
+  action {
+    mode = "challenge"
+    timeout = 300
+    response {
+      content_type = "application/json"
+      body = "{\"error\": \"Rate limit exceeded, please try again later\"}"
+    }
+  }
+  disabled = false
+  description = "Rate limit for login endpoint"
+}
+```
+
+##### AWS WAF Setup
+- Deploy AWS WAF with AWS Managed Rules (AMRs)
+- Enable Core rule set, SQL injection, and XSS protection
+- Configure Rate-Based Rules for endpoints
+- Set up IP reputation lists
+- Implement AWS Shield for DDoS protection for critical applications
+
+```yaml
+# CloudFormation snippet for AWS WAF
+Resources:
+  MyWebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: AppProtectionWAF
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: AppProtectionWAF
+      Rules:
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 0
+          OverrideAction:
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesCommonRuleSet
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+        - Name: RateBasedRule
+          Priority: 1
+          Action:
+            Block: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: RateBasedRule
+          Statement:
+            RateBasedStatement:
+              Limit: 100
+              AggregateKeyType: IP
+```
+
+### DDoS Protection
+- **REQUIRED**: Implement DDoS protection for all production deployments
+- Configure auto-scaling to handle legitimate traffic spikes
+- Use CDN services for static content to reduce origin load
+- Implement proper logging and monitoring for traffic anomalies
+- Have a documented incident response plan for DDoS attacks
+- Consider using specialized DDoS protection services for critical applications
+
+### CI/CD Setup
+- Implement Continuous Integration to validate code changes
+- Enforce security scans in the CI pipeline
+- Automate dependency vulnerability scanning
+- Require passing tests before deployment
+- Implement Preview Environments for pull requests
+- Automate deployment to staging environments
+
+```yaml
+# GitHub Actions CI/CD workflow
+# .github/workflows/ci.yml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run linting
+        run: npm run lint
+      
+      - name: Run tests
+        run: npm test
+      
+      - name: Run security audit
+        run: npm audit --audit-level=high
+  
+  deploy-preview:
+    if: github.event_name == 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Deploy Preview
+        uses: vercel/action@v3
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--preview'
+  
+  deploy-production:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Deploy to Production
+        uses: vercel/action@v3
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+```
+
+### Environment Configuration
+- Use environment-specific configuration files (.env.development, .env.production)
+- Leverage feature flags for gradual rollouts
+- Implement proper staging environments that mirror production
+- Use secrets management for sensitive values
+- Document environment setup requirements
+- Test all configuration changes before applying to production
+
+```
+# Good: Environment configuration for Next.js
+# .env.development
+NEXT_PUBLIC_API_URL=https://dev-api.example.com
+NEXT_PUBLIC_FEATURE_FLAGS='{"newDashboard":true,"betaFeatures":true}'
+DEBUG=true
+
+# .env.production
+NEXT_PUBLIC_API_URL=https://api.example.com
+NEXT_PUBLIC_FEATURE_FLAGS='{"newDashboard":true,"betaFeatures":false}'
+DEBUG=false
+```
+
+### Infrastructure as Code (IaC)
+- Use Infrastructure as Code tools (Terraform, CDK, etc.) to manage infrastructure
+- Version control all infrastructure definitions
+- Document infrastructure components and dependencies
+- Implement proper state management for IaC
+- Apply the principle of least privilege for infrastructure access
+- Regularly review and update infrastructure code
+
+```terraform
+# Terraform example for AWS infrastructure
+provider "aws" {
+  region = var.aws_region
+}
+
+module "vpc" {
+  source = "terraform-aws-modules/vpc/aws"
+  version = "3.14.0"
+  
+  name = "${var.project_name}-vpc"
+  cidr = "10.0.0.0/16"
+  
+  azs             = ["${var.aws_region}a", "${var.aws_region}b"]
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
+  
+  enable_nat_gateway = true
+  single_nat_gateway = var.environment != "production"
+  
+  tags = {
+    Environment = var.environment
+    Project     = var.project_name
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_security_group" "web" {
+  name        = "${var.project_name}-web-sg"
+  description = "Security group for web servers"
+  vpc_id      = module.vpc.vpc_id
+  
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  tags = {
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+```
+
+### Monitoring and Alerting
+- Set up comprehensive monitoring for all production systems
+- Configure alerts for critical system metrics and errors
+- Implement proper logging with structured log formats
+- Set up uptime monitoring with external services
+- Monitor security events and suspicious activities
+- Implement performance monitoring for critical user flows
+
+```yaml
+# Example Datadog monitoring configuration
+# datadog-config.yml
+monitors:
+  - name: "High Error Rate"
+    type: "metric alert"
+    query: "sum(last_5m):sum:app.errors{env:production} by {service} / sum:app.requests{env:production} by {service} > 0.05"
+    message: |
+      ## High Error Rate Detected
+      
+      Service {{service}} is experiencing high error rates in production.
+      Please investigate immediately.
+      
+      @devops-team @oncall
+    options:
+      notify_no_data: true
+      no_data_timeframe: 10
+      new_host_delay: 300
+      evaluation_delay: 900
+      thresholds:
+        critical: 0.05
+        warning: 0.02
+      include_tags: true
+      require_full_window: false
+  
+  - name: "API Latency Alert"
+    type: "metric alert"
+    query: "avg(last_5m):avg:api.response_time{env:production} by {endpoint} > 1000"
+    message: |
+      ## API Endpoint Latency Alert
+      
+      Endpoint {{endpoint}} is experiencing high latency in production.
+      Current average response time is {{value}} ms.
+      
+      @backend-team
+    options:
+      thresholds:
+        critical: 1000
+        warning: 500
+```
+
+## Deployment Strategies
+
+### Progressive Deployment
+- Use canary deployments for high-risk changes
+- Implement blue-green deployments for zero-downtime updates
+- Set up feature flags for controlled rollouts
+- Implement A/B testing capabilities in the infrastructure
+- Configure traffic splitting for gradual rollouts
+- Ensure easy rollback mechanisms are in place
+
+```javascript
+// Feature flags configuration for progressive rollouts
+// lib/featureFlags.js
+import { initialize, LDClient } from 'launchdarkly-node-server-sdk';
+
+let ldClient;
+
+export async function initializeFlags() {
+  ldClient = initialize(process.env.LAUNCHDARKLY_SDK_KEY);
+  await ldClient.waitForInitialization();
+  console.log('LaunchDarkly SDK initialized');
+  return ldClient;
+}
+
+export async function getFlag(flagKey, user, defaultValue = false) {
+  if (!ldClient || !ldClient.initialized()) {
+    console.warn('LaunchDarkly client not initialized');
+    return defaultValue;
+  }
+  
+  try {
+    return await ldClient.variation(flagKey, user, defaultValue);
+  } catch (error) {
+    console.error(`Error getting flag ${flagKey}:`, error);
+    return defaultValue;
+  }
+}
+
+// Usage in API route
+export async function handler(req, res) {
+  const user = {
+    key: req.user.id,
+    email: req.user.email,
+    groups: req.user.roles,
+  };
+  
+  const showNewFeature = await getFlag('new-feature', user);
+  
+  if (showNewFeature) {
+    // Serve new implementation
+    return res.json(await newFeatureImplementation());
+  } else {
+    // Serve existing implementation
+    return res.json(await existingImplementation());
+  }
+}
+```
+
+### Containerization
+- Use container technology for consistent deployments
+- Implement multi-stage builds for optimized container images
+- Scan container images for vulnerabilities before deployment
+- Use non-root users within containers
+- Keep container images small and focused
+- Document container configuration and requirements
+
+```dockerfile
+# Efficient multi-stage build Dockerfile
+FROM node:18-alpine AS deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+FROM node:18-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Add non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy only necessary files
+COPY --from=builder /app/next.config.js ./
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+
+# Set proper ownership
+RUN chown -R nextjs:nodejs /app
+
+# Use non-root user
+USER nextjs
+
+EXPOSE 3000
+CMD ["npm", "start"]
+```
+
+## Post-Deployment Validation
+
+### Smoke Testing
+- Implement automated smoke tests after deployment
+- Verify critical functionality works in production
+- Test authentication and authorization flows
+- Check all third-party integrations
+- Verify proper environment configuration
+- Monitor error rates after deployment
+
+```javascript
+// Post-deployment smoke test script
+// scripts/smoke-test.js
+const axios = require('axios');
+const assert = require('assert');
+
+async function runSmokeTests() {
+  const baseUrl = process.env.SMOKE_TEST_URL || 'https://production.app';
+  console.log(`Running smoke tests against ${baseUrl}`);
+  
+  try {
+    // Test 1: Homepage loads
+    const homeResponse = await axios.get(baseUrl);
+    assert.strictEqual(homeResponse.status, 200);
+    console.log('✓ Homepage loads successfully');
+    
+    // Test 2: API health check
+    const healthResponse = await axios.get(`${baseUrl}/api/health`);
+    assert.strictEqual(healthResponse.status, 200);
+    assert.strictEqual(healthResponse.data.status, 'healthy');
+    console.log('✓ API health check passed');
+    
+    // Test 3: Basic auth flow (public endpoints)
+    const authResponse = await axios.get(`${baseUrl}/api/auth/providers`);
+    assert.strictEqual(authResponse.status, 200);
+    assert.ok(Array.isArray(authResponse.data));
+    console.log('✓ Auth providers endpoint working');
+    
+    // Add more critical path tests
+    
+    console.log('All smoke tests passed!');
+    process.exit(0);
+  } catch (error) {
+    console.error('Smoke tests failed:', error);
+    process.exit(1);
+  }
+}
+
+runSmokeTests();
+```
+
+### Rollback Process
+- Document clear rollback procedures for each deployment
+- Implement automated rollback triggers for critical failures
+- Test rollback procedures regularly
+- Ensure database migrations are reversible
+- Keep previous deployment artifacts available for quick rollback
+- Train team members on rollback procedures
+
+## Implementation Checklist
+
+- [ ] Configure Web Application Firewall (WAF) for production environments
+- [ ] Set up DDoS protection for public-facing applications
+- [ ] Implement CI/CD pipelines with security scanning
+- [ ] Configure proper environment variables for each environment
+- [ ] Use Infrastructure as Code for all infrastructure components
+- [ ] Set up comprehensive monitoring and alerting
+- [ ] Implement zero-downtime deployment strategy
+- [ ] Configure containerization for consistent deployments
+- [ ] Implement post-deployment validation
+- [ ] Document rollback procedures for all deployments
+
+## Tools & Documentation
+
+### Related Tools
+- `.cursor/tools/check-infrastructure.sh` - Verify infrastructure health and configuration
+- `.cursor/tools/check-backups.sh` - Verify backup health and coverage
+- `.cursor/tools/test-recovery.sh` - Simulate disaster recovery procedures
+- `.cursor/tools/analyze-costs.sh` - Analyze infrastructure costs
+
+### Related Guides
+- `guides/Monitoring-Complete-Guide.md` - Application and infrastructure monitoring
+- `guides/Incident-Response-Complete-Guide.md` - Incident response procedures
+- `guides/Database-Operations-Complete-Guide.md` - Database management
+- `guides/Secrets-Management-Complete-Guide.md` - Secrets and credentials
+- `guides/Cost-Optimization-Complete-Guide.md` - Cost management
+
+### Related Rules
+- @201-vercel-deployment-standards.mdc - Vercel-specific deployment
+- @202-rollback-procedures.mdc - Emergency rollback procedures
+- @203-ci-cd-pipeline-standards.mdc - CI/CD configuration
+- @208-database-operations.mdc - Database management standards
+- @210-operations-incidents.mdc - Operations and incidents
+- @212-backup-recovery-standards.mdc - Backup and recovery
+- @221-application-monitoring.mdc - Application monitoring
+- @222-metrics-alerting.mdc - Metrics and alerting
+- @223-health-checks.mdc - Health check implementation
+- @224-secrets-management.mdc - Secrets management
+- @225-infrastructure-monitoring.mdc - Infrastructure monitoring
+- @226-cost-optimization.mdc - Cost optimization
+
+## Quick Start
+
+1. **Verify current infrastructure**
+   ```bash
+   ./.cursor/tools/check-infrastructure.sh
+   ```
+
+2. **Set up monitoring**
+   - Follow `guides/Monitoring-Complete-Guide.md`
+   - Configure alerts per @222-metrics-alerting.mdc
+
+3. **Configure backups**
+   ```bash
+   ./.cursor/tools/check-backups.sh
+   ```
+
+4. **Test disaster recovery**
+   ```bash
+   ./.cursor/tools/test-recovery.sh --dry-run
+   ```
+
+5. **Optimize costs**
+   ```bash
+   ./.cursor/tools/analyze-costs.sh --detailed
+   ```
+
+

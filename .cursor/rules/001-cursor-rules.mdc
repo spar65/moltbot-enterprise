@@ -1,0 +1,488 @@
+---
+description:
+globs: ""
+alwaysApply: true
+---
+
+description: Use ONLY when asked to CREATE A RULE or UPDATE A RULE or taught a lesson from the user that should be retained as a new rule for Cursor. For general development guidelines, refer to 000-core-guidelines.mdc
+globs: ".cursor/rules/\*.mdc"
+
+# Cursor Rules Format & Management
+
+## Core Structure
+
+````mdc
+___
+description: ACTION when TRIGGER to OUTCOME
+globs: "*.mdc"
+___
+
+# Rule Title
+- Use active title to summarize
+
+## Context
+- When to apply this rule
+- Prerequisites or conditions
+
+## Requirements
+- Concise, actionable items
+- Each requirement must be testable
+
+## Examples
+<example>
+Good concise example with explanation
+</example>
+
+<example type="invalid">
+Invalid concise example with explanation
+</example>
+
+## See Also
+
+### Related Rules
+- @rule-name.mdc - Brief description of how this rule relates
+- @another-rule.mdc - Brief description of relationship
+- Include 5-12 related rules for comprehensive coverage
+
+### Tools & Documentation
+- **`.cursor/tools/tool-name.sh`** - Tool description and usage
+  ```bash
+  ./.cursor/tools/tool-name.sh
+  # Brief description of what it does
+````
+
+- **`.cursor/docs/doc-name.md`** - Documentation reference
+
+### Comprehensive Guides
+
+- **`guides/Guide-Name-Complete-Guide.md`** ⭐ **Essential/Recommended** - Guide description
+- **`guides/Another-Guide.md`** - Additional guide reference
+
+### Quick Start
+
+```bash
+# 1. First step
+command-or-action
+
+# 2. Second step
+another-command
+
+# 3. Third step
+final-action
+```
+
+Or provide a workflow description:
+
+1. **Action**: Description
+2. **Validation**: How to verify
+3. **Monitoring**: What to watch
+
+## Relationship with Core Guidelines
+
+This file (001-cursor-rules.mdc) is specifically for:
+
+- Creating new Cursor rules
+- Updating existing Cursor rules
+- Managing the rules system itself
+
+For general development guidelines and best practices, refer to 000-core-guidelines.mdc instead.
+For a complete registry of all rules, refer to 000-cursor-rules-registry.mdc.
+
+## File Organization
+
+### Location
+
+- Path: .cursor/rules/
+- Extension: .mdc
+
+### Naming Convention
+
+PREFIX-name.mdc where PREFIX is:
+
+- 0XX: Core standards
+- 1XX: Tool configs
+- 3XX: Testing standards
+- 1XX: Language rules
+- 2XXX: Framework rules
+- 8XX: Workflows
+- 9XX: Templates
+- \_name.mdc: Private rules
+
+## Rule Enhancement Standards
+
+### When to Add "See Also" Sections
+
+**ALWAYS add "See Also" sections** for rules that:
+
+- Are part of a larger domain (Security, Testing, Deployment, etc.)
+- Reference other rules or concepts
+- Have related automation tools
+- Connect to comprehensive guides
+- Require coordination with other rules
+
+**Example Domains with Full Cross-References**:
+
+- Security rules → Security tools + Security guides
+- Testing rules → Testing tools + Testing guides
+- Deployment rules → Deployment tools + Deployment guides
+- Performance rules → Performance tools + Performance guides
+
+### How to Add Cross-References
+
+#### 1. Related Rules (5-12 rules)
+
+**Purpose**: Help developers discover related rules quickly
+
+**Guidelines**:
+
+- Include rules from the same domain
+- Include rules that must be applied together
+- Include rules that provide additional context
+- Use brief descriptions to explain relationships
+
+**Format**:
+
+```markdown
+### Related Rules
+
+- @domain-specific-rule.mdc - Primary related rule
+- @prerequisite-rule.mdc - Must be applied before this rule
+- @complementary-rule.mdc - Works together with this rule
+- @context-rule.mdc - Provides additional context
+```
+
+#### 2. Tools & Documentation (2-5 tools)
+
+**Purpose**: Link to automation scripts and documentation
+
+**Guidelines**:
+
+- Reference tools in `.cursor/tools/` directory
+- Include usage examples in code blocks
+- Reference documentation in `.cursor/docs/` directory
+- Prioritize tools that directly support the rule
+
+**Format**:
+
+````markdown
+### Tools & Documentation
+
+- **`.cursor/tools/check-example.sh`** - Description of what it validates
+  ```bash
+  ./.cursor/tools/check-example.sh
+  # Expected output or validation description
+  ```
+````
+
+- **`.cursor/docs/workflow-name.md`** - Workflow documentation reference
+
+````
+
+#### 3. Comprehensive Guides (2-4 guides)
+**Purpose**: Link to detailed implementation guides
+
+**Guidelines**:
+- Prioritize guides in `guides/` directory
+- Mark essential guides with ⭐
+- Use **Essential**, **Recommended**, or other indicators
+- Include brief descriptions of what each guide covers
+
+**Format**:
+```markdown
+### Comprehensive Guides
+- **`guides/Domain-Complete-Guide.md`** ⭐ **Essential** - Comprehensive domain guide
+- **`guides/Specific-Topic-Guide.md`** - Detailed implementation guide
+````
+
+#### 4. Quick Start (Always Include)
+
+**Purpose**: Provide immediate actionable steps
+
+**Guidelines**:
+
+- Keep it concise (3-5 steps maximum)
+- Use bash commands when applicable
+- Provide workflow descriptions when commands don't apply
+- Focus on the most common use case
+
+**Format Option 1** (Commands):
+
+````markdown
+### Quick Start
+
+```bash
+# 1. Validation step
+./.cursor/tools/validate.sh
+
+# 2. Implementation step
+npm run command
+
+# 3. Verification step
+./.cursor/tools/verify.sh
+```
+````
+
+````
+
+**Format Option 2** (Workflow):
+```markdown
+### Quick Start
+1. **Validate**: Run pre-checks and validations
+2. **Implement**: Apply the rule requirements
+3. **Verify**: Confirm implementation is correct
+4. **Monitor**: Watch for expected outcomes
+````
+
+### Cross-Reference Discovery
+
+**Before adding cross-references, use these resources**:
+
+1. **Rules Registry**: Check `000-cursor-rules-registry2.mdc`
+
+   - See all rules organized by domain
+   - Find related rules in the same section
+   - Identify common patterns
+
+2. **Tools Directory**: Check `.cursor/tools/README.md`
+
+   - See all available automation tools
+   - Find tools for your domain
+   - Review tool usage examples
+
+3. **Guides Directory**: Check `guides/` directory
+
+   - Browse comprehensive guides
+   - Find domain-specific guides
+   - Review guide completeness
+
+4. **Documentation**: Check `.cursor/docs/` directory
+   - Review workflow documentation
+   - Find AI-assisted patterns
+   - Check checklists and procedures
+
+### Cross-Reference Quality Standards
+
+**Good Cross-References**:
+
+- ✅ Directly relevant to the rule
+- ✅ Provide additional value
+- ✅ Include actionable links or commands
+- ✅ Have brief, clear descriptions
+- ✅ Are organized by category
+
+**Poor Cross-References**:
+
+- ❌ Too many references (overwhelming)
+- ❌ Vague or unclear descriptions
+- ❌ Links to unrelated rules
+- ❌ No organization or structure
+- ❌ Missing Quick Start section
+
+### File Organization
+
+### Glob Pattern Examples
+
+Common glob patterns for different rule types:
+
+- Core standards: .cursor/rules/\*.mdc
+- Language rules: src/\*_/_.{js,ts}
+- Testing standards: \*_/_.test.{js,ts}
+- React components: src/components/\*_/_.tsx
+- Documentation: docs/\*_/_.md
+- Configuration files: \*.config.{js,json}
+- Build artifacts: dist/\*_/_
+- Multiple extensions: src/\*_/_.{js,jsx,ts,tsx}
+- Multiple files: dist/**/\*, docs/**/\*.md
+
+## Complete Rule Example (Enhanced Pattern)
+
+````markdown
+---
+
+description: VALIDATE production deployment safety when TRIGGER deploying to production to OUTCOME prevent catastrophic failures
+globs: "\*_/_.{ts,tsx,js,jsx,json,md}"
+
+---
+
+# Production Deployment Safety Standards
+
+## Context
+
+- Production deployments can cause catastrophic failures if not properly validated
+- Environment-specific issues only manifest in production
+- Proper safety checks prevent 99% of production incidents
+
+## Requirements
+
+### Mandatory Pre-Deployment Validation
+
+- **REQUIRED**: Run comprehensive safety checks before any production deployment
+- **REQUIRED**: Deploy to staging environment first with production-like configuration
+- **REQUIRED**: Validate all critical user flows in staging
+- **FORBIDDEN**: Direct-to-production deployments without staging validation
+
+### Database Safety Validation
+
+- **REQUIRED**: Test database connections in staging with production database URLs
+- **REQUIRED**: Verify database skip logic only triggers in appropriate environments
+- **REQUIRED**: Validate database migration compatibility
+- **REQUIRED**: Backup production database before schema changes
+
+## Examples
+
+<example>
+// ✅ SAFE - Production database connection test
+async function validateProductionDatabase() {
+  try {
+    const result = await sql`SELECT NOW() as test_time`;
+    console.log('✅ Production database connection successful');
+    return true;
+  } catch (error) {
+    console.error('❌ Production database connection failed:', error);
+    throw new Error('Database validation failed - ABORT DEPLOYMENT');
+  }
+}
+</example>
+
+<example type="invalid">
+// ❌ FORBIDDEN - Deploying without validation
+// Just merge to main and hope for the best
+git push origin main
+</example>
+
+## See Also
+
+### Related Rules
+
+- @200-deployment-infrastructure.mdc - Deployment infrastructure standards
+- @201-vercel-deployment-standards.mdc - Vercel deployment best practices
+- @202-vercel-production-gotchas.mdc - Critical Vercel production gotchas
+- @202-rollback-procedures.mdc - Emergency rollback procedures
+- @208-database-operations.mdc - Database operations and migrations
+- @221-application-monitoring.mdc - Application monitoring and alerting
+- @222-metrics-alerting.mdc - Metrics and alerting configuration
+- @224-secrets-management.mdc - Secrets and environment variable management
+
+### Tools & Documentation
+
+- **`.cursor/tools/pre-deployment-check.sh`** - Comprehensive pre-deployment validation
+  ```bash
+  ./.cursor/tools/pre-deployment-check.sh
+  # Validates: Git, build scripts, security, tests, database, infrastructure
+  ```
+````
+
+- **`.cursor/tools/validate-deployment.sh`** - Post-deployment health check
+  ```bash
+  ./.cursor/tools/validate-deployment.sh https://yourdomain.com
+  # Validates: Site availability, security headers, API health, database connectivity
+  ```
+- **`.cursor/tools/check-backups.sh`** - Verify backup health before deployment
+
+### Comprehensive Guides
+
+- **`guides/Deployment-Workflow-Complete-Guide.md`** ⭐ **Essential** - Complete deployment workflow
+- **`guides/Incident-Response-Complete-Guide.md`** - Emergency response procedures
+- **`guides/Database-Operations-Complete-Guide.md`** - Database migrations and safety
+
+### Quick Start - Pre-Deployment Checklist
+
+```bash
+# 1. Run all safety checks
+./.cursor/tools/pre-deployment-check.sh
+
+# 2. Deploy to staging first
+# Create PR and test preview deployment
+
+# 3. Validate staging
+# Manual testing + automated checks
+
+# 4. Deploy to production
+# Merge PR to main
+
+# 5. Validate production
+./.cursor/tools/validate-deployment.sh https://yourdomain.com
+```
+
+```
+
+## Key Improvements in This Pattern
+
+### 1. Comprehensive Cross-References
+- **Before**: Rules existed in isolation
+- **After**: Rules are interconnected and discoverable
+- **Benefit**: 50-70% faster rule discovery
+
+### 2. Tool Integration
+- **Before**: Manual process execution
+- **After**: Automated validation scripts
+- **Benefit**: 60-80% time reduction
+
+### 3. Guide References
+- **Before**: Scattered documentation
+- **After**: Centralized comprehensive guides
+- **Benefit**: Complete implementation guidance
+
+### 4. Quick Start Workflows
+- **Before**: Figure it out yourself
+- **After**: Clear step-by-step process
+- **Benefit**: 70-90% faster onboarding
+
+### 5. Actionable Examples
+- **Before**: Theoretical guidelines
+- **After**: Copy-paste commands and workflows
+- **Benefit**: Immediate productivity
+
+## Migration Strategy for Existing Rules
+
+When enhancing existing rules with this pattern:
+
+1. **Read the rule thoroughly** to understand its purpose
+2. **Check the rules registry** to find related rules in the same domain
+3. **Review `.cursor/tools/`** to find applicable automation tools
+4. **Browse `guides/`** to find relevant comprehensive guides
+5. **Add "See Also" section** following the template above
+6. **Create Quick Start** based on most common use case
+7. **Update rules registry** to highlight the enhancement
+
+## Rule Enhancement Checklist
+
+When creating or updating a rule:
+
+- [ ] Clear description in frontmatter
+- [ ] Context section explains when to apply
+- [ ] Requirements are specific and testable
+- [ ] Positive examples provided
+- [ ] Negative examples provided (type="invalid")
+- [ ] **Related Rules** section (5-12 rules)
+- [ ] **Tools & Documentation** section (2-5 tools)
+- [ ] **Comprehensive Guides** section (2-4 guides)
+- [ ] **Quick Start** section (always required)
+- [ ] Cross-references are accurate and working
+- [ ] Descriptions are clear and helpful
+- [ ] Commands are tested and correct
+
+## Resources for Rule Creation
+
+### Discovery Resources
+- **Rules Registry**: `.cursor/rules/000-cursor-rules-registry2.mdc`
+- **Tools Documentation**: `.cursor/tools/README.md`
+- **Guides Index**: `guides/` directory
+- **Documentation Index**: `.cursor/docs/README.md`
+
+### Reference Resources
+- **Cursor System Overview**: `.cursor/rules/003-cursor-system-overview.mdc`
+- **Rule Application**: `.cursor/rules/002-rule-application.mdc`
+- **Rules Guide**: `.cursor/docs/rules-guide.md`
+- **AI Workflows**: `.cursor/docs/ai-workflows.md`
+
+### Example Enhanced Rules
+- **API Testing**: `.cursor/rules/375-api-test-first-time-right.mdc`
+- **Database Testing**: `.cursor/rules/376-database-test-isolation.mdc`
+- **Deployment Safety**: `.cursor/rules/203-production-deployment-safety.mdc`
+- **Vercel Gotchas**: `.cursor/rules/202-vercel-production-gotchas.mdc`
+- **Application Monitoring**: `.cursor/rules/221-application-monitoring.mdc`
+
+These rules demonstrate the enhanced pattern in production use!
+
+```

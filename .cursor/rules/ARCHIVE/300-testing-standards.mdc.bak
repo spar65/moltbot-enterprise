@@ -1,0 +1,1456 @@
+---
+description: 
+globs: ""
+alwaysApply: false
+---
+description: Use when creating or reviewing test files, implementing testing frameworks, or providing guidance on test coverage and methodology
+globs: "**/*.{test,spec}.{js,ts,jsx,tsx,py,rb,go,java}"
+
+# Cursor Testing Guidelines
+
+These guidelines instruct Cursor on providing comprehensive, automated testing support for Node.js/TypeScript projects (using Jest) and Python projects (using pytest), both following an MVC-like architecture with controllers, services, models, and routes. Cursor should detect the project's language and framework, then apply these rules to generate detailed test harnesses, ensuring consistency, security, and quality across the codebase. This document complements the broader Cursor guidelines by focusing exclusively on testing strategies and implementations.
+
+## Key Testing Principles
+
+### Comprehensive Test Coverage
+- Write thorough tests for all major functionality.
+- Cover all edge cases and error conditions.
+- Ensure tests verify both normal operations and failure paths.
+- Test both positive and negative scenarios.
+
+### Test Environment Separation
+- Mocking data is only needed for tests, never mock data for dev or prod environments.
+- Never add stubbing or fake data patterns to code that affects the dev or prod environments.
+- Keep test data and configurations completely isolated from production code.
+
+### Test Isolation
+- Each test should run independently of others.
+- Avoid test dependencies that could cause cascading failures.
+- Reset shared resources between tests.
+
+1. Base Test Configuration
+Node.js/TypeScript (Jest)
+Jest Configuration:
+Generate a jest.config.ts file with TypeScript support via ts-jest, enabling coverage and custom test matching.
+
+Set up verbose output and snapshot testing for UI components.
+
+Test Environment:
+Use mongodb-memory-server for an in-memory MongoDB instance, ensuring isolated database tests.
+
+Global Setup/Teardown:
+Create a setupTests.ts file with hooks to initialize MongoDB, clear collections between tests, and clean up after all tests.
+
+Example:
+typescript
+
+// jest.config.ts
+import type { Config } from 'jest';
+
+const config: Config = {
+  preset: 'ts-jest', // Enable TypeScript support via ts-jest
+  testEnvironment: 'node', // Use Node.js environment for server-side tests
+  setupFilesAfterEnv: ['<rootDir>/test/setupTests.ts'], // Load global setup
+  moduleFileExtensions: ['ts', 'tsx', 'js'], // Recognize TypeScript and JavaScript files
+  testMatch: ['**/*.test.ts'], // Match test files with .test.ts extension
+  verbose: true, // Provide detailed output for debugging
+  snapshotSerializers: ['jest-serializer'], // Support snapshot testing
+  collectCoverage: true, // Enable coverage collection
+  coverageDirectory: 'coverage', // Store coverage reports
+  coverageReporters: ['text', 'lcov', 'html'], // Generate multiple report formats
+  coverageThreshold: { // Enforce minimum coverage levels
+    global: {
+      branches: 85,
+      functions: 85,
+      lines: 85,
+      statements: 85
+    }
+  }
+};
+
+export default config;
+
+// test/setupTests.ts
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import mongoose from 'mongoose';
+
+/**
+ * Global MongoDB in-memory server instance for testing.
+ */
+let mongoServer: MongoMemoryServer;
+
+/**
+ * Setup: Initialize MongoDB before all tests.
+ */
+beforeAll(async () => {
+  mongoServer = await MongoMemoryServer.create();
+  const mongoUri = mongoServer.getUri();
+  await mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
+}, 10000); // Increase timeout for MongoDB setup
+
+/**
+ * Teardown: Clear collections after each test to ensure isolation.
+ */
+afterEach(async () => {
+  const collections = mongoose.connection.collections;
+  for (const key in collections) {
+    await collections[key].deleteMany({});
+  }
+});
+
+/**
+ * Teardown: Disconnect and stop MongoDB server after all tests.
+ */
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongoServer.stop();
+});
+
+Python (pytest)
+Configuration:
+Generate a pytest.ini file for pytest settings and a conftest.py file for shared fixtures, including plugins like pytest-asyncio for async support.
+
+Test Environment:
+Use an in-memory SQLite database with SQLAlchemy for testing, ensuring fast, isolated test runs.
+
+Global Setup/Teardown:
+Define fixtures in conftest.py for database sessions and FastAPI test client, with automatic cleanup.
+
+Example:
+ini
+
+# pytest.ini
+[pytest]
+asyncio_mode = auto  # Enable async testing support
+addopts = -v --cov=app --cov-report=html --cov-report=term-missing --cov-report=xml --cov-fail-under=85  # Verbose output and coverage
+testpaths = tests  # Look for tests in the 'tests' directory
+python_files = test_*.py  # Match test files
+
+python
+
+# tests/conftest.py
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from app.database import Base, get_db
+from app.main import app
+from fastapi.testclient import TestClient
+
+# Fixture for in-memory SQLite database session
+@pytest.fixture(scope="function")
+def db_session():
+    """Create an in-memory SQLite database for testing.
+
+    Yields:
+        Session: A SQLAlchemy session for test use.
+    """
+    engine = create_engine("sqlite:///:memory:", echo=False)
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    app.dependency_overrides[get_db] = lambda: session  # Override dependency for testing
+    yield session
+    session.close()
+    Base.metadata.drop_all(engine)
+    app.dependency_overrides.clear()
+
+# Fixture for FastAPI test client
+@pytest.fixture(scope="function")
+def client(db_session):
+    """Provide a FastAPI test client with a mocked database session.
+
+    Args:
+        db_session: The database session fixture.
+    Yields:
+        TestClient: A client for making HTTP requests to the app.
+    """
+    yield TestClient(app)
+
+2. Unit Test Templates
+Node.js/TypeScript (Jest)
+Model:
+Test schema validation, CRUD operations, and edge cases.
+
+typescript
+
+// src/models/user.test.ts
+import { UserModel } from './user';
+
+describe('UserModel', () => {
+  describe('Validation', () => {
+    it('accepts valid user data', async () => {
+      const userData = { email: 'test@example.com', name: 'Test User', password: 'secure123' };
+      const user = new UserModel(userData);
+      await expect(user.validate()).resolves.toBeUndefined();
+    });
+
+    it('rejects invalid email format', async () => {
+      const userData = { email: 'invalid', name: 'Test User', password: 'secure123' };
+      const user = new UserModel(userData);
+      await expect(user.validate()).rejects.toThrow(/email must be a valid email/);
+    });
+
+    it('requires password', async () => {
+      const userData = { email: 'test@example.com', name: 'Test User' };
+      const user = new UserModel(userData);
+      await expect(user.validate()).rejects.toThrow(/password is required/);
+    });
+  });
+
+  describe('CRUD Operations', () => {
+    it('saves a user to the database', async () => {
+      const userData = { email: 'test@example.com', name: 'Test User', password: 'secure123' };
+      const user = new UserModel(userData);
+      await user.save();
+      expect(user._id).toBeDefined();
+      
+      const found = await UserModel.findById(user._id);
+      expect(found.email).toBe('test@example.com');
+    });
+  });
+});
+
+Controller:
+Mock HTTP requests and responses using jest-mock-extended.
+
+typescript
+
+// src/controllers/user.test.ts
+import { UserController } from './user';
+import { mock } from 'jest-mock-extended';
+import { Request, Response } from 'express';
+import { UserService } from '../services/user';
+
+describe('UserController', () => {
+  let req: Request;
+  let res: Response;
+
+  beforeEach(() => {
+    req = mock<Request>();
+    res = mock<Response>();
+    jest.clearAllMocks();
+  });
+
+  it('creates a user successfully', async () => {
+    req.body = { email: 'test@example.com', name: 'Test', password: 'secure123' };
+    const mockUser = { id: 1, ...req.body };
+    jest.spyOn(UserService, 'createUser').mockResolvedValue(mockUser);
+
+    await UserController.create(req, res);
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.json).toHaveBeenCalledWith(mockUser);
+  });
+
+  it('handles validation errors', async () => {
+    req.body = { email: 'invalid' };
+    jest.spyOn(UserService, 'createUser').mockRejectedValue(new Error('Validation failed'));
+
+    await UserController.create(req, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Validation failed' });
+  });
+});
+
+Service:
+Mock database or external dependencies.
+
+typescript
+
+// src/services/user.test.ts
+import { UserService } from './user';
+import { mock } from 'jest-mock-extended';
+import { UserModel } from '../models/user';
+
+describe('UserService', () => {
+  const dbMock = mock<typeof UserModel>();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('creates a user', async () => {
+    const userData = { email: 'test@example.com', name: 'Test', password: 'secure123' };
+    const savedUser = { id: 1, ...userData };
+    dbMock.create.mockResolvedValue(savedUser as any);
+
+    const result = await UserService.createUser(userData, dbMock);
+    expect(result).toEqual(savedUser);
+    expect(dbMock.create).toHaveBeenCalledWith(userData);
+  });
+
+  it('fetches user by ID', async () => {
+    const user = { id: 1, email: 'test@example.com' };
+    dbMock.findById.mockResolvedValue(user as any);
+
+    const result = await UserService.getUser(1, dbMock);
+    expect(result).toEqual(user);
+    expect(dbMock.findById).toHaveBeenCalledWith(1);
+  });
+});
+
+Utilities:
+Test standalone helper functions.
+
+typescript
+
+// src/utils/helpers.test.ts
+import { hashPassword, validateEmail } from './helpers';
+
+describe('Helpers', () => {
+  describe('hashPassword', () => {
+    it('hashes a password', async () => {
+      const hashed = await hashPassword('secure123');
+      expect(hashed).not.toBe('secure123');
+      expect(hashed.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('validateEmail', () => {
+    it('validates correct email', () => {
+      expect(validateEmail('test@example.com')).toBe(true);
+    });
+
+    it('rejects invalid email', () => {
+      expect(validateEmail('invalid')).toBe(false);
+    });
+  });
+});
+
+Python (pytest)
+Model:
+Test creation, validation, and relationships.
+
+python
+
+# tests/models/test_user.py
+from app.models.user import User
+
+def test_user_creation(db_session):
+    """Test creating a user with valid data."""
+    user = User(email="test@example.com", full_name="Test User", hashed_password="hashedpass")
+    db_session.add(user)
+    db_session.commit()
+    
+    retrieved = db_session.query(User).filter_by(email="test@example.com").first()
+    assert retrieved.id is not None
+    assert retrieved.full_name == "Test User"
+
+Controller:
+Mock HTTP requests and dependencies.
+
+python
+
+# tests/controllers/test_user.py
+from app.controllers.user import create_user
+from fastapi import Request
+
+def test_create_user(mocker, db_session):
+    """Test user creation controller with mocked dependencies."""
+    request = Request({"type": "http", "body": '{"email": "test@example.com", "full_name": "Test"}'})
+    mocker.patch('app.controllers.user.get_db', return_value=db_session)
+    
+    response = create_user(request)
+    assert response.status_code == 201
+    assert response.json()["email"] == "test@example.com"
+
+Service:
+Mock services and database interactions.
+
+python
+
+# tests/services/test_user.py
+from app.services.user import UserService
+from app.models.user import User
+
+def test_create_user_service(mocker, db_session):
+    """Test user creation service with mocked database."""
+    mocker.patch('app.services.user.get_db', return_value=db_session)
+    user_data = {"email": "test@example.com", "full_name": "Test"}
+    
+    user = UserService.create_user(user_data)
+    assert user.email == "test@example.com"
+    assert db_session.query(User).filter_by(email="test@example.com").first() is not None
+
+Utilities:
+Test helper functions.
+
+python
+
+# tests/utils/test_helpers.py
+from app.utils.helpers import hash_password
+
+def test_hash_password():
+    """Test password hashing utility."""
+    hashed = hash_password("secure123")
+    assert hashed != "secure123"
+    assert len(hashed) > 0
+
+3. Integration Test Templates
+Node.js/TypeScript (Jest)
+API Endpoint:
+Use supertest for end-to-end testing.
+
+typescript
+
+// src/routes/user.integration.test.ts
+import supertest from 'supertest';
+import app from '../app';
+import { UserModel } from '../models/user';
+
+describe('User API Integration', () => {
+  beforeEach(async () => {
+    await UserModel.deleteMany({});
+  });
+
+  it('creates and retrieves a user', async () => {
+    const userData = { email: 'test@example.com', name: 'Test', password: 'secure123' };
+    const postResponse = await supertest(app)
+      .post('/users')
+      .send(userData)
+      .expect(201);
+    
+    const userId = postResponse.body.id;
+    const getResponse = await supertest(app)
+      .get(`/users/${userId}`)
+      .expect(200);
+    
+    expect(getResponse.body.email).toBe('test@example.com');
+    expect(getResponse.body.name).toBe('Test');
+  });
+
+  it('returns 400 for duplicate email', async () => {
+    const userData = { email: 'test@example.com', name: 'Test', password: 'secure123' };
+    await supertest(app).post('/users').send(userData).expect(201);
+    
+    const response = await supertest(app)
+      .post('/users')
+      .send(userData)
+      .expect(400);
+    
+    expect(response.body.error).toBe('Email already registered');
+  });
+});
+
+Database Operations:
+Test MongoDB CRUD operations.
+
+typescript
+
+// src/models/user.integration.test.ts
+import { UserModel } from './user';
+
+describe('User Model Integration', () => {
+  beforeEach(async () => {
+    await UserModel.deleteMany({});
+  });
+
+  it('creates and retrieves a user from MongoDB', async () => {
+    const userData = { email: 'test@example.com', name: 'Test', password: 'secure123' };
+    const user = new UserModel(userData);
+    await user.save();
+    
+    const retrieved = await UserModel.findOne({ email: 'test@example.com' });
+    expect(retrieved.email).toBe('test@example.com');
+    expect(retrieved.name).toBe('Test');
+  });
+
+  it('updates a user', async () => {
+    const user = new UserModel({ email: 'test@example.com', name: 'Test', password: 'secure123' });
+    await user.save();
+    
+    await UserModel.updateOne({ _id: user._id }, { name: 'Updated Test' });
+    const updated = await UserModel.findById(user._id);
+    expect(updated.name).toBe('Updated Test');
+  });
+});
+
+Authentication Flow:
+Test login and protected routes.
+
+typescript
+
+// src/auth/auth.integration.test.ts
+import supertest from 'supertest';
+import app from '../app';
+import { UserModel } from '../models/user';
+
+describe('Authentication Integration', () => {
+  beforeEach(async () => {
+    await UserModel.deleteMany({});
+  });
+
+  it('registers and logs in a user', async () => {
+    const userData = { email: 'test@example.com', name: 'Test', password: 'secure123' };
+    await supertest(app).post('/users').send(userData).expect(201);
+    
+    const loginResponse = await supertest(app)
+      .post('/auth/login')
+      .send({ email: 'test@example.com', password: 'secure123' })
+      .expect(200);
+    
+    expect(loginResponse.body.token).toBeDefined();
+    
+    const protectedResponse = await supertest(app)
+      .get('/users/me')
+      .set('Authorization', `Bearer ${loginResponse.body.token}`)
+      .expect(200);
+    
+    expect(protectedResponse.body.email).toBe('test@example.com');
+  });
+
+  it('rejects invalid credentials', async () => {
+    await supertest(app)
+      .post('/auth/login')
+      .send({ email: 'test@example.com', password: 'wrong' })
+      .expect(401);
+  });
+});
+
+Python (pytest)
+API Endpoint:
+Use FastAPI's TestClient for end-to-end testing.
+
+python
+
+# tests/integration/test_user_api.py
+from app.main import app
+from fastapi.testclient import TestClient
+from app.models.user import User
+
+client = TestClient(app)
+
+def test_create_and_get_user(db_session):
+    """Test creating and retrieving a user via API."""
+    user_data = {"email": "test@example.com", "password": "secure123", "full_name": "Test User"}
+    post_response = client.post("/users/", json=user_data)
+    assert post_response.status_code == 201
+    
+    user_id = post_response.json()["id"]
+    get_response = client.get(f"/users/{user_id}")
+    assert get_response.status_code == 200
+    assert get_response.json()["email"] == "test@example.com"
+    assert get_response.json()["full_name"] == "Test User"
+
+Database Operations:
+Test SQLAlchemy CRUD operations.
+
+python
+
+# tests/integration/test_user_db.py
+from app.models.user import User
+
+def test_user_crud_operations(db_session):
+    """Test CRUD operations on the User model."""
+    # Create
+    user = User(email="test@example.com", full_name="Test User", hashed_password="hashedpass")
+    db_session.add(user)
+    db_session.commit()
+    
+    # Read
+    retrieved = db_session.query(User).filter_by(email="test@example.com").first()
+    assert retrieved.full_name == "Test User"
+    
+    # Update
+    retrieved.full_name = "Updated User"
+    db_session.commit()
+    updated = db_session.query(User).filter_by(email="test@example.com").first()
+    assert updated.full_name == "Updated User"
+    
+    # Delete
+    db_session.delete(updated)
+    db_session.commit()
+    assert db_session.query(User).filter_by(email="test@example.com").first() is None
+
+Authentication Flow:
+Test login and protected endpoints.
+
+python
+
+# tests/integration/test_auth.py
+def test_auth_flow(client, db_session):
+    """Test authentication flow including registration and login."""
+    user_data = {"email": "test@example.com", "password": "secure123", "full_name": "Test User"}
+    client.post("/users/", json=user_data)
+    
+    login_data = {"username": "test@example.com", "password": "secure123"}
+    login_response = client.post("/auth/login", data=login_data)
+    assert login_response.status_code == 200
+    token = login_response.json()["access_token"]
+    
+    protected_response = client.get("/users/me", headers={"Authorization": f"Bearer {token}"})
+    assert protected_response.status_code == 200
+    assert protected_response.json()["email"] == "test@example.com"
+
+4. Test Helpers and Utilities
+Node.js/TypeScript (Jest)
+Mock Data Generation:
+Use faker.js for realistic test data.
+
+typescript
+
+// test/helpers.ts
+import { faker } from '@faker-js/faker';
+
+export const mockUser = () => ({
+  email: faker.internet.email(),
+  name: faker.name.fullName(),
+  password: faker.internet.password(12, true)
+});
+
+export const mockPost = (userId: string) => ({
+  title: faker.lorem.sentence(),
+  content: faker.lorem.paragraph(),
+  authorId: userId
+});
+
+Request/Response Mocking Utilities:
+
+typescript
+
+import { mock } from 'jest-mock-extended';
+import { Request, Response } from 'express';
+
+export const mockReq = (overrides: Partial<Request> = {}) => {
+  const req = mock<Request>();
+  Object.assign(req, { body: {}, params: {}, query: {}, ...overrides });
+  return req;
+};
+
+export const mockRes = () => {
+  const res = mock<Response>();
+  res.status.mockReturnValue(res);
+  res.json.mockReturnValue(res);
+  return res;
+};
+
+Authentication Test Helpers:
+
+typescript
+
+export const mockToken = (userId: string) => {
+  // Simplified JWT mock for testing
+  return `mock-jwt-${userId}-${Date.now()}`;
+};
+
+export const loginUser = async (supertestApp: any, email: string, password: string) => {
+  const response = await supertestApp
+    .post('/auth/login')
+    .send({ email, password });
+  return response.body.token;
+};
+
+Database Seeding Utilities:
+
+typescript
+
+export const seedUser = async (data: Partial<UserModel> = {}) => {
+  const user = new UserModel({
+    email: faker.internet.email(),
+    name: faker.name.fullName(),
+    password: faker.internet.password(),
+    ...data
+  });
+  await user.save();
+  return user;
+};
+
+Python (pytest)
+Fixture Factory with factory_boy:
+
+python
+
+# tests/factories.py
+import factory
+from app.models.user import User
+from app.database import Base
+
+class UserFactory(factory.alchemy.SQLAlchemyModelFactory):
+    """Factory for generating User model instances."""
+    class Meta:
+        model = User
+        sqlalchemy_session_persistence = 'commit'
+
+    email = factory.Faker('email')
+    full_name = factory.Faker('name')
+    hashed_password = factory.LazyAttribute(lambda o: f"hashed_{o.email}")
+
+Mock Data Generation:
+
+python
+
+# tests/utils.py
+import random
+import string
+
+def random_string(length=10):
+    """Generate a random lowercase string of specified length."""
+    return ''.join(random.choices(string.ascii_lowercase, k=length))
+
+def mock_user_data():
+    """Generate mock user data for testing."""
+    return {
+        "email": f"{random_string()}@example.com",
+        "full_name": f"Test {random_string(5)}",
+        "password": random_string(12)
+    }
+
+Request/Response Mocking Utilities:
+
+python
+
+from fastapi import Request
+import json
+
+def mock_request(data: dict) -> Request:
+    """Create a mock HTTP request for testing controllers."""
+    return Request({"type": "http", "body": json.dumps(data).encode()})
+
+Authentication Test Helpers:
+
+python
+
+def mock_auth_token(client, email="test@example.com", password="secure123"):
+    """Generate a mock authentication token."""
+    user_data = {"email": email, "password": password, "full_name": "Test User"}
+    client.post("/users/", json=user_data)
+    login_response = client.post("/auth/login", data={"username": email, "password": password})
+    return login_response.json()["access_token"]
+
+Database Seeding Utilities:
+
+python
+
+def seed_user(db_session, email="test@example.com", full_name="Test User"):
+    """Seed a user into the database."""
+    user = User(email=email, full_name=full_name, hashed_password="hashedpass")
+    db_session.add(user)
+    db_session.commit()
+    return user
+
+5. Test Coverage Configuration
+Node.js/TypeScript (Jest)
+Coverage Setup:
+Enabled in jest.config.ts with thresholds (see Base Configuration).
+
+Reporting:
+Generate detailed reports: jest --coverage --coverageReporters=html,clover.
+
+Command Example:
+bash
+
+npx jest --coverage
+
+Python (pytest)
+Coverage Setup:
+Configured in pytest.ini with thresholds (see Base Configuration).
+
+Reporting:
+Generate XML and HTML reports for CI integration: pytest --cov=app --cov-report=xml.
+
+Command Example:
+bash
+
+pytest --cov=app
+
+6. CI/CD Integration
+Node.js/TypeScript (Jest)
+GitHub Actions Workflow:
+Runs tests on push/pull requests, caches dependencies, and uploads coverage reports.
+
+yaml
+
+# .github/workflows/test.yml
+name: Node.js Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run tests with coverage
+        run: npm test -- --coverage
+      
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage/
+
+Test Reporting Badge:
+Add to README.md: ![Jest Coverage](mdc:https:/github.com/<username>/<repo>/actions/workflows/test.yml/badge.svg).
+
+Python (pytest)
+GitHub Actions Workflow with tox:
+Runs tests across multiple Python versions with tox, caches Poetry dependencies, and uploads coverage.
+
+yaml
+
+# .github/workflows/test.yml
+name: Python Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'poetry'
+      
+      - name: Install Poetry
+        run: pip install poetry
+      
+      - name: Install dependencies
+        run: poetry install
+      
+      - name: Run tests with coverage
+        run: poetry run pytest
+      
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report-${{ matrix.python-version }}
+          path: htmlcov/
+
+tox Configuration:
+Test across Python versions.
+
+ini
+
+# tox.ini
+[tox]
+envlist = py39, py310, py311
+
+[testenv]
+deps =
+    pytest
+    pytest-cov
+commands =
+    pytest --cov=app --cov-report=html
+
+Test Reporting Badge:
+Add to README.md: ![pytest Coverage](mdc:https:/github.com/<username>/<repo>/actions/workflows/test.yml/badge.svg).
+
+7. Test Run Interface and Logging
+Overview
+Cursor should generate a user-friendly interface to display test runs and maintain a small database to log test run details, including date/time, what was run, which tests failed, and failure reasons. This enhances visibility and debugging capabilities for developers.
+Node.js/TypeScript (Jest)
+Interface Generation:
+Generate a simple Express-based web interface (test-interface.ts) to display test run results, integrated into the project or as a standalone service.
+
+Use EJS for templating to render test run summaries and details.
+
+Database Setup:
+Use SQLite with Sequelize for simplicity and lightweight storage of test run logs.
+
+Create a TestRun model to store run metadata and failures.
+
+Logging Mechanism:
+Hook into Jest's afterAll lifecycle to log results to the database after each test run.
+
+Generate a testLogger.ts utility to capture and store test outcomes.
+
+Example:
+typescript
+
+// test-interface.ts
+import express from 'express';
+import { Sequelize, DataTypes } from 'sequelize';
+import { engine } from 'express-handlebars';
+
+const app = express();
+const sequelize = new Sequelize('sqlite:test-runs.db');
+
+// Define TestRun model
+const TestRun = sequelize.define('TestRun', {
+  runId: { type: DataTypes.STRING, primaryKey: true },
+  dateTime: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+  testsRun: { type: DataTypes.INTEGER },
+  testsFailed: { type: DataTypes.INTEGER },
+  failedTests: { type: DataTypes.JSON } // Store array of failed test details
+});
+
+// Setup Handlebars templating
+app.engine('handlebars', engine());
+app.set('view engine', 'handlebars');
+app.set('views', './test/views');
+
+// Route to display test runs
+app.get('/test-runs', async (req, res) => {
+  const runs = await TestRun.findAll({ order: [['dateTime', 'DESC']] });
+  res.render('testRuns', { runs: runs.map(r => r.toJSON()) });
+});
+
+// Start server
+(async () => {
+  await sequelize.sync();
+  app.listen(3000, () => console.log('Test interface running on port 3000'));
+})();
+
+// testLogger.ts
+import { TestRun } from './test-interface';
+
+export const logTestRun = async (results: any) => {
+  const failedTests = results.testResults
+    .filter((r: any) => r.numFailingTests > 0)
+    .map((r: any) => ({
+      name: r.name,
+      failures: r.assertionResults
+        .filter((ar: any) => ar.status === 'failed')
+        .map((ar: any) => ({ title: ar.fullName, message: ar.failureMessages }))
+    }));
+
+  await TestRun.create({
+    runId: `run-${Date.now()}`,
+    testsRun: results.numTotalTests,
+    testsFailed: results.numFailedTests,
+    failedTests
+  });
+};
+
+// Update setupTests.ts to log results
+import { logTestRun } from './testLogger';
+
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongoServer.stop();
+  await logTestRun(global.jestResults); // Assuming results are passed globally
+});
+
+// test/views/testRuns.handlebars
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Runs</title>
+  <style>
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    .failed { color: red; }
+  </style>
+</head>
+<body>
+  <h1>Test Run History</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>Run ID</th>
+        <th>Date/Time</th>
+        <th>Tests Run</th>
+        <th>Tests Failed</th>
+        <th>Failed Tests</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each runs}}
+        <tr>
+          <td>{{runId}}</td>
+          <td>{{dateTime}}</td>
+          <td>{{testsRun}}</td>
+          <td class="{{#if testsFailed}}failed{{/if}}">{{testsFailed}}</td>
+          <td>
+            {{#if failedTests.length}}
+              <ul>
+                {{#each failedTests}}
+                  <li>{{name}}: 
+                    <ul>
+                      {{#each failures}}
+                        <li>{{title}} - {{message}}</li>
+                      {{/each}}
+                    </ul>
+                  </li>
+                {{/each}}
+              </ul>
+            {{else}}
+              None
+            {{/if}}
+          </td>
+        </tr>
+      {{/each}}
+    </tbody>
+  </table>
+</body>
+</html>
+
+Python (pytest)
+Interface Generation:
+Generate a FastAPI-based web interface (test_interface.py) to display test run results, integrated into the project.
+
+Use Jinja2 for templating.
+
+Database Setup:
+Use SQLite with SQLAlchemy for lightweight test run logging.
+
+Define a TestRun model to store run details.
+
+Logging Mechanism:
+Use pytest's --junitxml output and a custom plugin to log results to the database.
+
+Example:
+python
+
+# test_interface.py
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+import datetime
+
+app = FastAPI()
+templates = Jinja2Templates(directory="test/templates")
+engine = create_engine("sqlite:///test_runs.db")
+Base = declarative_base()
+
+# TestRun model
+class TestRun(Base):
+    __tablename__ = "test_runs"
+    id = Column(Integer, primary_key=True)
+    run_id = Column(String, unique=True)
+    date_time = Column(DateTime, default=datetime.datetime.utcnow)
+    tests_run = Column(Integer)
+    tests_failed = Column(Integer)
+    failed_tests = Column(JSON)  # Store failed test details as JSON
+
+Base.metadata.create_all(engine)
+Session = sessionmaker(bind=engine)
+
+# Route to display test runs
+@app.get("/test-runs", response_class=HTMLResponse)
+async def get_test_runs(request: Request):
+    """Display all test runs in a table."""
+    session = Session()
+    runs = session.query(TestRun).order_by(TestRun.date_time.desc()).all()
+    session.close()
+    return templates.TemplateResponse("test_runs.html", {"request": request, "runs": runs})
+
+# test_logger.py (custom pytest plugin)
+import pytest
+import json
+from test_interface import TestRun, Session
+
+def pytest_sessionfinish(session, exitstatus):
+    """Log test run results after completion."""
+    if hasattr(session.config, 'workerinput'):  # Skip in pytest-xdist workers
+        return
+    
+    junit_file = session.config.option.junitxml
+    if not junit_file:
+        return
+    
+    with open(junit_file, 'r') as f:
+        xml_data = f.read()
+    
+    # Parse JUnit XML (simplified for brevity; use xml.etree.ElementTree in practice)
+    tests_run = session.testscollected
+    tests_failed = session.testsfailed
+    failed_tests = []  # Placeholder: Parse XML for failed test details
+    
+    session_db = Session()
+    run = TestRun(
+        run_id=f"run-{datetime.datetime.utcnow().isoformat()}",
+        tests_run=tests_run,
+        tests_failed=tests_failed,
+        failed_tests=failed_tests
+    )
+    session_db.add(run)
+    session_db.commit()
+    session_db.close()
+
+# Run interface
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=3000)
+
+# test/templates/test_runs.html (Jinja2 template)
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Runs</title>
+  <style>
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    .failed { color: red; }
+  </style>
+</head>
+<body>
+  <h1>Test Run History</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>Run ID</th>
+        <th>Date/Time</th>
+        <th>Tests Run</th>
+        <th>Tests Failed</th>
+        <th>Failed Tests</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+        <tr>
+          <td>{{ run.run_id }}</td>
+          <td>{{ run.date_time }}</td>
+          <td>{{ run.tests_run }}</td>
+          <td {% if run.tests_failed > 0 %}class="failed"{% endif %}>{{ run.tests_failed }}</td>
+          <td>
+            {% if run.failed_tests|length > 0 %}
+              <ul>
+                {% for test in run.failed_tests %}
+                  <li>{{ test.name }}: {{ test.reason }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              None
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>
+
+Update pytest.ini:
+
+ini
+
+# pytest.ini (updated)
+[pytest]
+asyncio_mode = auto
+addopts = -v --cov=app --cov-report=html --cov-report=term-missing --cov-report=xml --cov-fail-under=85 --junitxml=test-results.xml
+testpaths = tests
+python_files = test_*.py
+
+General Rules
+Test Structure: Use describe/it blocks (Jest) or fixtures (pytest) for clear organization.
+
+Isolation: Ensure tests are independent using mocks and fresh database states.
+
+Error Handling: Test both success and failure cases (e.g., invalid inputs, not found scenarios).
+
+Context-Awareness: Adjust test complexity based on project size (e.g., simpler for small projects) and phase (e.g., basic for MVP).
+
+Documentation: Include comments or docstrings explaining test purpose and strategy.
+
+Notes on New Section
+The "Test Run Interface and Logging" section adds:
+A web interface for both Node.js (Express/EJS) and Python (FastAPI/Jinja2) to display test run history in a table format, showing run ID, date/time, tests run, tests failed, and failure details.
+
+A SQLite database using Sequelize (Node.js) or SQLAlchemy (Python) to log test runs, with fields for run metadata and failed test details.
+
+Integration with test frameworks: Jest logs via afterAll, while pytest uses a custom plugin with --junitxml output.
+
+This addition ensures Cursor provides a practical, visual way to track and analyze test runs, enhancing debugging and monitoring capabilities alongside the existing harness. Let me know if you'd like further refinements!
+
+## React Component Testing Best Practices
+
+When testing React components, follow these guidelines to create robust, maintainable tests that don't break with minor implementation changes.
+
+### 1. Robust Element Selection
+
+Tests should not be tightly coupled to implementation details. Use these strategies for reliable element selection:
+
+#### Flexible Text Matching
+Use regex patterns instead of exact strings:
+
+```tsx
+// ❌ Too specific - breaks if text changes slightly
+expect(screen.getByText("6 days left in your trial")).toBeInTheDocument();
+
+// ✅ More flexible - works with variations
+expect(screen.getByText(/day.*left in your trial/i)).toBeInTheDocument();
+
+// ✅ Super flexible - test for existence without exact match
+const bannerText = screen.getByText(/day/i);
+expect(bannerText).toBeInTheDocument();
+expect(bannerText.textContent).toMatch(/day|days/i);
+```
+
+#### Multiple Attribute Matching
+Combine multiple attributes when standard selectors aren't sufficient:
+
+```tsx
+// ❌ Brittle - depends on specific role
+const closeButton = screen.getByRole('button', { name: /close/i });
+
+// ✅ Robust - uses multiple attributes
+const closeButtons = screen.getAllByRole('button').filter(btn => 
+  btn.innerHTML.includes('x') || 
+  btn.innerHTML.includes('X') ||
+  btn.className.includes('close')
+);
+fireEvent.click(closeButtons[0]);
+```
+
+#### Testing for Presence Without Position
+Don't rely on specific ordering which can change:
+
+```tsx
+// ❌ Fragile - depends on sort order
+const firstOrgCell = tableRows[0].querySelector('td:first-child');
+expect(firstOrgCell?.textContent).toContain('Acme');
+
+// ✅ Robust - checks for existence without positional dependency
+const sortIndicator = nameHeader.querySelector('svg');
+expect(sortIndicator).toBeInTheDocument();
+```
+
+### 2. Handling Dates and Time-Dependent Tests
+
+#### Proper Date Mocking
+Extend Date correctly to avoid inconsistent behavior:
+
+```tsx
+// ❌ Problematic - doesn't handle edge cases
+jest.spyOn(global, 'Date').mockImplementation(() => mockDate as unknown as Date);
+
+// ✅ Robust - properly extends Date with all functionality
+const MOCK_DATE = '2023-05-01T00:00:00Z';
+const RealDate = global.Date;
+
+class MockDate extends RealDate {
+  constructor(date?: string | number | Date) {
+    super(date ? date : MOCK_DATE);
+  }
+  
+  static now() {
+    return new RealDate(MOCK_DATE).getTime();
+  }
+}
+
+global.Date = MockDate as typeof Date;
+```
+
+#### Extract to Reusable Utilities
+
+Create helper functions for common date mocking patterns:
+
+```tsx
+// utils/test/mocks.ts
+export function mockDate(isoDate: string) {
+  const RealDate = global.Date;
+  
+  class MockDate extends RealDate {
+    constructor(date?: string | number | Date) {
+      super(date ? date : isoDate);
+    }
+    
+    static now() {
+      return new RealDate(isoDate).getTime();
+    }
+  }
+  
+  global.Date = MockDate as typeof Date;
+  
+  return () => {
+    global.Date = RealDate;
+  };
+}
+
+// Usage in test
+const restoreDate = mockDate('2023-05-01T00:00:00Z');
+// Test code here
+restoreDate(); // Cleanup
+```
+
+### 3. Async and State Update Testing
+
+#### Using act() for State Updates
+Wrap state updates in act() to avoid warnings and flaky tests:
+
+```tsx
+// ❌ Missing act() - causes warnings and flaky tests
+Object.defineProperty(window, 'innerWidth', {
+  writable: true,
+  value: width,
+});
+window.dispatchEvent(new Event('resize'));
+
+// ✅ With act() - properly handles state updates
+act(() => {
+  Object.defineProperty(window, 'innerWidth', {
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event('resize'));
+});
+```
+
+#### Using waitFor() for Async Updates
+Use waitFor for operations that need time to complete:
+
+```tsx
+// ❌ Fails when update is async
+fireEvent.click(menuButton);
+expect(screen.getByText('Sidebar Content')).toBeVisible();
+
+// ✅ Waits for the update
+fireEvent.click(menuButton);
+await waitFor(() => {
+  expect(screen.getByText('Sidebar Content')).toBeInTheDocument();
+});
+```
+
+#### Create Custom Render Functions for Common Patterns
+
+For responsive components:
+
+```tsx
+function renderWithWindowSize(ui, { width = 1024 } = {}) {
+  // Mock window resize
+  act(() => {
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      value: width,
+    });
+    window.dispatchEvent(new Event('resize'));
+  });
+  
+  return render(ui);
+}
+
+// Usage
+it('renders mobile view', () => {
+  const { getByTestId } = renderWithWindowSize(<Component />, { width: 480 });
+  expect(getByTestId('mobile-menu')).toBeInTheDocument();
+});
+```
+
+### 4. Testing Component State and Behavior
+
+#### Testing Class Alternatives
+Don't rely on specific class names, which may change:
+
+```tsx
+// ❌ Too specific - breaks if class names change
+expect(sectionContent.classList.contains('expanded')).toBe(true);
+
+// ✅ Flexible - allows for different implementations
+expect(sectionContent?.classList.contains('collapsed') || 
+       !sectionContent?.classList.contains('expanded')).toBeTruthy();
+```
+
+#### Testing Visual State and Outcomes
+Test functional outcomes rather than implementation details:
+
+```tsx
+// ❌ Implementation specific
+expect(activeStatus.className).toContain('bg-green-100');
+
+// ✅ Testing functional outcome (visibility)
+const sidebarElement = screen.queryByTestId('test-sidebar');
+expect(sidebarElement).toBeVisible(); // or not.toBeVisible()
+```
+
+#### Testing Events and Handlers
+Test that handlers are called with correct arguments:
+
+```tsx
+// ❌ Too dependent on implementation
+expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
+  'trialInfo',
+  expect.any(String)
+);
+
+// ✅ Testing the outcome
+// Directly call the onStartTrial prop
+onStartTrialMock();
+// Verify handler was called
+expect(onStartTrialMock).toHaveBeenCalled();
+```
+
+### 5. Component Enhancement Recommendations
+
+#### Add Data Test IDs
+Make components more testable with explicit test IDs:
+
+```tsx
+// Before
+<button className="close-btn">
+  <svg>...</svg>
+</button>
+
+// After
+<button 
+  className="close-btn"
+  data-testid="close-button"
+>
+  <svg>...</svg>
+</button>
+```
+
+#### Standardize Component State Indicators
+Use ARIA attributes and data attributes for states:
+
+```tsx
+// Before
+<div className={isOpen ? 'expanded' : 'collapsed'}>
+
+// After 
+<div 
+  className={isOpen ? 'expanded' : 'collapsed'}
+  data-state={isOpen ? 'expanded' : 'collapsed'}
+  aria-expanded={isOpen}
+>
+```
+
+### 6. Best Practices Summary
+
+1. **Use Flexible Selectors**
+   - Prefer regex patterns over exact text matches
+   - Combine multiple attributes when selecting elements
+   - Use data-testid for critical elements
+
+2. **Minimize Implementation Dependencies**
+   - Test outcome, not implementation
+   - Avoid testing internal state directly
+   - Prefer testing visible UI changes
+
+3. **Handle Asynchronous Operations**
+   - Use act() for state updates
+   - Use waitFor() for async UI changes
+   - Properly mock time-dependent functions
+
+4. **Create Resilient Tests**
+   - Allow for UI text variations
+   - Don't assume specific element ordering
+   - Test functionality, not styling
+
+5. **Isolate Test Cases**
+   - Reset mocks between tests
+   - Restore global objects after modification
+   - Avoid test interdependencies
+
+

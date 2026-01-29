@@ -1,0 +1,240 @@
+---
+description: Use when implementing API calls, form submissions, or user interactions to ensure proper error handling
+globs: "**/*.{tsx,ts,jsx,js}"
+---
+
+# Error Handling Guidelines
+
+## Context
+- AgentMinder requires comprehensive error handling for all operations
+- Users need clear feedback when errors occur
+- Edge cases must be anticipated and handled gracefully
+- Vibe coding tendencies often skip proper error handling
+- Error handling is critical for maintaining trust with users
+- Proper error handling improves system resilience and user experience
+
+## Requirements
+
+### Error Handling Patterns
+- **REQUIRED**: Use try-catch blocks for all async operations and API calls
+- **REQUIRED**: Include user-facing error messages for all error scenarios
+- Implement toast notifications for operation results (success/failure)
+- Handle edge cases like network failures, timeouts, and validation errors
+- Provide a way for users to retry failed operations when appropriate
+- Log errors for debugging and monitoring purposes
+
+### Error Messaging
+- **REQUIRED**: Error messages should be clear, concise, and actionable
+- Include specific details when it helps users fix the issue
+- Avoid technical jargon in user-facing error messages
+- Provide recovery options when possible
+- Use consistent error messaging patterns across the application
+- Consider different user roles when crafting error messages
+
+### Error Reporting
+- Log errors to the console in development environments
+- Send critical errors to monitoring services in production
+- Include context details to help with debugging
+- Respect user privacy when logging error information
+- Track error frequency to identify systemic issues
+
+## Examples
+
+<example>
+// Good: Comprehensive error handling with user feedback
+import { useState } from 'react';
+import { useToast } from "@/components/ui/use-toast";
+import { Button } from "@/components/ui/button";
+
+export function SaveSettings({ settings, onSave }) {
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+
+  const handleSave = async () => {
+    // Validate inputs before proceeding
+    if (!settings?.name) {
+      toast({
+        title: "Validation Error",
+        description: "Name is required for saving settings.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Attempt to save settings
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(settings),
+      });
+
+      // Handle non-2xx responses
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.message || `Failed to save settings: ${response.status}`
+        );
+      }
+
+      // Handle success
+      const data = await response.json();
+      toast({
+        title: "Settings Saved",
+        description: "Your settings have been updated successfully.",
+      });
+      onSave(data);
+    } catch (error) {
+      // Handle network errors, API errors, and unexpected exceptions
+      console.error('Error saving settings:', error);
+      
+      // Determine the error message based on error type
+      let errorMessage = "Failed to save settings. Please try again.";
+      
+      if (error.message.includes('network') || !navigator.onLine) {
+        errorMessage = "Network error. Please check your connection and try again.";
+      } else if (error.message.includes('timeout')) {
+        errorMessage = "Request timed out. Please try again later.";
+      } else if (error.message.includes('permission')) {
+        errorMessage = "You don't have permission to update these settings.";
+      }
+      
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Button 
+      onClick={handleSave} 
+      disabled={isLoading}
+      className="w-full"
+    >
+      {isLoading ? "Saving..." : "Save Settings"}
+    </Button>
+  );
+}
+</example>
+
+<example type="invalid">
+// Bad: Missing error handling and user feedback
+import React from 'react';
+
+export function BasicSaveSettings({ settings, onSave }) {
+  const handleSave = async () => {
+    // No validation before save
+    
+    // No loading state
+    const response = await fetch('/api/settings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(settings),
+    });
+    
+    // No error handling for non-2xx responses
+    const data = await response.json();
+    onSave(data);
+    
+    // No user feedback on success
+    // No handling of network errors or exceptions
+  };
+
+  return (
+    <button 
+      onClick={handleSave}
+      className="bg-blue-500 text-white px-4 py-2 rounded"
+    >
+      Save Settings
+    </button>
+  );
+}
+</example>
+
+### Common Error Types to Handle
+
+| Error Type | Description | User-Facing Message Example |
+|------------|-------------|----------------------------|
+| Validation Errors | User input doesn't meet requirements | "Please enter a valid email address." |
+| Network Errors | Failed to connect to the server | "Unable to connect. Please check your internet connection." |
+| Authentication Errors | User isn't authenticated or token expired | "Your session has expired. Please log in again." |
+| Authorization Errors | User doesn't have permission | "You don't have permission to perform this action." |
+| Resource Not Found | Requested data doesn't exist | "The requested [resource] could not be found." |
+| Server Errors | Backend encountered an error | "We're experiencing technical difficulties. Please try again later." |
+| Timeout Errors | Request took too long | "The operation timed out. Please try again." |
+| Rate Limiting | Too many requests in a short time | "You've made too many requests. Please try again in a few minutes." |
+
+### Toast Notification Guidelines
+
+- **Success Toasts**: Green, display briefly (3-5 seconds)
+- **Info Toasts**: Blue, display for medium duration (5-7 seconds)
+- **Warning Toasts**: Yellow/Orange, display for medium duration (5-7 seconds)
+- **Error Toasts**: Red, display for longer duration (7-10 seconds) or until dismissed
+- **Include Actions**: When appropriate, include action buttons in toasts for quick resolution
+
+## Dependencies
+- Related rules: [130-logging-standards.mdc](mdc:130-logging-standards.mdc), [047-security-design-system.mdc](mdc:047-security-design-system.mdc)
+- Required packages: react-toastify or @shadcn/ui toast component
+- External standards: WCAG 2.1 AA for error messaging accessibility
+
+## Testing Guidelines
+- Test all error scenarios, including network failures and timeouts
+- Verify error messages are clear and actionable
+- Ensure loading states are properly managed
+- Test error handling in both client and server components
+- Verify that sensitive information is never exposed in error messages
+- Test accessibility of error notifications with screen readers
+
+## Implementation Checklist
+
+- [ ] Try-Catch: Implement try-catch blocks around all async operations
+- [ ] User Feedback: Provide clear, actionable error messages for all error scenarios
+- [ ] Loading States: Show loading states during async operations
+- [ ] Edge Cases: Handle network errors, timeouts, and validation failures
+- [ ] Error Types: Differentiate between different types of errors (validation, network, etc.)
+- [ ] Error Logging: Log errors with appropriate context for debugging
+- [ ] Recovery Options: Provide retry or alternative actions when errors occur
+- [ ] Accessibility: Ensure error messages are accessible to all users
+
+## See Also
+
+### Related Rules
+
+**Error Handling**:
+- @090-error-handling.mdc - Error classes and patterns
+- @135-error-monitoring-observability.mdc - Error monitoring with Sentry
+- @138-frontend-error-patterns.mdc - React error boundaries, form validation
+- @139-error-context-debugging.mdc - Error context capture
+
+**Logging & Operations**:
+- @130-logging-standards.mdc - Logging standards
+- @140-troubleshooting-standards.mdc - Troubleshooting procedures
+- @210-operations-incidents.mdc - Incident response
+
+**UI/UX**:
+- @042-ui-component-architecture.mdc - Component architecture
+- @054-accessibility-requirements.mdc - Accessible error messages
+
+### Tools & Documentation
+
+- **`.cursor/tools/analyze-errors.sh`** - Analyze error patterns
+- **`.cursor/docs/ai-workflows.md`** - Error debugging workflows
+
+### Comprehensive Guides
+
+- **`guides/Error-Handling-Complete-Guide.md`** ⭐ - Complete error handling strategy
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P0 (Required)  
+**Last Updated**: November 20, 2025 

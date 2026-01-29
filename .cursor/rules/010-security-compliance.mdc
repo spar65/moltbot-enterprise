@@ -1,0 +1,894 @@
+---
+description: 
+globs: ""
+alwaysApply: false
+---
+description: Use when analyzing code for security vulnerabilities, implementing security features, or ensuring compliance with regulations
+globs: "**/*"
+
+# Cursor Security & Compliance Guidelines
+
+These guidelines instruct Cursor on how to assist with security and compliance aspects of software development. They define how Cursor should analyze code for vulnerabilities, suggest security improvements, and help implement compliance requirements, ensuring recommendations are precise, actionable, and context-aware.
+
+---
+
+## Security Review Assistance
+
+### Automated Security Analysis
+
+**Code Analysis:**
+- Proactively scan code for common security vulnerabilities (e.g., SQL injection, XSS).
+- Identify OWASP Top 10 vulnerabilities in web applications.
+- Flag insecure coding patterns (e.g., improper error handling) and suggest secure alternatives.
+- Detect hardcoded credentials and sensitive information (e.g., API keys, passwords).
+- **Recommended Tools**: Use static analysis tools like SonarQube or Semgrep for automated scanning.
+
+**Security Documentation:**
+- Generate security documentation templates (e.g., threat models, security checklists).
+- Suggest documenting security features (e.g., authentication methods, encryption).
+- Help create threat models for sensitive components.
+- Provide checklists for manual security reviews.
+
+**Review Prioritization:**
+- Identify high-risk areas of code (e.g., authentication, payment processing) for deeper review.
+- Suggest prioritizing security issues based on severity (e.g., Critical, High, Medium).
+- Flag components handling sensitive data (e.g., PII, financial data).
+- Recommend security testing focus areas (e.g., input validation, session management).
+
+---
+
+## Dependency Management
+
+### Vulnerability Detection
+
+**Dependency Analysis:**
+- Identify outdated or vulnerable dependencies.
+- Recognize dependency version conflicts.
+- Flag dependencies with known security issues.
+- Suggest secure alternatives for problematic libraries.
+
+**Update Recommendations:**
+- Recommend specific version updates to address vulnerabilities.
+- Analyze potential breaking changes in dependency updates (e.g., review changelogs, run tests).
+- Suggest incremental update paths for major version changes.
+- Generate updated dependency configuration files (e.g., `package.json`, `requirements.txt`).
+
+**Dependency Scanning Integration:**
+- Suggest integrations with tools like Dependabot or Snyk for automated updates.
+- Generate configuration for dependency scanning tools.
+- Recommend CI/CD pipeline integration for dependency checks.
+- Flag dependencies without vulnerability monitoring.
+- **License Compliance**: Recommend checking license compatibility for dependencies.
+
+---
+
+## Vulnerability Remediation
+
+### Secure Coding Suggestions
+
+**Vulnerability Fixes:**
+- Provide specific code suggestions to fix identified vulnerabilities (e.g., use parameterized queries for SQL injection).
+- Recommend proper input validation techniques (e.g., allowlisting, sanitization).
+- Suggest secure authentication and authorization patterns (e.g., OAuth, JWT).
+- Generate secure configuration for common frameworks (e.g., Flask, Express).
+
+**Security Pattern Implementation:**
+- Recommend implementation of security headers (e.g., CSP, HSTS).
+- Suggest secure password storage (e.g., bcrypt, Argon2) and validation methods.
+- Provide patterns for secure API design (e.g., rate limiting, API key rotation).
+- Generate code for implementing proper access controls (e.g., RBAC).
+
+**Framework-Specific Security:**
+- Suggest framework-specific security best practices (e.g., Flask's `flask-talisman` for security headers).
+- Identify security features available in used frameworks (e.g., Spring Security for Java).
+- Recommend secure configuration options (e.g., enabling CSRF protection).
+- Flag disabled or misconfigured security features.
+
+---
+
+## Compliance Support
+
+### Regulatory Guidance
+
+**Compliance Identification:**
+- Identify potential regulatory requirements based on application type (e.g., GDPR for EU users, HIPAA for health data).
+- Suggest compliance considerations for different data types (e.g., PII, financial data).
+- Flag patterns that might violate common regulations (e.g., storing unencrypted PII).
+- Recommend compliance documentation templates (e.g., data protection impact assessments).
+
+**Privacy Implementation:**
+- Suggest implementations for data privacy requirements (e.g., data minimization).
+- Recommend patterns for user consent management (e.g., consent banners, logs).
+- Generate code for data anonymization or pseudonymization.
+- Identify personally identifiable information (PII) handling.
+
+**Audit Trail Implementation:**
+- Recommend audit logging for sensitive operations (e.g., user data access).
+- Suggest non-repudiation mechanisms where required (e.g., digital signatures).
+- Generate code for secure audit trail implementation.
+- Flag insufficient logging of security-relevant events.
+
+**Data Retention:**
+- Recommend data retention policies (e.g., delete user data after account closure).
+- Suggest automated data purging mechanisms.
+
+---
+
+## Authentication & Authorization
+
+### Access Control Enhancement
+
+**Authentication Security:**
+- Identify weak authentication mechanisms (e.g., single-factor auth for sensitive systems).
+- Suggest multi-factor authentication (MFA) implementation (e.g., TOTP, SMS).
+- Recommend secure session management (e.g., short-lived tokens, HTTPS-only cookies).
+- Generate code for implementing authentication security.
+
+**Authorization Patterns:**
+- Suggest proper authorization checks (e.g., before accessing resources).
+- Identify missing permission validations.
+- Recommend role-based access control (RBAC) implementations.
+- Generate code for implementing authorization patterns.
+
+**Credential Management:**
+- Suggest secure credential storage (e.g., hashed passwords).
+- Recommend secure password reset flows (e.g., token-based resets).
+- Identify insecure credential handling (e.g., plaintext storage).
+- Generate code for implementing credential validation.
+
+### Role-Based Access Control (RBAC)
+
+**Role Implementation:**
+- Check roles at both API and UI levels to ensure consistent security.
+- Recommend implementing clear role definitions (e.g., Admin, Agent, Manager).
+- Suggest storing roles with user objects in the database.
+- Flag code that bypasses role verification.
+
+**Permission Enforcement:**
+- Recommend checking role permissions before accessing or modifying data.
+- Suggest middleware approach for consistent role validation across endpoints.
+- Implement permission validation in service layers for extra protection.
+- Alert when detecting unprotected resources.
+
+**Role Hierarchy:**
+- Suggest implementing role inheritance for hierarchical permissions.
+- Recommend clear definitions of which roles can access which resources.
+- Generate proper role verification code for nested roles.
+- Flag potential privilege escalation vulnerabilities.
+
+**Example RBAC Implementation:**
+```typescript
+// Good: Role check in API route handler
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { hasRole } from '@/utils/auth';
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    // Get authenticated session
+    const session = await getServerSession();
+    if (!session?.user) {
+      return new NextResponse(null, { status: 401 });
+    }
+    
+    // Check role permission - only org_admin can delete agents
+    if (!hasRole(session.user, 'org_admin')) {
+      return new NextResponse(null, { status: 403 });
+    }
+    
+    // Proceed with deletion since role check passed
+    await deleteAgent(params.id);
+    
+    return new NextResponse(null, { status: 204 });
+  } catch (error) {
+    console.error('Error deleting agent:', error);
+    return new NextResponse(null, { status: 500 });
+  }
+}
+
+// Bad: No role check
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    // Missing role verification - anyone can delete!
+    await deleteAgent(params.id);
+    
+    return new NextResponse(null, { status: 204 });
+  } catch (error) {
+    console.error('Error deleting agent:', error);
+    return new NextResponse(null, { status: 500 });
+  }
+}
+```
+
+**UI Integration:**
+```typescript
+// Good: Role-based UI rendering
+import { useSession } from 'next-auth/react';
+import { hasPermission } from '@/utils/auth';
+
+function AgentActions({ agent }) {
+  const { data: session } = useSession();
+  const canEditAgent = hasPermission(session?.user, 'agent:edit');
+  const canDeleteAgent = hasPermission(session?.user, 'agent:delete');
+  
+  return (
+    <div className="agent-actions">
+      {canEditAgent && (
+        <button onClick={() => editAgent(agent.id)}>Edit</button>
+      )}
+      
+      {canDeleteAgent && (
+        <button onClick={() => deleteAgent(agent.id)}>Delete</button>
+      )}
+    </div>
+  );
+}
+```
+
+**Testing RBAC:**
+```typescript
+// Good: Testing role-based access control
+describe('Agent API', () => {
+  test('allows admin to delete an agent', async () => {
+    // Set up test with admin role
+    const session = mockSession({ roles: ['org_admin'] });
+    getServerSession.mockResolvedValue(session);
+    
+    const response = await DELETE(
+      new Request('https://example.com/api/agents/123'),
+      { params: { id: '123' } }
+    );
+    
+    expect(response.status).toBe(204);
+  });
+  
+  test('prevents regular user from deleting an agent', async () => {
+    // Set up test with regular user role
+    const session = mockSession({ roles: ['user'] });
+    getServerSession.mockResolvedValue(session);
+    
+    const response = await DELETE(
+      new Request('https://example.com/api/agents/123'),
+      { params: { id: '123' } }
+    );
+    
+    expect(response.status).toBe(403);
+  });
+});
+```
+
+### Platform-Level Access Control
+
+**Platform User Authentication:**
+- Platform Users must be authenticated and authorized to access platform-wide data.
+- Implement separate authentication checks for platform-level access.
+- Ensure proper session validation for platform operations.
+- Log all platform-level access attempts for security auditing.
+
+**Role-Based Platform Access:**
+- Use role-based checks to restrict access to platform-level endpoints.
+- Separate platform-level permissions from organization-level permissions.
+- Implement least privilege principles for platform access.
+- Test access control with different roles (e.g., Platform User vs. Super User).
+
+**Example Platform Access Control:**
+```typescript
+// Good
+async function getPlatformStats(user) {
+  // Check for platform-level access
+  if (!user.roles.includes('platform_user')) {
+    throw new Error('Unauthorized: Platform User role required');
+  }
+  
+  // Proceed with platform-level data access
+  return await db.platformStats.find();
+}
+
+// Bad
+async function getPlatformStats(user) {
+  // No platform-specific role check
+  return await db.platformStats.find();
+}
+```
+
+**Multi-Tenant Platform Security:**
+- Implement tenant isolation at the platform level.
+- Prevent cross-tenant data access even for platform users.
+- Add extra validation for operations that span multiple organizations.
+- Log all cross-tenant operations for security review.
+
+**Example RBAC Implementation:**
+```typescript
+// Good: Platform-level role check with explicit organization boundaries
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { hasRole, hasOrganizationAccess } from '@/utils/auth';
+
+export async function GET(
+  request: Request,
+  { params }: { params: { orgId: string } }
+) {
+  try {
+    // Get authenticated session
+    const session = await getServerSession();
+    if (!session?.user) {
+      return new NextResponse(null, { status: 401 });
+    }
+    
+    // Check if user has platform admin role or specific org access
+    const isPlatformAdmin = hasRole(session.user, 'platform_user');
+    const hasOrgAccess = hasOrganizationAccess(session.user, params.orgId);
+    
+    if (!isPlatformAdmin && !hasOrgAccess) {
+      return new NextResponse(null, { status: 403 });
+    }
+    
+    // Proceed with data retrieval
+    const orgData = await getOrganizationData(params.orgId);
+    
+    // Log access for audit purposes
+    auditLogger.info('Organization data accessed', {
+      userId: session.user.id,
+      orgId: params.orgId,
+      isPlatformAccess: isPlatformAdmin && !hasOrgAccess
+    });
+    
+    return NextResponse.json(orgData);
+  } catch (error) {
+    console.error('Error retrieving organization data:', error);
+    return new NextResponse(null, { status: 500 });
+  }
+}
+```
+
+**Platform Data Isolation:**
+```typescript
+// Good: Proper data isolation in database queries
+async function getPlatformStats() {
+  // Aggregated data with proper isolation
+  const stats = await db.organizations.aggregate([
+    // Only include relevant fields, exclude sensitive org data
+    { $project: { 
+        name: 1, 
+        userCount: 1, 
+        createdAt: 1,
+        region: 1,
+        // Explicitly exclude sensitive fields
+        privateConfig: 0,
+        apiKeys: 0
+    }},
+    // Aggregate counts and metrics
+    { $group: {
+        _id: null,
+        totalOrgs: { $sum: 1 },
+        totalUsers: { $sum: "$userCount" },
+        regionsMap: { $addToSet: "$region" }
+    }}
+  ]);
+  
+  return stats[0];
+}
+
+// Bad: Improper data exposure in platform queries
+async function getPlatformStatsUnsafe() {
+  // Retrieves all organization data without proper isolation
+  const orgs = await db.organizations.find({});
+  
+  // Manually processing exposes all org data in memory
+  return {
+    totalOrgs: orgs.length,
+    totalUsers: orgs.reduce((sum, org) => sum + org.userCount, 0),
+    // This could expose sensitive data
+    allOrgs: orgs
+  };
+}
+```
+
+**Testing Platform Access:**
+```typescript
+// Good: Testing platform access boundaries
+describe('Platform API', () => {
+  beforeEach(async () => {
+    // Set up test data for multiple organizations
+    await setupTestOrg('org1');
+    await setupTestOrg('org2');
+  });
+  
+  test('platform user can access all organization data', async () => {
+    const session = mockSession({ roles: ['platform_user'] });
+    getServerSession.mockResolvedValue(session);
+    
+    const response = await GET(
+      new Request('https://example.com/api/organizations'),
+      {}
+    );
+    
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.length).toBe(2); // Can see both orgs
+  });
+  
+  test('org admin can only access their organization data', async () => {
+    const session = mockSession({ 
+      roles: ['org_admin'],
+      orgId: 'org1'
+    });
+    getServerSession.mockResolvedValue(session);
+    
+    // Trying to access a different org
+    const response = await GET(
+      new Request('https://example.com/api/organizations/org2'),
+      { params: { orgId: 'org2' } }
+    );
+    
+    expect(response.status).toBe(403);
+  });
+});
+```
+
+---
+
+## Data Protection
+
+### Sensitive Data Handling
+
+**Data Encryption:**
+- Identify unencrypted sensitive data (e.g., credit card numbers).
+- Suggest appropriate encryption methods (e.g., AES-256 for data at rest).
+- Recommend key management practices (e.g., AWS KMS, HashiCorp Vault).
+- Generate code for implementing encryption.
+
+**Data Validation:**
+- Suggest input validation for all user-supplied data.
+- Recommend output encoding to prevent injection attacks (e.g., HTML entity encoding).
+- Identify missing data sanitization.
+- Generate code for implementing data validation (e.g., using OWASP ESAPI).
+
+**Data Exposure Prevention:**
+- Identify potential data leakage points (e.g., detailed error messages).
+- Suggest proper error handling to prevent information disclosure (e.g., generic error messages).
+- Recommend logging practices that protect sensitive data (e.g., masking PII).
+- Flag overly verbose error messages or logs.
+
+---
+
+## Implementation Examples
+
+### Example: SQL Injection Prevention (Python)
+
+```python
+# Vulnerable code
+def get_user(username):
+    query = f"SELECT * FROM users WHERE username = '{username}'"
+    cursor.execute(query)
+    return cursor.fetchone()
+
+# Secure parameterized query
+def get_user(username):
+    """Retrieve user by username using parameterized query to prevent SQL injection."""
+    query = "SELECT * FROM users WHERE username = %s"
+    cursor.execute(query, (username,))
+    return cursor.fetchone()
+```
+
+### Example: Secure Password Storage (JavaScript)
+
+```javascript
+// Insecure password storage
+function createUser(username, password) {
+  const user = {
+    username: username,
+    password: password  // Storing plaintext password
+  };
+  return db.users.insert(user);
+}
+
+// Secure password hashing
+const bcrypt = require('bcrypt');
+
+async function createUser(username, password) {
+  const saltRounds = 12;
+  const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+  const user = {
+    username: username,
+    password: hashedPassword
+  };
+
+  return db.users.insert(user);
+}
+```
+
+### Example: Security Headers Implementation (Express)
+
+```javascript
+// Express app without security headers
+const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => {
+  res.send('Hello World!');
+});
+
+app.listen(3000);
+
+// Express app with security headers
+const express = require('express');
+const helmet = require('helmet');
+
+const app = express();
+
+app.use(helmet());
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+      },
+    },
+    referrerPolicy: { policy: "same-origin" },
+    hsts: { maxAge: 63072000, includeSubDomains: true, preload: true }
+  })
+);
+
+app.get('/', (req, res) => {
+  res.send('Hello World!');
+});
+
+app.listen(3000);
+```
+
+Additional Example: GDPR Data Subject Rights Implementation (Python)
+python
+
+# Controller handling user data without GDPR considerations
+class UserController:
+    def create_user(self, user_data):
+        return db.users.insert(user_data)
+
+    def get_user(self, user_id):
+        return db.users.find_by_id(user_id)
+
+Cursor suggestion:
+python
+
+# GDPR-compliant user controller
+class UserController:
+    def create_user(self, user_data, consent=None):
+        if consent is None:
+            consent = {}
+
+        user_record = {
+            **user_data,
+            "consent": consent,
+            "consent_timestamp": datetime.now().isoformat(),
+            "data_collected_at": datetime.now().isoformat()
+        }
+
+        audit_logger.info("User consent recorded", extra={
+            "user_id": user_record.get("id"), "consent": consent
+        })
+
+        return db.users.insert(user_record)
+
+    def get_user(self, user_id):
+        return db.users.find_by_id(user_id)
+
+    def delete_user(self, user_id):
+        user = db.users.find_by_id(user_id)
+        if not user:
+            return {"error": "User not found"}
+
+        audit_logger.info("User data deleted per request", extra={"user_id": user_id})
+        return db.users.delete(user_id)
+
+    def export_user_data(self, user_id):
+        user = db.users.find_by_id(user_id)
+        if not user:
+            return {"error": "User not found"}
+
+        portable_data = {
+            k: v for k, v in user.items() if k not in ["internal_id", "tracking_data"]
+        }
+
+        audit_logger.info("User data exported", extra={"user_id": user_id})
+        return portable_data
+
+Additional Example: CSRF Protection (Flask)
+python
+
+# Vulnerable Flask app without CSRF protection
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/update', methods=['POST'])
+def update():
+    data = request.form['data']
+    # Process data
+    return "Updated"
+
+Cursor suggestion:
+python
+
+# Flask app with CSRF protection
+from flask import Flask, request
+from flask_wtf.csrf import CSRFProtect
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your-secret-key'
+csrf = CSRFProtect(app)
+
+@app.route('/update', methods=['POST'])
+@csrf.exempt  # Use selectively; ideally, include CSRF tokens in forms
+def update():
+    data = request.form['data']
+    # Process data
+    return "Updated"
+
+Additional Example: Secure File Uploads (Node.js)
+javascript
+
+// Insecure file upload
+app.post('/upload', (req, res) => {
+  const file = req.files.file;
+  file.mv('./uploads/' + file.name);
+  res.send('File uploaded');
+});
+
+Cursor suggestion:
+javascript
+
+// Secure file upload with validation
+const path = require('path');
+const crypto = require('crypto');
+
+app.post('/upload', (req, res) => {
+  const file = req.files.file;
+  const extension = path.extname(file.name);
+  const allowedExtensions = ['.jpg', '.png', '.pdf'];
+  
+  if (!allowedExtensions.includes(extension)) {
+    return res.status(400).send('Invalid file type');
+  }
+  
+  const filename = crypto.randomBytes(16).toString('hex') + extension;
+  file.mv('./uploads/' + filename);
+  res.send('File uploaded securely');
+});
+
+Additional Example: HIPAA Compliance (Data Encryption)
+python
+
+# Storing patient data without encryption
+def store_patient_data(patient_data):
+    db.patients.insert(patient_data)
+
+Cursor suggestion:
+python
+
+# Encrypting sensitive patient data for HIPAA compliance
+from cryptography.fernet import Fernet
+
+key = Fernet.generate_key()
+cipher = Fernet(key)
+
+def store_patient_data(patient_data):
+    encrypted_data = {
+        "name": cipher.encrypt(patient_data["name"].encode()).decode(),
+        "dob": cipher.encrypt(patient_data["dob"].encode()).decode(),
+        "diagnosis": cipher.encrypt(patient_data["diagnosis"].encode()).decode()
+    }
+    db.patients.insert(encrypted_data)
+
+Adaptations and Context-Awareness
+Cursor will adjust security and compliance recommendations based on:
+Application Type:
+Web: Focus on OWASP Top 10, secure headers.
+
+Mobile: Recommend secure storage (e.g., Keychain for iOS).
+
+API: Suggest rate limiting, API key management.
+
+Desktop: Recommend secure update mechanisms.
+
+Data Sensitivity:
+Public: Minimal encryption, focus on availability.
+
+Internal: Encrypt sensitive internal data.
+
+Confidential (e.g., PII, health data): Strong encryption, access controls, audit logs.
+
+Compliance: Tailor to regulations (e.g., GDPR, HIPAA).
+
+Framework Capabilities:
+Leverage built-in security features (e.g., Django's CSRF protection).
+
+Recommend security plugins (e.g., helmet for Express).
+
+Suggest secure configuration options.
+
+Deployment Environment:
+Cloud: Use cloud-native security tools (e.g., AWS WAF).
+
+On-Prem: Recommend firewall rules, network segmentation.
+
+Containers: Suggest image scanning, least-privilege execution.
+
+Serverless: Focus on function permissions, secure environment variables.
+
+Authentication Methods:
+OAuth/OIDC: Recommend token validation, scope checks.
+
+Sessions: Suggest secure cookie settings, session timeouts.
+
+API Keys: Recommend rotation, usage restrictions.
+
+This document provides a robust foundation for Cursor to deliver precise, actionable, and context-aware security and compliance assistance across diverse software development scenarios.
+
+---
+
+# Security & Compliance Standards
+
+## Environment Variable Protection
+
+### Protection of Sensitive Configuration
+- **REQUIRED**: Never expose sensitive environment variables in client-side code
+- **REQUIRED**: Never share screenshots or recordings showing environment variables
+- Clearly distinguish between client-side and server-side environment variables
+- Use naming conventions to distinguish client-safe variables (e.g., `NEXT_PUBLIC_` prefix for Next.js)
+- Regularly audit code for accidentally exposed secrets or credentials
+- Use secret management services in production environments
+- Implement sanitization in logging to prevent accidental exposure of secrets
+
+```typescript
+// BAD: Exposing sensitive credentials in client-side code
+// In a client-side component
+const ApiComponent = () => {
+  const apiKey = process.env.API_SECRET_KEY; // This will be exposed in the client bundle!
+  
+  return <div>Using API: {apiKey}</div>;
+};
+
+// GOOD: Only using approved client-side variables
+// In a client-side component
+const ApiComponent = () => {
+  const publicApiEndpoint = process.env.NEXT_PUBLIC_API_ENDPOINT; // Safe to expose
+  
+  return <div>API Endpoint: {publicApiEndpoint}</div>;
+};
+
+// GOOD: Keeping sensitive variables server-side
+// In a server-side API route or Server Component
+export async function getServerSideProps() {
+  const apiKey = process.env.API_SECRET_KEY; // Safely used server-side only
+  const data = await fetchWithAuth(apiKey);
+  
+  return { props: { data } }; // Only the resulting data is sent to client
+}
+```
+
+## Third-Party Authentication
+
+### Authentication Implementation
+- **REQUIRED**: Use established authentication providers (Auth0, Clerk, NextAuth, etc.) instead of custom solutions
+- **REQUIRED**: Follow provider documentation precisely for proper implementation
+- Implement proper session validation and refresh mechanisms
+- Protect all routes requiring authentication, including API endpoints
+- Test authentication flows thoroughly, including edge cases
+- Regularly update authentication libraries to address security vulnerabilities
+
+```typescript
+// GOOD: Using a managed auth provider (example with Clerk)
+import { ClerkProvider, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/nextjs';
+
+function MyApp({ Component, pageProps }) {
+  return (
+    <ClerkProvider>
+      <Component {...pageProps} />
+    </ClerkProvider>
+  );
+}
+
+// Protected component
+function ProtectedPage() {
+  return (
+    <>
+      <SignedIn>
+        {/* Protected content here */}
+        <Dashboard />
+      </SignedIn>
+      <SignedOut>
+        <RedirectToSignIn />
+      </SignedOut>
+    </>
+  );
+}
+
+// Protected API route
+import { getAuth } from '@clerk/nextjs/server';
+
+export default function handler(req, res) {
+  const { userId } = getAuth(req);
+  
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  // Process authenticated request
+  res.status(200).json({ success: true });
+}
+```
+
+## Security Auditing
+
+### Dependency Security Auditing
+- **REQUIRED**: Run `npm audit` before all deployments and resolve high/critical vulnerabilities
+- Set up automated security scanning in CI/CD pipelines
+- Use tools like Snyk or Dependabot to automate vulnerability detection
+- Establish a process for regular dependency updates
+- Document security exceptions with clear justification
+- Test thoroughly after security-related dependency updates
+
+```bash
+# Required before deployment
+npm audit
+
+# Address vulnerabilities
+npm audit fix
+
+# For situations where breaking changes might occur
+npm audit fix --force
+
+# When vulnerabilities cannot be automatically fixed
+# Document reason and create plan to address
+```
+
+## Additional Security Controls
+- **REQUIRED**: All applications must implement DDoS protection and web application firewalls (WAF)
+- **REQUIRED**: Implement IP-based and user-based rate limiting for all API endpoints
+- Use CAPTCHA for login attempts and sensitive operations
+- Set up proper monitoring and alerting for security events
+- Consider using Cloudflare or similar services for additional protection
+- Implement proper logging for security-relevant events
+
+
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md`** - Complete security workflows (11,500 words)
+- **`.cursor/docs/security-checklist.md`** - Pre-deployment checklist (6,800 words)
+- **`.cursor/docs/rules-guide.md`** - Understanding the rule system
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Detect hardcoded secrets
+- **`.cursor/tools/check-env-vars.sh`** - Validate environment variables
+- **`.cursor/tools/audit-dependencies.sh`** - Security vulnerability scanning
+- **`.cursor/tools/check-auth-config.sh`** - Auth0 configuration validation
+
+### Related Rules
+- @002-rule-application.mdc - Rule priority and Source of Truth Hierarchy
+- @011-env-var-security.mdc - Environment variable protection
+- @012-api-security.mdc - API security measures
+- @013-dependency-auditing.mdc - Dependency vulnerability scanning
+- @014-third-party-auth.mdc - Authentication implementation
+- @019-auth0-integration.mdc - Auth0 integration standards
+- @020-payment-security.mdc - Payment processing security
+
+### Quick Start
+1. **Read:** `.cursor/rules/003-cursor-system-overview.mdc`
+2. **Scan:** `.cursor/tools/scan-secrets.sh` (find hardcoded secrets)
+3. **Follow:** `.cursor/docs/security-workflows.md` (proven patterns)
+4. **Deploy:** `.cursor/docs/security-checklist.md` (pre-deployment checklist)

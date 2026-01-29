@@ -1,0 +1,303 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+---
+
+description: Implement comprehensive security headers and Content Security Policy to protect against common web vulnerabilities and secure authentication flows
+globs: "\*_/_.{ts,js,tsx,jsx}"
+
+---
+
+# Security Headers and CSP
+
+## Context
+
+- This rule applies when configuring HTTP security headers
+- Especially important for authentication-related endpoints and pages
+- Critical for protecting against XSS, CSRF, clickjacking, and other attacks
+- Applies to both API endpoints and frontend rendering
+
+## Requirements
+
+### Content Security Policy Implementation
+
+- Implement a comprehensive Content Security Policy:
+  - Use `default-src 'self'` as baseline directive
+  - Explicitly define allowed sources for scripts, styles, images, fonts, etc.
+  - Use nonces or hashes for inline scripts rather than `unsafe-inline`
+  - Include required Auth0 domains in CSP for authentication to function
+  - Define frame-ancestors to prevent clickjacking
+  - Implement report-uri/report-to for CSP violation reporting
+  - Use separate development and production CSP configurations
+- Validate CSP with testing tools before deployment
+- Document CSP exceptions and reasons
+
+### CORS Configuration for Authentication
+
+- Configure CORS headers for authentication endpoints:
+  - Limit Access-Control-Allow-Origin to specific trusted domains
+  - Explicitly define Access-Control-Allow-Methods for auth endpoints
+  - Include necessary Access-Control-Allow-Headers for auth tokens
+  - Set appropriate Access-Control-Max-Age to reduce preflight requests
+  - Ensure credentials can be included with requests when necessary
+  - Avoid wildcard origins (\*) for endpoints handling sensitive information
+- Test CORS configuration with cross-domain requests
+- Document CORS exceptions and third-party domain requirements
+
+### Critical Security Headers
+
+- Implement all critical security headers:
+  - X-Content-Type-Options: nosniff
+  - X-Frame-Options: DENY (or SAMEORIGIN when necessary)
+  - Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  - Referrer-Policy: strict-origin-when-cross-origin
+  - Permissions-Policy: with appropriate restrictions
+  - X-XSS-Protection: 1; mode=block (for legacy browsers)
+  - Cache-Control: no-store for sensitive pages
+- Document any headers deliberately omitted and the reason
+- Test security headers with header validation tools
+
+### XSS Prevention for Auth Flows
+
+- Implement XSS prevention specifically for authentication flows:
+  - Sanitize and validate all user inputs
+  - Encode output in auth-related pages
+  - Implement HttpOnly, Secure, and SameSite=Strict for auth cookies
+  - Use Content-Security-Policy to restrict script execution
+  - Prevent parameter pollution in auth URLs
+  - Validate state and nonce parameters
+  - Sanitize error messages to prevent information disclosure
+- Test with XSS injection attempts on auth flows
+- Use automated scanning tools to verify protection
+
+### Security Headers in Frameworks
+
+- Configure framework-specific security features:
+  - Use Helmet.js or equivalent library for Express/Next.js
+  - Configure built-in security features in web frameworks
+  - Enable recommended security settings in auth libraries
+  - Override insecure defaults in frameworks
+  - Validate that framework middleware applies headers correctly
+- Document framework-specific security configurations
+- Test that headers are properly applied with framework middleware
+
+## Examples
+
+<example>
+// Good security headers implementation with Next.js
+// next.config.js
+
+const securityHeaders = [
+{
+key: 'Content-Security-Policy',
+value: `
+default-src 'self';
+script-src 'self' https://cdn.auth0.com https://static.cloudflareinsights.com;
+style-src 'self' https://fonts.googleapis.com 'unsafe-inline';
+img-src 'self' data: https://*.auth0.com https://s.gravatar.com;
+font-src 'self' https://fonts.gstatic.com;
+frame-src 'self' https://*.auth0.com;
+connect-src 'self' https://*.auth0.com https://api.myapp.com;
+frame-ancestors 'none';
+form-action 'self';
+base-uri 'self';
+report-uri https://myapp.report-uri.com/r/d/csp/enforce;
+upgrade-insecure-requests;
+`.replace(/\s{2,}/g, ' ').trim()
+},
+{
+key: 'Strict-Transport-Security',
+value: 'max-age=63072000; includeSubDomains; preload'
+},
+{
+key: 'X-XSS-Protection',
+value: '1; mode=block'
+},
+{
+key: 'X-Content-Type-Options',
+value: 'nosniff'
+},
+{
+key: 'Referrer-Policy',
+value: 'strict-origin-when-cross-origin'
+},
+{
+key: 'X-Frame-Options',
+value: 'DENY'
+},
+{
+key: 'Permissions-Policy',
+value: 'camera=(), microphone=(), geolocation=()'
+}
+];
+
+module.exports = {
+async headers() {
+return [
+{
+// Apply these headers to all routes
+source: '/:path*',
+headers: securityHeaders,
+},
+{
+// Additional headers for auth routes
+source: '/api/auth/:path*',
+headers: [
+...securityHeaders,
+{
+key: 'Cache-Control',
+value: 'no-store, max-age=0'
+}
+],
+}
+];
+}
+};
+</example>
+
+<example type="invalid">
+// Insufficient security headers
+
+// No CSP implementation
+// No protection against XSS
+// No CORS configuration
+
+export default function authApiHandler(req, res) {
+// Process authentication without security headers
+return res.status(200).json({ token: "user-auth-token" });
+}
+</example>
+
+<example>
+// Good CORS configuration for auth endpoints
+// src/middleware/cors.js
+
+const corsMiddleware = (req, res, next) => {
+// Allowed origins for auth endpoints
+const allowedOrigins = [
+'https://app.myapp.com',
+'https://admin.myapp.com',
+'https://myapp-staging.vercel.app'
+];
+
+const origin = req.headers.origin;
+
+// Only allow specific origins, not any origin
+if (origin && allowedOrigins.includes(origin)) {
+res.setHeader('Access-Control-Allow-Origin', origin);
+}
+
+// Auth endpoints need these headers for tokens
+res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+res.setHeader(
+'Access-Control-Allow-Headers',
+'Content-Type, Authorization, X-CSRF-Token'
+);
+res.setHeader('Access-Control-Allow-Credentials', 'true');
+res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+
+// Handle preflight requests
+if (req.method === 'OPTIONS') {
+return res.status(204).end();
+}
+
+next();
+};
+
+export default corsMiddleware;
+</example>
+
+<example type="invalid">
+// Overly permissive CORS configuration
+
+app.use(cors({
+origin: '_', // Allow any origin
+methods: '_', // Allow any method
+allowedHeaders: '\*', // Allow any headers
+credentials: true
+}));
+</example>
+
+## See Also
+
+### Related Rules
+
+- @010-security-compliance.mdc - Core security standards and compliance
+- @011-env-var-security.mdc - **CRITICAL:** Secure Auth0 domains in CSP
+- @012-api-security.mdc - **CRITICAL:** API security and CORS configuration
+- @019-auth0-integration.mdc - **CRITICAL:** Auth0 CSP requirements
+- @046-session-validation.mdc - Secure cookie configuration (HttpOnly, SameSite)
+- @067-database-security.mdc - Preventing XSS/injection attacks
+- @072-auth-security.mdc - **CRITICAL:** Authentication security headers
+- @220-security-monitoring.mdc - **CRITICAL:** Security monitoring and WAF
+- @130-logging-standards.mdc - Security header violation logging
+- @200-deployment-infrastructure.mdc - Deploying security headers
+- @201-vercel-deployment-standards.mdc - Vercel security header configuration
+
+### Tools & Documentation
+
+- **`.cursor/tools/check-security-headers.sh`** - Validate security headers configuration
+  ```bash
+  ./.cursor/tools/check-security-headers.sh https://yourdomain.com
+  # Validates CSP, HSTS, X-Frame-Options, etc.
+  ```
+- **`.cursor/tools/validate-csp.sh`** - CSP policy validation
+- **`.cursor/tools/test-cors.sh`** - CORS configuration testing
+
+### Comprehensive Guides
+
+- **`guides/Security-Headers-Complete-Guide.md`** ⭐ **Essential** - Complete CSP and security headers guide
+- **`guides/CORS-Configuration-Guide.md`** - CORS best practices and troubleshooting
+- **`guides/XSS-Prevention-Guide.md`** - XSS prevention strategies
+
+### Quick Start
+
+```bash
+# 1. Configure Next.js security headers (next.config.js)
+# See example in rule above
+
+# 2. Add Auth0 domains to CSP
+# Include https://cdn.auth0.com and your Auth0 domain
+
+# 3. Configure CORS for API routes
+# Whitelist specific origins, never use '*'
+
+# 4. Test security headers
+./.cursor/tools/check-security-headers.sh https://staging.yourdomain.com
+
+# 5. Validate with online tools
+# securityheaders.com, Mozilla Observatory
+
+# 6. Monitor CSP violations
+# Set up report-uri or report-to endpoint
+```
+
+### When to Use This Rule
+
+- ✅ **ALWAYS** use for all production deployments
+- ✅ **ALWAYS** use for authentication endpoints
+- ✅ Use when implementing Auth0 integration
+- ✅ Use when adding third-party scripts
+- ✅ Use when configuring API CORS
+
+### Do NOT Use This Rule
+
+- ❌ Never skip security headers in production
+- ❌ Never use wildcard CORS origins with credentials
+- ❌ Never use `unsafe-inline` or `unsafe-eval` without strong justification
+
+### Implementation Checklist
+
+- [ ] CSP policy defined with all required directives
+- [ ] Auth0 domains whitelisted in CSP
+- [ ] HSTS header with `includeSubDomains` and `preload`
+- [ ] X-Frame-Options set to `DENY` or `SAMEORIGIN`
+- [ ] X-Content-Type-Options set to `nosniff`
+- [ ] Referrer-Policy configured appropriately
+- [ ] CORS whitelist only trusted origins
+- [ ] Auth cookies use `HttpOnly`, `Secure`, `SameSite=Strict`
+- [ ] CSP violation reporting configured
+- [ ] Security headers tested with validation tools

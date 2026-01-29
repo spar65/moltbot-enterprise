@@ -1,0 +1,1086 @@
+___
+description: SELECT optimal tech stack when STARTING NEW PROJECT to ENSURE appropriate technology choices based on requirements, scale, team, and budget
+globs: []
+alwaysApply: false
+___
+
+# Tech Stack Selection
+
+## Context
+
+Choosing the right technology stack at project inception is one of the most critical decisions that affects:
+- Development speed and productivity
+- Long-term maintenance costs
+- Scalability and performance
+- Team hiring and onboarding
+- Total cost of ownership
+- Time to market
+
+A well-chosen stack enables rapid development and scales with your needs. A poorly chosen stack leads to costly rewrites, performance issues, and developer frustration.
+
+**This rule provides a comprehensive decision framework** covering 50+ modern frameworks, libraries, and services across all technology categories.
+
+## Requirements
+
+### Decision Framework Overview
+
+Technology selection must consider six key dimensions:
+
+1. **Project Requirements** - Type, scale, features, compliance
+2. **Team Capabilities** - Skills, experience, learning capacity
+3. **Budget Constraints** - Development costs, production costs, licensing
+4. **Timeline** - Time to MVP, learning curve, ecosystem maturity
+5. **Scale & Performance** - Expected load, data volume, growth trajectory
+6. **Ecosystem & Support** - Community, documentation, long-term viability
+
+### Technology Categories
+
+Evaluate and select technologies across these categories:
+
+- Frontend Framework
+- Backend Framework/Runtime
+- Database (Primary & Caching)
+- Deployment Platform
+- Authentication/Authorization
+- APIs & Integration
+- Testing Framework
+- Monitoring & Analytics
+
+---
+
+## Category 1: Frontend Frameworks
+
+### Decision Matrix
+
+| Framework | Best For | Learning Curve | Performance | Ecosystem | SEO Support |
+|-----------|----------|----------------|-------------|-----------|-------------|
+| **Next.js** | Full-stack web apps | Medium | Excellent | Excellent | Excellent (SSR/SSG) |
+| **Remix** | Data-heavy apps | Medium | Excellent | Good | Excellent (SSR) |
+| **Astro** | Content sites, blogs | Low | Excellent | Good | Excellent (SSG) |
+| **Vite + React** | SPAs, admin dashboards | Low-Medium | Excellent | Excellent | Poor (CSR only) |
+| **Nuxt 3** | Vue.js full-stack apps | Medium | Excellent | Good | Excellent (SSR/SSG) |
+| **SvelteKit** | Modern web apps | Low | Excellent | Growing | Excellent (SSR/SSG) |
+| **React Native** | Cross-platform mobile | Medium-High | Good | Excellent | N/A (mobile) |
+| **Flutter** | Cross-platform mobile | High | Excellent | Growing | N/A (mobile) |
+
+### React-Based Frameworks (Most Common)
+
+**Next.js 14+ (App Router)** ⭐ **Most Recommended for Web Apps**
+```typescript
+// Why Next.js?
+Pros:
+- ✅ Best-in-class SEO with SSR/SSG/ISR
+- ✅ Excellent developer experience
+- ✅ Huge ecosystem and community
+- ✅ Built-in optimizations (images, fonts)
+- ✅ Vercel deployment integration
+- ✅ API routes for full-stack development
+- ✅ Best AI/LLM support (Claude, GPT)
+
+Cons:
+- ❌ Learning curve for App Router patterns
+- ❌ Can be overkill for simple SPAs
+- ❌ Vercel-specific features create lock-in
+- ❌ Bundle size larger than alternatives
+
+Use When:
+- Building SEO-critical applications
+- Need SSR for performance/SEO
+- Team knows React
+- Want full-stack capabilities
+- Budget allows Vercel or similar hosting
+
+Cost:
+- Development: $0 (open source)
+- Production: $20-200/month (Vercel Pro)
+- Learning: 2-4 weeks for proficiency
+```
+
+**Remix**
+```typescript
+// Alternative to Next.js
+Pros:
+- ✅ Excellent for data-heavy applications
+- ✅ Progressive enhancement built-in
+- ✅ Better data loading patterns
+- ✅ Framework-agnostic deployment
+
+Cons:
+- ❌ Smaller ecosystem than Next.js
+- ❌ Less AI/LLM support
+- ❌ Fewer built-in optimizations
+
+Use When:
+- Data-heavy applications (dashboards, admin)
+- Progressive enhancement is priority
+- Want deployment flexibility
+- Team prefers Remix patterns
+```
+
+**Vite + React (SPA)**
+```typescript
+// Lightweight alternative
+Pros:
+- ✅ Extremely fast dev server
+- ✅ Simple to understand
+- ✅ Full control over architecture
+- ✅ Tiny bundle size
+
+Cons:
+- ❌ No SSR out of the box
+- ❌ Poor SEO (CSR only)
+- ❌ Manual setup for routing, state
+
+Use When:
+- Building internal tools (SEO not needed)
+- Admin dashboards
+- Applications behind authentication
+- Team wants maximum control
+```
+
+### Vue-Based Frameworks
+
+**Nuxt 3**
+```typescript
+Pros:
+- ✅ Excellent developer experience
+- ✅ SSR/SSG built-in
+- ✅ Growing ecosystem
+- ✅ Good performance
+
+Cons:
+- ❌ Smaller community than React
+- ❌ Less AI/LLM support
+- ❌ Fewer third-party components
+
+Use When:
+- Team prefers Vue.js
+- Building modern web applications
+- Want opinionated framework
+```
+
+### Other Modern Frameworks
+
+**SvelteKit**
+```typescript
+Pros:
+- ✅ Smallest bundle sizes
+- ✅ Easiest to learn
+- ✅ Excellent performance
+- ✅ No virtual DOM overhead
+
+Cons:
+- ❌ Smaller ecosystem
+- ❌ Less AI/LLM support
+- ❌ Fewer job opportunities
+
+Use When:
+- Performance is critical
+- Team is open to learning
+- Building greenfield project
+```
+
+**Astro**
+```typescript
+Pros:
+- ✅ Perfect for content-heavy sites
+- ✅ Islands architecture (ship less JS)
+- ✅ Framework-agnostic (use React, Vue, Svelte)
+- ✅ Excellent build times
+
+Cons:
+- ❌ Limited for highly interactive apps
+- ❌ Smaller ecosystem
+
+Use When:
+- Building marketing sites, blogs
+- Content-first applications
+- Want minimal JavaScript
+```
+
+### Mobile Frameworks
+
+**React Native** ⭐ **Recommended for Mobile**
+```typescript
+Pros:
+- ✅ Write once, deploy iOS + Android
+- ✅ Large ecosystem (Expo)
+- ✅ Hot reload for development
+- ✅ Native performance
+
+Cons:
+- ❌ Native modules can be tricky
+- ❌ Platform-specific bugs
+- ❌ Expo limits some native features
+
+Use When:
+- Building cross-platform mobile apps
+- Team knows React
+- Budget can't support native development
+```
+
+**Flutter**
+```typescript
+Pros:
+- ✅ Truly cross-platform (mobile, web, desktop)
+- ✅ Excellent performance
+- ✅ Beautiful UI out of the box
+- ✅ Growing rapidly
+
+Cons:
+- ❌ Dart language (less common)
+- ❌ Larger app size
+- ❌ Smaller web ecosystem
+
+Use When:
+- Building complex cross-platform apps
+- Team can learn Dart
+- UI/UX is critical
+```
+
+---
+
+## Category 2: Backend Frameworks
+
+### Decision Matrix
+
+| Framework | Language | Best For | Scalability | Learning Curve |
+|-----------|----------|----------|-------------|----------------|
+| **Next.js API Routes** | TypeScript | Full-stack apps | Good | Low (if using Next.js) |
+| **Node.js + Express** | JavaScript | APIs, microservices | Good | Low |
+| **Fastify** | JavaScript | High-performance APIs | Excellent | Low-Medium |
+| **NestJS** | TypeScript | Enterprise APIs | Excellent | Medium-High |
+| **FastAPI** | Python | ML/AI APIs, data processing | Excellent | Medium |
+| **Django** | Python | Full-featured apps | Good | Medium-High |
+| **Go (Gin/Echo)** | Go | High-performance services | Excellent | High |
+| **Rust (Actix)** | Rust | Ultra-high performance | Excellent | Very High |
+
+### Node.js / TypeScript (Most Common)
+
+**Next.js API Routes** ⭐ **Recommended if Using Next.js**
+```typescript
+// Co-locate API with frontend
+Pros:
+- ✅ Single codebase for full-stack
+- ✅ Share types between frontend/backend
+- ✅ Easy deployment (single project)
+- ✅ No CORS issues
+
+Cons:
+- ❌ Limited for complex backends
+- ❌ Serverless execution limits
+- ❌ Can't scale backend independently
+
+Use When:
+- Using Next.js for frontend
+- API is relatively simple (CRUD operations)
+- Serverless architecture acceptable
+- Want fastest development
+
+Cost:
+- Included with Next.js deployment
+- No additional backend costs
+```
+
+**NestJS**
+```typescript
+// Enterprise-grade TypeScript framework
+Pros:
+- ✅ Angular-like structure (great for enterprise)
+- ✅ Built-in support for everything (testing, validation, auth)
+- ✅ Excellent TypeScript support
+- ✅ Microservices-ready
+
+Cons:
+- ❌ Steep learning curve
+- ❌ Can be over-engineered for small projects
+- ❌ More boilerplate
+
+Use When:
+- Building large, complex APIs
+- Team familiar with Angular
+- Enterprise requirements
+- Need microservices
+```
+
+**Fastify**
+```typescript
+// High-performance Node.js framework
+Pros:
+- ✅ 2-3x faster than Express
+- ✅ Schema-based validation
+- ✅ Excellent TypeScript support
+- ✅ Plugin ecosystem
+
+Cons:
+- ❌ Smaller community than Express
+- ❌ Less AI/LLM support
+- ❌ Fewer tutorials
+
+Use When:
+- Performance is critical
+- Building high-traffic APIs
+- Want modern Node.js patterns
+```
+
+### Python Frameworks
+
+**FastAPI** ⭐ **Recommended for ML/AI APIs**
+```python
+# Modern Python API framework
+Pros:
+- ✅ Extremely fast (async support)
+- ✅ Auto-generated OpenAPI docs
+- ✅ Excellent type hints
+- ✅ Perfect for ML/AI integration
+- ✅ Growing rapidly
+
+Cons:
+- ❌ Python deployment more complex than Node.js
+- ❌ Smaller ecosystem than Django
+
+Use When:
+- Building ML/AI-powered APIs
+- Data processing APIs
+- Team knows Python
+- Want modern async Python
+```
+
+**Django**
+```python
+# Full-featured Python framework
+Pros:
+- ✅ Batteries included (admin, ORM, auth)
+- ✅ Huge ecosystem
+- ✅ Excellent documentation
+- ✅ Mature and stable
+
+Cons:
+- ❌ Heavy for simple APIs
+- ❌ Learning curve
+- ❌ Monolithic structure
+
+Use When:
+- Building complex web applications
+- Need built-in admin interface
+- Team experienced with Django
+```
+
+### Other Languages
+
+**Go (Gin/Echo)**
+```go
+// High-performance compiled language
+Pros:
+- ✅ Extremely fast
+- ✅ Low memory footprint
+- ✅ Great concurrency
+- ✅ Single binary deployment
+
+Cons:
+- ❌ Verbose error handling
+- ❌ Slower development
+- ❌ Smaller ecosystem
+
+Use When:
+- Building high-performance APIs
+- Cost optimization critical (lower server costs)
+- Team experienced with Go
+```
+
+---
+
+## Category 3: Databases
+
+### Decision Matrix
+
+| Database | Type | Best For | Scalability | Cost |
+|----------|------|----------|-------------|------|
+| **PostgreSQL** | SQL | General purpose | Excellent | Low (managed: $$) |
+| **MySQL** | SQL | Legacy, WordPress | Good | Low (managed: $$) |
+| **MongoDB** | NoSQL | Flexible schemas | Excellent | Medium (managed: $$$) |
+| **Redis** | Cache/KV | Caching, sessions | Excellent | Low-Medium |
+| **DynamoDB** | NoSQL | AWS-native, scale | Excellent | Pay per use |
+| **PlanetScale** | SQL | MySQL at scale | Excellent | Medium ($$-$$$) |
+| **Supabase** | SQL | PostgreSQL + Auth + Storage | Good | Low-Medium |
+| **Neon** | SQL | Serverless PostgreSQL | Excellent | Low ($-$$) |
+
+### SQL Databases (Recommended for Most Projects)
+
+**PostgreSQL** ⭐ **Most Recommended**
+```sql
+-- Why PostgreSQL?
+Pros:
+- ✅ Most feature-rich open-source database
+- ✅ JSONB for flexible data
+- ✅ Full-text search built-in
+- ✅ Excellent performance
+- ✅ Strong consistency guarantees
+- ✅ Best TypeScript ORM support (Prisma, Drizzle)
+
+Cons:
+- ❌ More complex than MySQL
+- ❌ Managed services can be expensive
+- ❌ Vertical scaling limits
+
+Use When:
+- Building any serious application
+- Need ACID transactions
+- Want SQL + flexible JSON
+- Team familiar with SQL
+
+Managed Services:
+- Neon (serverless, $0-50/month) ⭐ Best for MVP
+- Supabase ($0-25/month) - Includes auth, storage
+- AWS RDS ($50-500/month) - Enterprise
+- Google Cloud SQL ($50-500/month) - Enterprise
+
+Cost Analysis (1,000 users):
+- Neon free tier: Sufficient for MVP
+- Neon Pro: $20/month
+- Self-hosted: $20/month (compute) + management time
+```
+
+**PlanetScale (MySQL)**
+```sql
+-- Modern MySQL platform
+Pros:
+- ✅ Git-like branching for databases
+- ✅ Zero-downtime schema changes
+- ✅ Excellent scaling
+- ✅ Great developer experience
+
+Cons:
+- ❌ More expensive than alternatives
+- ❌ Limited free tier
+- ❌ MySQL limitations (vs PostgreSQL)
+
+Use When:
+- Need advanced deployment workflows
+- Team experienced with MySQL
+- Budget allows ($40+/month)
+```
+
+### NoSQL Databases
+
+**MongoDB**
+```javascript
+// Document database
+Pros:
+- ✅ Flexible schema
+- ✅ Excellent for rapid prototyping
+- ✅ Great for hierarchical data
+- ✅ Powerful aggregation
+
+Cons:
+- ❌ No joins (requires denormalization)
+- ❌ More expensive at scale
+- ❌ Can lead to schema chaos
+
+Use When:
+- Data model is highly variable
+- Rapid prototyping phase
+- Hierarchical/nested data
+- Team experienced with MongoDB
+```
+
+### Caching & Key-Value Stores
+
+**Redis** ⭐ **Essential for Production**
+```
+// In-memory data store
+Pros:
+- ✅ Extremely fast (microsecond latency)
+- ✅ Multiple data structures
+- ✅ Pub/sub messaging
+- ✅ Session storage
+
+Cons:
+- ❌ Not a primary database
+- ❌ Memory costs at scale
+- ❌ Data persistence optional
+
+Use When:
+- Need caching layer
+- Session management
+- Rate limiting
+- Real-time features
+
+Cost:
+- Upstash (serverless): $0-10/month ⭐ MVP
+- Redis Cloud: $20-200/month
+- Self-hosted: Memory costs
+```
+
+---
+
+## Category 4: Deployment Platforms
+
+### Decision Matrix
+
+| Platform | Best For | Ease of Use | Cost (Small) | Cost (Scale) |
+|----------|----------|-------------|--------------|--------------|
+| **Vercel** | Next.js, web apps | Excellent | $0-20 | $$$$ |
+| **Netlify** | Static sites, Jamstack | Excellent | $0-19 | $$$ |
+| **Railway** | Full-stack apps, databases | Good | $5-20 | $$$ |
+| **Fly.io** | Docker apps, global | Medium | $0-10 | $$ |
+| **AWS (Amplify/EC2)** | Enterprise, AWS ecosystem | Medium-Hard | Variable | $-$$$$ |
+| **Google Cloud Run** | Containers, serverless | Medium | Pay per use | $$-$$$ |
+| **DigitalOcean** | VPS, predictable costs | Medium | $5-20 | $$ |
+| **Heroku** | Quick deploys | Good | $7-25 | $$$$ |
+
+**Vercel** ⭐ **Best for Next.js**
+```bash
+# Deployment platform
+Pros:
+- ✅ Zero-config for Next.js
+- ✅ Excellent preview deployments
+- ✅ Edge functions globally
+- ✅ Built-in analytics
+- ✅ Automatic HTTPS
+
+Cons:
+- ❌ Expensive at scale
+- ❌ Vendor lock-in for some features
+- ❌ Limited backend beyond serverless
+
+Use When:
+- Using Next.js
+- Want fastest deployment
+- Budget allows ($20-100/month)
+- Global CDN needed
+
+Cost Breakdown:
+- Hobby (MVP): $0
+- Pro: $20/month
+- Team: $40/month/seat
+- Scale: Custom pricing
+
+When You'll Outgrow Free Tier:
+- ~10,000 page views/month
+- Team collaboration needed
+- Custom domains beyond 1
+```
+
+**Railway** ⭐ **Best for Full-Stack with Database**
+```bash
+# Modern hosting platform
+Pros:
+- ✅ Deploy apps + databases
+- ✅ Simple GitHub integration
+- ✅ Reasonable pricing
+- ✅ Good developer experience
+
+Cons:
+- ❌ Not as mature as alternatives
+- ❌ Limited global edge network
+
+Use When:
+- Need database + app together
+- Want predictable costs
+- Using any framework (not just Next.js)
+
+Cost:
+- $5/month base + usage
+- Database: ~$10-20/month
+- Total: $15-25/month for MVP
+```
+
+**Fly.io**
+```bash
+# Deploy containers globally
+Pros:
+- ✅ True global deployment
+- ✅ Docker-based (any language)
+- ✅ Reasonable pricing
+- ✅ Good for WebSockets
+
+Cons:
+- ❌ Requires Docker knowledge
+- ❌ More complex setup
+
+Use When:
+- Need global low-latency
+- Using custom stack
+- Team knows Docker
+```
+
+---
+
+## Category 5: Authentication
+
+### Decision Matrix
+
+| Service | Best For | Ease of Use | Cost | Social Auth |
+|---------|----------|-------------|------|-------------|
+| **Auth0** | Enterprise, complex auth | Medium | $$-$$$$ | Excellent |
+| **Clerk** | Modern web apps | Excellent | $$-$$$ | Excellent |
+| **NextAuth.js** | Next.js apps | Good | Free (DIY) | Good |
+| **Supabase Auth** | Supabase users | Good | Included | Good |
+| **AWS Cognito** | AWS ecosystem | Medium-Hard | $-$$ | Good |
+| **Firebase Auth** | Firebase users | Good | Free-$ | Good |
+
+**Clerk** ⭐ **Most Recommended**
+```typescript
+// Modern authentication platform
+Pros:
+- ✅ Beautiful pre-built UI components
+- ✅ Excellent developer experience
+- ✅ Built-in user management
+- ✅ Organization/team support
+- ✅ Social auth out of the box
+
+Cons:
+- ❌ More expensive than DIY
+- ❌ Less flexible than Auth0
+- ❌ Vendor lock-in
+
+Use When:
+- Want fastest auth implementation
+- Need beautiful UI components
+- Budget allows ($25-100/month)
+- Building B2B SaaS
+
+Cost:
+- Free: 5,000 MAU
+- Pro: $25/month + $0.02/MAU
+- Production: $100-500/month (typical)
+```
+
+**NextAuth.js**
+```typescript
+// DIY authentication for Next.js
+Pros:
+- ✅ Completely free
+- ✅ Full control
+- ✅ Well-documented
+- ✅ Social providers built-in
+
+Cons:
+- ❌ No pre-built UI
+- ❌ More implementation time
+- ❌ Manual user management
+- ❌ You handle security
+
+Use When:
+- Budget is tight
+- Want full control
+- Team can implement auth properly
+- Security expertise available
+```
+
+**Auth0**
+```typescript
+// Enterprise authentication platform
+Pros:
+- ✅ Most feature-complete
+- ✅ Enterprise-grade security
+- ✅ Advanced features (MFA, passwordless)
+- ✅ Best documentation
+
+Cons:
+- ❌ Complex pricing
+- ❌ Steeper learning curve
+- ❌ Can be expensive
+
+Use When:
+- Enterprise requirements
+- Need advanced features
+- Compliance requirements (SOC2, HIPAA)
+- Budget allows ($200+/month)
+```
+
+---
+
+## Decision Process
+
+### Step 1: Define Project Requirements (20 minutes)
+
+```markdown
+## Project Requirements Checklist
+
+### Application Type
+- [ ] Web application (SEO important? Yes/No)
+- [ ] Mobile application (iOS, Android, or both?)
+- [ ] API service only
+- [ ] Desktop application
+- [ ] Admin dashboard (internal tool)
+
+### Scale Requirements
+- Expected users (Month 1, Month 6, Year 1):
+- Expected requests/day:
+- Data volume:
+- Geographic distribution (Single region / Global):
+
+### Team
+- Team size:
+- Primary language expertise:
+- Framework experience:
+- DevOps capability:
+
+### Budget
+- Development budget (tools, services):
+- Production budget/month:
+- Timeline to MVP:
+
+### Critical Features
+- [ ] Real-time features (chat, notifications)
+- [ ] File uploads/storage
+- [ ] Payment processing
+- [ ] Email sending
+- [ ] Background jobs
+- [ ] Search functionality
+- [ ] Analytics/reporting
+- [ ] Multi-tenancy
+
+### Compliance
+- [ ] GDPR
+- [ ] HIPAA
+- [ ] SOC2
+- [ ] PCI-DSS
+- [ ] None
+```
+
+### Step 2: Apply Decision Matrices (20-30 minutes)
+
+Use the decision matrices above to evaluate options for each category:
+
+1. **Frontend**: Based on application type, SEO needs, team skills
+2. **Backend**: Based on team language, scale, complexity
+3. **Database**: Based on data model, scale, budget
+4. **Deployment**: Based on frontend choice, budget, global needs
+5. **Auth**: Based on budget, compliance, time to market
+
+### Step 3: Validate Compatibility (10 minutes)
+
+**Check that choices work together**:
+
+```typescript
+// Example compatible stacks:
+
+// Stack 1: "Modern React Full-Stack" ⭐ Most Common
+Frontend: Next.js 14
+Backend: Next.js API Routes
+Database: PostgreSQL (Neon)
+Deployment: Vercel
+Auth: Clerk
+ORM: Prisma
+Cost: ~$50-100/month
+Use When: Most web applications
+
+// Stack 2: "Python ML/AI Stack"
+Frontend: Next.js 14
+Backend: FastAPI (Python)
+Database: PostgreSQL
+Deployment: Vercel (frontend) + Fly.io (backend)
+Auth: Clerk
+Cost: ~$70-150/month
+Use When: ML/AI-powered applications
+
+// Stack 3: "Budget Full-Stack"
+Frontend: Next.js 14
+Backend: Next.js API Routes
+Database: PostgreSQL (Neon free tier)
+Deployment: Vercel free tier
+Auth: NextAuth.js
+Cost: $0-5/month
+Use When: MVP with no budget
+
+// Stack 4: "Enterprise Scale"
+Frontend: Next.js 14
+Backend: NestJS
+Database: PostgreSQL (RDS)
+Deployment: AWS (Amplify + ECS)
+Auth: Auth0
+Cost: $500-2000/month
+Use When: Enterprise requirements, high scale
+```
+
+### Step 4: Document Decision (10 minutes)
+
+Create `docs/_tech-stack-decision.md`:
+
+```markdown
+# Tech Stack Decision
+
+## Selected Stack
+
+**Frontend**: Next.js 14 (App Router)
+**Backend**: Next.js API Routes
+**Database**: PostgreSQL via Neon
+**Deployment**: Vercel
+**Authentication**: Clerk
+**ORM**: Prisma
+**Testing**: Vitest + Playwright
+**Monitoring**: Vercel Analytics + Sentry
+
+## Rationale
+
+### Frontend: Next.js 14
+- ✅ SEO critical for our application
+- ✅ Team knows React
+- ✅ Excellent developer experience
+- ✅ Best AI/LLM support
+- ✅ Full-stack capabilities
+
+Alternatives Considered:
+- Remix: Less mature ecosystem
+- Vite + React: No SSR (SEO requirement)
+
+### Database: PostgreSQL (Neon)
+- ✅ Need ACID transactions
+- ✅ JSONB for flexible product data
+- ✅ Excellent Prisma support
+- ✅ Serverless fits our usage pattern
+- ✅ Free tier for MVP
+
+Cost Analysis:
+- Neon free tier: Sufficient for first 6 months
+- Neon Pro: $20/month after scale
+- Alternative (Supabase): Considered but Neon's scaling story better
+
+### Authentication: Clerk
+- ✅ Beautiful UI components out of box
+- ✅ Saves 20-40 hours of implementation
+- ✅ Social auth included
+- ✅ Organization support for B2B
+
+Cost:
+- Free tier: 5,000 MAU (sufficient for launch)
+- Pro: $25/month + usage
+- Estimated Month 6 cost: $40-50/month
+
+[Continue for each technology...]
+
+## Total Cost of Ownership
+
+### Development Phase
+- Tools: $0 (all free/open source)
+- Services: $0 (using free tiers)
+- Total: $0/month
+
+### Production (Month 1-6)
+- Vercel: $0-20/month
+- Neon: $0/month
+- Clerk: $0-25/month
+- Monitoring: $0-10/month
+- Total: $0-55/month
+
+### Production (Scale - 10,000 users)
+- Vercel: $20-50/month
+- Neon: $20/month
+- Clerk: $40-60/month
+- Monitoring: $20-30/month
+- Total: $100-160/month
+
+## Migration Path
+
+If we outgrow this stack:
+- Database: Migrate to AWS RDS or self-hosted (24 hours)
+- Frontend: Already on best-in-class platform
+- Auth: Could migrate to Auth0 if need enterprise features (40 hours)
+```
+
+---
+
+## See Also
+
+### Related Rules
+
+**Startup Sequence**:
+- @000-project-startup-guide.mdc - Master project startup guide (this is Phase 1)
+- @801-project-documentation-structure.mdc - Document your stack decision (Phase 2)
+- @802-ai-documentation-generation.mdc - Use AI to generate technical specs
+
+**Implementation After Selection**:
+- @120-technical-stack.mdc - If selecting Python + FastAPI + React + PostgreSQL stack
+- Use Rule 120 for code generation, implementation patterns, and best practices
+- Rule 120 provides FastAPI endpoints, React components, SQLAlchemy models, pytest tests
+
+**Implementation Rules** (Apply After Stack Selection):
+- @105-typescript-linter-standards.mdc - If using TypeScript
+- @100-coding-patterns.mdc - General coding patterns
+- @012-api-security.mdc - API security for backend
+- @025-multi-tenancy.mdc - If building multi-tenant application
+- @060-api-standards.mdc - API design standards
+
+**Deployment & Operations**:
+- @200-deployment-infrastructure.mdc - Deployment infrastructure setup
+- @201-vercel-deployment-standards.mdc - If using Vercel
+- @203-production-deployment-safety.mdc - Production deployment safety
+- @221-application-monitoring.mdc - Application monitoring setup
+
+### Tools & Documentation
+
+**Decision Support**:
+- **`.cursor/docs/ai-workflows.md#tech-stack-selection`** - AI-assisted stack selection patterns
+- **Stack comparison websites**: StackShare, ThoughtWorks Tech Radar
+
+**Validation Tools** (Use After Selection):
+- **`.cursor/tools/check-env-vars.sh`** - Validate environment variable setup
+- **`.cursor/tools/audit-dependencies.sh`** - Check for security vulnerabilities
+
+### Comprehensive Guides
+
+**Essential for Tech Stack Selection**:
+- **`guides/Project-Requirements-Generation-Complete-Guide.md`** - Use to document tech decisions
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Performance implications of frontend choice
+- **`guides/Database-Operations-Complete-Guide.md`** - Database selection and operations
+
+**Framework-Specific Guides**:
+- **`guides/Multi-Tenant-Architecture-Complete-Guide.md`** - If building multi-tenant (affects database choice)
+- **`guides/Deployment-Workflow-Complete-Guide.md`** - Deployment platform implications
+
+### Quick Start - Tech Stack Selection
+
+```bash
+# 1. Define requirements (use checklist above)
+# Document: Application type, scale, team, budget, features
+
+# 2. Use decision matrices to evaluate options
+# Frontend: Next.js vs Remix vs Vite
+# Backend: Next.js API vs NestJS vs FastAPI
+# Database: PostgreSQL vs MongoDB
+# Deployment: Vercel vs Railway vs Fly.io
+# Auth: Clerk vs NextAuth vs Auth0
+
+# 3. Validate compatibility
+# Ensure choices work together
+# Check cost at MVP and scale
+# Verify team can implement
+
+# 4. Document decision
+# Create docs/_tech-stack-decision.md
+# Include rationale, alternatives, costs
+
+# 5. Proceed to Phase 2
+# Use @801-project-documentation-structure.mdc
+# Document stack in 02-tech-stack-architecture.md
+```
+
+### Common Stack Scenarios
+
+| Project Type | Recommended Stack | Estimated Cost | When to Use |
+|-------------|-------------------|----------------|-------------|
+| **Web App (SEO)** | Next.js + Vercel + PostgreSQL + Clerk | $50-100/mo | Most common case |
+| **Web App (No SEO)** | Vite + React + Railway + PostgreSQL | $20-40/mo | Internal tools |
+| **Mobile App** | React Native + Expo + Next.js backend | $50-100/mo | Cross-platform mobile |
+| **ML/AI App** | Next.js + FastAPI + PostgreSQL | $70-150/mo | ML-powered features |
+| **Enterprise** | Next.js + NestJS + PostgreSQL + Auth0 | $500-2000/mo | Enterprise requirements |
+| **Budget MVP** | Next.js + NextAuth + Neon free tier | $0-5/mo | No budget |
+
+---
+
+## Common Pitfalls
+
+### ❌ Choosing Based on Hype vs Needs
+
+**Symptom**: Selecting latest framework without considering requirements
+
+**Prevention**:
+- Use decision matrix objectively
+- Consider team skills honestly
+- Evaluate total cost of ownership
+- Check production readiness
+
+**Example**:
+```
+Bad: "Let's use Deno because it's new and cool"
+Good: "Let's use Next.js because we need SSR for SEO, 
+      team knows React, and it's battle-tested"
+```
+
+### ❌ Ignoring Team Capabilities
+
+**Symptom**: Choosing stack the team can't realistically learn in timeline
+
+**Prevention**:
+- Assess team's actual experience
+- Consider learning curve vs timeline
+- Value "boring" technology that team knows
+- Budget time for learning if necessary
+
+**Example**:
+```
+Bad: "Let's use Go + Rust because performance"
+     (Team only knows JavaScript, 4-week timeline)
+
+Good: "Let's use Node.js because team knows it well,
+      we can optimize later if needed"
+```
+
+### ❌ Underestimating Total Cost
+
+**Symptom**: Choosing stack based on development cost, ignoring production costs
+
+**Prevention**:
+- Calculate costs at MVP scale (1,000 users)
+- Calculate costs at target scale (10,000+ users)
+- Include monitoring, backups, support
+- Check for hidden costs (bandwidth, function invocations)
+
+**Example**:
+```
+Bad: "MongoDB Atlas is free tier, let's use it"
+     (Free tier exhausted at 1,000 users, $200/month after)
+
+Good: "PostgreSQL via Neon is free to 1GB, then $20/month.
+      Should handle 10,000 users before needing to scale"
+```
+
+### ❌ Not Considering Exit Strategy
+
+**Symptom**: Deep vendor lock-in with no migration path
+
+**Prevention**:
+- Document migration paths for each technology
+- Use open standards where possible
+- Avoid platform-specific features in core logic
+- Keep data in standard formats
+
+**Example**:
+```
+Bad: Using Firebase Firestore with no export strategy
+     (Migration would require complete rewrite)
+
+Good: Using PostgreSQL with Prisma
+     (Can migrate to any PostgreSQL provider in 24 hours)
+```
+
+---
+
+## Integration with Project Startup
+
+After completing tech stack selection:
+
+**Next Phase**: @000-project-startup-guide.mdc Phase 2
+- Document your stack in `docs/02-tech-stack-architecture.md`
+- Generate 15 comprehensive specification documents
+- Use your stack decisions to inform API design, deployment strategy
+
+**Documentation to Create**:
+1. `docs/_tech-stack-decision.md` - Complete decision rationale
+2. `docs/02-tech-stack-architecture.md` - Technical architecture with stack
+3. Update `docs/_context.md` - Add tech stack to project context
+
+---
+
+## Success Metrics
+
+**Stack selection is successful when**:
+
+- ✅ All decisions have clear rationale
+- ✅ Stack is compatible (technologies work together)
+- ✅ Team can implement all components
+- ✅ Costs fit budget at MVP and scale
+- ✅ Performance requirements can be met
+- ✅ Security/compliance needs addressed
+- ✅ Exit strategy documented for each component
+- ✅ Stakeholders approve approach
+
+---
+
+**Generated**: November 20, 2025  
+**Type**: Comprehensive Tech Stack Selection Framework  
+**Status**: ✅ Active (opt-in only, alwaysApply: false)  
+**Integration**: Phase 1 of Project Startup Sequence

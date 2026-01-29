@@ -1,0 +1,106 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply email accessibility standards when developing email templates to ensure inclusive communication for all recipients regardless of abilities
+globs: "src/**/*.{js,jsx,ts,tsx,html}"
+___
+
+# Email Accessibility Standards
+
+## Content Structure and Semantics
+- Use proper HTML heading structure (h1, h2, h3) for content hierarchy
+- Implement logical reading order that follows visual layout
+- Create meaningful link text that describes destination
+- Avoid relying solely on visual formatting for conveying meaning
+- Use semantic markup for emphasis and importance
+- Include proper language attributes on HTML elements
+
+## Visual Design Considerations
+- Maintain minimum 4.5:1 color contrast ratio for text content
+- Avoid using color alone to convey important information
+- Implement minimum 14px font size for body text
+- Use readable fonts with adequate line spacing
+- Design for users with color vision deficiencies
+- Ensure content is readable without style sheets
+
+## Image Accessibility
+- Provide descriptive alt text for all informational images
+- Use empty alt attributes for decorative images
+- Include role="presentation" for purely decorative elements
+- Avoid embedding critical text within images
+- Ensure sufficient contrast for text overlaid on images
+- Create meaningful captions for complex visual information
+
+## Interactive Elements
+- Ensure large, touch-friendly target areas for buttons and links
+- Implement clear visual focus indicators for interactive elements
+- Design for keyboard-only navigation where supported
+- Provide explicit labels for form controls
+- Group related form elements with appropriate markup
+- Ensure sufficient color contrast for interactive elements
+
+## Testing and Validation
+- Test with screen reader technology
+- Validate with color contrast analysis tools
+- Verify readability in high-contrast mode
+- Test functionality with keyboard-only navigation
+- Validate template rendering across email clients
+- Document accessibility compliance for each template
+
+## See Also
+
+### Related Rules
+- @075-email-marketing-standards.mdc - Email marketing content standards
+- @076-mailchimp-integration-standards.mdc - MailChimp template management
+- @077-user-communication-standards.mdc - User communication and dark mode
+- @078-email-deliverability-standards.mdc - Email content optimization
+- @054-accessibility-requirements.mdc - General accessibility standards
+- @030-visual-design-system.mdc - Visual design and color systems
+
+### Tools & Documentation
+- **`.cursor/tools/test-email-accessibility.sh`** - Email accessibility validator
+  ```bash
+  ./.cursor/tools/test-email-accessibility.sh path/to/template.html
+  # Tests: Color contrast, alt text, heading structure, semantic markup
+  ```
+- **`.cursor/tools/validate-email-html.sh`** - Email HTML validator
+  ```bash
+  ./.cursor/tools/validate-email-html.sh path/to/template.html
+  # Validates: HTML structure, email client compatibility, accessibility
+  ```
+
+### Comprehensive Guides
+- **`guides/Email-Accessibility-Standards.md`** ⭐ **ESSENTIAL** - Complete accessibility guide
+- **`guides/Email-Template-Development-Guide.md`** - Template development best practices
+- **`guides/Email-MailChimp-Integration-Guide.md`** - MailChimp template creation
+
+### Quick Start - Email Accessibility
+
+```bash
+# 1. Review accessibility requirements
+# Study WCAG 2.1 AA standards for email
+
+# 2. Design with accessibility in mind
+# Use semantic HTML, proper heading structure, meaningful link text
+
+# 3. Test color contrast
+./.cursor/tools/test-email-accessibility.sh templates/newsletter.html
+
+# 4. Add alt text to all images
+# Descriptive for informational images, empty for decorative
+
+# 5. Test with screen readers
+# Test in NVDA, JAWS, VoiceOver
+
+# 6. Validate HTML structure
+./.cursor/tools/validate-email-html.sh templates/newsletter.html
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important)  
+**Last Updated**: November 20, 2025

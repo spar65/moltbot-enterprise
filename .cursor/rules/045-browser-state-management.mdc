@@ -1,0 +1,357 @@
+---
+description: Use when implementing browser history management, navigation, and cross-tab coordination to ensure consistent user experience across the application
+globs: "**/hooks/use*History*.{ts,js,tsx,jsx}, **/router/*.{ts,js}, **/navigation/*.{ts,js}, **/sync/*.{ts,js}"
+---
+
+# Browser History & State Management
+
+## Context
+- Modern web applications maintain state in the URL and browser history
+- Users expect browser back/forward buttons to work predictably
+- Multiple tabs of the same application require synchronization
+- History management affects deep linking and bookmarking
+- Navigation changes need to be reflected across tabs when appropriate
+- Application state needs to be maintained consistently across the user experience
+
+## Requirements
+
+### Browser History Management
+
+### Simple Navigation Over Complex State Management (v2.1.1 Lesson)
+
+- **KEEP IT SIMPLE**: When navigation isn't working properly, sometimes a full page refresh is cleaner than complex state management
+- **EXAMPLE**: "Change PRD" button - tried complex router.push() + state clearing, but `window.location.href` worked better
+- **PROBLEM**: URL parameters can conflict with component state (useEffect auto-reselection)
+- **SOLUTION**: For simple navigation, use `window.location.href = '/path'` instead of over-engineering
+- **RULE**: Don't over-engineer simple navigation problems
+
+- **REQUIRED**: Use the router's history management functions, not direct history API calls
+- **REQUIRED**: Maintain application state in the URL for shareable deep links
+- Handle browser back/forward navigation gracefully
+- Preserve scroll position when navigating back
+- Update document title with each navigation
+- Use correct history method (push vs. replace) based on the operation
+
+```typescript
+// GOOD: Using router functions for history management
+import { useRouter } from 'next/router';
+
+function ProductPage() {
+  const router = useRouter();
+
+  const navigateToDetails = (productId) => {
+    // Updates URL and adds to browser history
+    router.push(`/products/${productId}`);
+  };
+
+  const applyFilter = (filter) => {
+    // Updates URL without adding to browser history
+    router.replace({
+      query: { ...router.query, filter }
+    });
+  };
+
+  return (
+    // Component implementation
+  );
+}
+
+// BAD: Using direct browser history API
+function BadExample() {
+  const handleClick = () => {
+    // Direct manipulation of history without router
+    window.history.pushState({}, "", "/new-path");
+  };
+}
+```
+
+### URL Structure & State Management
+
+- **REQUIRED**: Use semantic URLs that describe the resource
+- Keep URL parameters consistent across the application
+- Use query parameters for filter/sort operations
+- Maintain application state in the URL when appropriate
+- Implement deep linking to specific application states
+- Document URL structure and parameters
+
+```typescript
+// GOOD: Semantic and consistent URL structure
+// /organizations/:orgId/projects/:projectId/tasks/:taskId
+
+// GOOD: Using query parameters for filters, sort, and pagination
+// /projects?status=active&sort=created_at&direction=desc&page=2
+
+// BAD: Meaningless URLs that don't describe the resource
+// /app.html#12345
+```
+
+### Cross-Tab Coordination
+
+- **REQUIRED**: Synchronize critical state changes across tabs when needed
+- **REQUIRED**: Handle authentication state consistently across tabs
+- Use browser storage events for cross-tab communication
+- Implement proper event listeners for storage changes
+- Handle race conditions in cross-tab updates
+- Test multi-tab scenarios thoroughly
+
+```typescript
+// GOOD: Cross-tab authentication coordination
+function useAuthSync() {
+  const { logout } = useAuth();
+
+  useEffect(() => {
+    // Listen for logout events from other tabs
+    const handleStorageChange = (event) => {
+      if (event.key === "auth_logout" && event.newValue) {
+        // Another tab logged out, logout here too
+        logout({ reason: "logged_out_in_other_tab" });
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [logout]);
+
+  // Function to broadcast logout to other tabs
+  const broadcastLogout = useCallback(() => {
+    localStorage.setItem(
+      "auth_logout",
+      JSON.stringify({
+        timestamp: Date.now(),
+      })
+    );
+    // Remove immediately to allow future events
+    setTimeout(() => localStorage.removeItem("auth_logout"), 100);
+  }, []);
+
+  return { broadcastLogout };
+}
+
+// BAD: Not handling cross-tab state
+function BadAuthManagement() {
+  const logout = () => {
+    // Logs out current tab but others remain logged in
+    clearAuthTokens();
+    redirectToLogin();
+  };
+}
+```
+
+### Navigation Guards
+
+- **REQUIRED**: Prompt user before navigating away from unsaved changes
+- Implement consistent confirmation dialogs for destructive operations
+- Handle navigation cancellation gracefully
+- Cache form state to prevent data loss on accidental navigation
+- Use appropriate technique based on navigation type (internal vs. external)
+
+```typescript
+// GOOD: Navigation guard for unsaved changes
+function useNavigationGuard(hasUnsavedChanges) {
+  const message = "You have unsaved changes. Are you sure you want to leave?";
+  const router = useRouter();
+
+  useEffect(() => {
+    // Only add the guard when there are unsaved changes
+    if (!hasUnsavedChanges) return;
+
+    // Handle browser navigation (back/forward) and tab/window close
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = message;
+      return message;
+    };
+
+    // Handle in-app navigation
+    const handleRouteChangeStart = (url) => {
+      if (!confirm(message)) {
+        // Prevent navigation and restore the URL
+        router.events.emit("routeChangeError");
+        router.replace(router.asPath);
+        throw new Error("Navigation cancelled by user");
+      }
+    };
+
+    // Add event listeners
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    router.events.on("routeChangeStart", handleRouteChangeStart);
+
+    // Clean up
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      router.events.off("routeChangeStart", handleRouteChangeStart);
+    };
+  }, [hasUnsavedChanges, router, message]);
+}
+```
+
+### State Persistence
+
+- Persist critical state information appropriately
+- Use localStorage for persistent state that survives page reloads
+- Use sessionStorage for session-specific state
+- Clear sensitive information appropriately
+- Handle storage quota limitations
+
+```typescript
+// GOOD: Appropriate state persistence
+function usePersistedState(key, initialValue) {
+  // Try to load from localStorage
+  const [state, setState] = useState(() => {
+    try {
+      const item = localStorage.getItem(key);
+      return item ? JSON.parse(item) : initialValue;
+    } catch (error) {
+      console.error("Error loading persisted state:", error);
+      return initialValue;
+    }
+  });
+
+  // Sync to localStorage on changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(state));
+    } catch (error) {
+      console.error("Error persisting state:", error);
+    }
+  }, [key, state]);
+
+  return [state, setState];
+}
+```
+
+### Multi-Tab Session Management
+
+- **REQUIRED**: Use appropriate authentication token storage
+- Implement shared session state across tabs when needed
+- Propagate user preferences across tabs when appropriate
+- Handle conflicting updates between tabs
+- Provide clear feedback when critical changes occur in other tabs
+
+```typescript
+// GOOD: Synchronizing user preferences across tabs
+function usePreferenceSync() {
+  const [preferences, setPreferences] = useState(null);
+
+  // Load preferences from localStorage
+  useEffect(() => {
+    const storedPrefs = localStorage.getItem("user_preferences");
+    if (storedPrefs) {
+      try {
+        setPreferences(JSON.parse(storedPrefs));
+      } catch (e) {
+        console.error("Failed to parse preferences", e);
+      }
+    }
+  }, []);
+
+  // Listen for preference changes from other tabs
+  useEffect(() => {
+    const handleStorageChange = (event) => {
+      if (event.key === "user_preferences" && event.newValue) {
+        try {
+          setPreferences(JSON.parse(event.newValue));
+        } catch (e) {
+          console.error("Failed to parse updated preferences", e);
+        }
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+
+  // Update preferences locally and broadcast to other tabs
+  const updatePreferences = useCallback(
+    (newPrefs) => {
+      const updatedPrefs = { ...preferences, ...newPrefs };
+      setPreferences(updatedPrefs);
+      localStorage.setItem("user_preferences", JSON.stringify(updatedPrefs));
+    },
+    [preferences]
+  );
+
+  return { preferences, updatePreferences };
+}
+```
+
+## Dependencies
+- Related rules: [046-session-validation.mdc](mdc:046-session-validation.mdc), [071-state-management.mdc](mdc:071-state-management.mdc)
+- Required libraries: Next.js router (or equivalent)
+- Browser APIs: History API, Web Storage API, Storage events
+
+## Testing Guidelines
+- Test browser back/forward navigation behavior
+- Verify preservation of application state during navigation
+- Test unsaved changes prompts
+- Simulate multiple tabs with storage event triggers
+- Verify consistent behavior across different browsers
+- Test deep linking to specific application states
+
+## Implementation Checklist
+
+- [ ] History Usage: Use router functions instead of direct history API calls
+- [ ] URL Structure: Implement semantic URLs with consistent parameter usage
+- [ ] State Management: Maintain appropriate state in URLs for sharing/bookmarking
+- [ ] Form Protection: Implement navigation guards for forms with unsaved changes
+- [ ] Cross-Tab Communication: Use storage events for critical state changes
+- [ ] Session Handling: Manage authentication consistently across tabs
+- [ ] User Preferences: Synchronize relevant user preferences between tabs
+- [ ] Testing: Verify behavior across multiple tabs and browsers
+
+## See Also
+
+### Related Rules
+- @046-session-validation.mdc - Session security and validation
+- @071-state-management.mdc - General state management patterns
+- @042-ui-component-architecture.mdc - Component state patterns
+- @014-third-party-auth.mdc - Authentication state management
+- @019-auth0-integration.mdc - Auth0 session handling
+- @047-security-design-system.mdc - Security UI for session state
+- @049-client-storage-standards.mdc - Advanced client storage (IndexedDB, Cache API)
+- @049-browser-lifecycle-events.mdc - Page Visibility API and lifecycle management
+- @002-rule-application.mdc - Source of Truth Hierarchy
+
+### Tools & Documentation
+- **`.cursor/tools/check-auth-config.sh`** - Validate session configuration
+  ```bash
+  ./.cursor/tools/check-auth-config.sh
+  # Validates: Session cookies, secure flags, timeout settings
+  ```
+- **`.cursor/docs/ai-workflows.md`** - State management patterns with AI assistance
+- **Browser DevTools** - Use Application > Storage tabs for debugging localStorage/sessionStorage
+
+### Comprehensive Guides
+- **`.cursor/docs/ai-workflows.md#state-management`** - State management patterns
+- **`guides/Browser-State-Management-Complete-Guide.md`** ⭐ (To be created) - Comprehensive browser state patterns
+
+### Quick Start - Browser State Management
+
+```bash
+# 1. Use Next.js router (not direct history API)
+import { useRouter } from 'next/router';
+const router = useRouter();
+
+# 2. Maintain state in URL for sharing/bookmarking
+router.push({ query: { ...router.query, filter: 'active' } });
+
+# 3. Implement navigation guards for unsaved changes
+useNavigationGuard(hasUnsavedChanges);
+
+# 4. Use storage events for cross-tab synchronization
+window.addEventListener('storage', handleStorageChange);
+
+# 5. Test in multiple tabs
+# Open multiple tabs and verify state synchronization works
+```
+
+### Common Scenarios
+
+| Scenario | Solution | Rule Reference |
+|----------|----------|----------------|
+| **URL State** | Use router.push/replace | This rule |
+| **Cross-Tab Sync** | Use localStorage + storage events | This rule |
+| **Navigation Guards** | beforeunload + routeChangeStart | This rule |
+| **Session Management** | Follow session security patterns | @046-session-validation.mdc |
+| **Advanced Storage** | Use IndexedDB for large data | @049-client-storage-standards.mdc |
+| **Page Visibility** | Pause/resume on tab switch | @049-browser-lifecycle-events.mdc |

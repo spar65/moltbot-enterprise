@@ -1,0 +1,487 @@
+---
+description: Establish standardized approaches to tracking data changes over time, enabling audit trails and historical state reconstruction for business-critical entities
+globs: "src/**/*.{ts,tsx,py}"
+alwaysApply: false
+---
+
+# Data Versioning & Historization Standards
+
+**Purpose**: Audit trails, historical state reconstruction, compliance tracking  
+**Applies To**: Business-critical entities requiring change history  
+**Works With**: @065-database-access-patterns.mdc (repository pattern foundation)  
+**Last Updated**: November 20, 2025
+
+---
+
+## Context
+
+- Applications often need to track the history of changes to critical data
+- Audit requirements may require knowing who changed what and when
+- Without standardized approaches, historization is implemented inconsistently
+- Reconstructing historical states becomes difficult without proper tracking
+- **Compliance requirements** (GDPR, SOX, HIPAA) often mandate audit trails
+- **Business value**: Enables rollback, dispute resolution, forensic analysis
+
+## Requirements
+
+### Core Data Versioning Patterns
+
+**When to Apply Versioning**:
+
+- **REQUIRED**: All business-critical entities (users, organizations, subscriptions, payments)
+- **REQUIRED**: Entities with compliance requirements (financial, healthcare, PII)
+- **RECOMMENDED**: Entities involved in disputes or customer support
+- **OPTIONAL**: Low-value transient data (sessions, logs, temporary caches)
+
+**Versioning Strategies**:
+
+- **Full Snapshots**: Store complete entity state for each change
+  - Best for: Low-frequency changes, small entities, need exact historical state
+  - Example: Organization profile updates, subscription plan changes
+- **Delta Changes**: Store only what changed
+  - Best for: High-frequency changes, large entities, storage optimization
+  - Example: User settings, preferences, feature flags
+- **Hybrid Approach**: Full snapshot + deltas
+  - Best for: Balancing storage vs reconstruction speed
+  - Example: Full snapshot daily + deltas for intraday changes
+
+**Metadata Requirements** (REQUIRED for all versioning):
+
+- **Who**: User ID or service name that made the change
+- **When**: UTC timestamp with timezone
+- **Why**: Reason code or reference (e.g., "user_update", "admin_correction", "migration")
+- **Source**: Where the change originated (UI, API endpoint, background job, migration)
+- **IP Address**: For security auditing (if user-initiated)
+- **Request ID**: For tracing across distributed systems
+
+### Audit Trail Implementation
+
+**Capture Context** (REQUIRED):
+
+- **Who**: User ID or service name that made the change
+- **When**: UTC timestamp (use `DateTime(timezone=True)` in SQLAlchemy or `timestamptz` in PostgreSQL)
+- **Why**: Reason code or free-text reason (e.g., "user_update", "admin_correction", "GDPR_request")
+- **Source**: Origin of change (e.g., "web_ui", "mobile_app", "api", "background_job", "migration")
+- **Request Context**: IP address, user agent, request ID for tracing
+
+**Compliance Considerations**:
+
+- **GDPR**: Track consent changes, data access, deletion requests
+- **SOX**: Track financial data changes with approval workflows
+- **HIPAA**: Track access to PHI (Protected Health Information)
+- **Retention Policies**: Define how long to keep history (legal requirements vs storage costs)
+
+**Audit Log Levels**:
+
+- **Level 1 (Basic)**: Who, when, what changed (entity ID)
+- **Level 2 (Standard)**: + Why, source, IP address
+- **Level 3 (Full)**: + Previous state, new state, request context
+
+### Historical State Reconstruction
+
+**Point-in-Time Recovery**:
+
+- Implement APIs for retrieving entity state at a specific date/time
+- Support "as of" queries: `getStateAtTime(entityId, timestamp)`
+- Enable time-travel debugging for production issues
+- **Performance**: Index history tables by `entity_id` + `changed_at` for fast queries
+
+**Diffing & Comparison**:
+
+- Enable diffing between any two historical versions
+- Support field-level diff (show what changed, old value → new value)
+- Provide human-readable change summaries for UIs
+- **Use Cases**: Dispute resolution, customer support, compliance audits
+
+**Cascading Reconstruction**:
+
+- Include related entities in historical reconstruction
+- Example: User state + their organization state + subscription state at specific time
+- **Complexity Warning**: Deep cascading can be expensive; limit depth
+
+**Query Patterns**:
+
+```typescript
+// Get current state (normal query)
+const user = await userRepo.findById(userId);
+
+// Get historical state at specific time
+const userAtTime = await userRepo.getStateAtTime(
+  userId,
+  new Date("2024-01-15")
+);
+
+// Get full change history
+const history = await userRepo.getHistoryById(userId);
+
+// Get changes in date range
+const changes = await userRepo.getChangesBetween(userId, startDate, endDate);
+
+// Diff two versions
+const diff = await userRepo.diffVersions(userId, version1, version2);
+```
+
+### Technical Implementation Approaches
+
+**Schema Design Patterns**:
+
+**Pattern 1: Separate History Table** (RECOMMENDED)
+
+```sql
+-- Current state table
+CREATE TABLE users (
+  id UUID PRIMARY KEY,
+  email TEXT NOT NULL,
+  name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- History table
+CREATE TABLE user_history (
+  history_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  snapshot JSONB NOT NULL,  -- Full entity state
+  changed_by TEXT NOT NULL,
+  changed_at TIMESTAMPTZ NOT NULL,
+  change_reason TEXT,
+  change_source TEXT,
+  ip_address INET,
+  request_id TEXT
+);
+
+CREATE INDEX idx_user_history_user_id ON user_history(user_id);
+CREATE INDEX idx_user_history_changed_at ON user_history(changed_at);
+CREATE INDEX idx_user_history_lookup ON user_history(user_id, changed_at DESC);
+```
+
+**Pattern 2: Temporal Tables (PostgreSQL 15+)**
+
+```sql
+-- Use PostgreSQL temporal tables for automatic versioning
+CREATE TABLE users (
+  id UUID PRIMARY KEY,
+  email TEXT NOT NULL,
+  name TEXT,
+  valid_from TIMESTAMPTZ NOT NULL GENERATED ALWAYS AS ROW START,
+  valid_to TIMESTAMPTZ NOT NULL GENERATED ALWAYS AS ROW END,
+  PERIOD FOR SYSTEM_TIME (valid_from, valid_to)
+) WITH (SYSTEM_VERSIONING = ON);
+```
+
+**Automation Strategies**:
+
+- **Application-Level**: Repository methods handle versioning (full control)
+- **Database Triggers**: Automatic versioning on INSERT/UPDATE (consistent, can't forget)
+- **ORM Hooks**: SQLAlchemy/Prisma hooks (balance of control and automation)
+- **Event Sourcing**: Store events instead of state (advanced, overkill for most)
+
+**Storage Optimization**:
+
+- **Compression**: Use JSONB compression for snapshots (PostgreSQL automatic)
+- **Partitioning**: Partition history tables by month/year for old data
+- **Archival**: Move old history to cheaper storage (S3) after retention period
+- **Cleanup**: Implement retention policies (e.g., keep 7 years for compliance, then archive)
+
+## Examples
+
+<example>
+// Good: User repository with proper historization
+class UserRepository {
+  // Current state methods
+  async findById(id: string): Promise<User | null> {
+    return await prisma.user.findUnique({ where: { id } });
+  }
+  
+  // Update with automatic historization
+  async update(id: string, data: Partial<User>, metadata: ChangeMetadata): Promise<User> {
+    // Begin transaction
+    return await prisma.$transaction(async (tx) => {
+      // Get current state
+      const currentUser = await tx.user.findUnique({ where: { id } });
+      
+      if (!currentUser) {
+        throw new Error(`User with ID ${id} not found`);
+      }
+      
+      // Create history record with full snapshot
+      await tx.userHistory.create({
+        data: {
+          userId: id,
+          snapshot: currentUser,
+          changedBy: metadata.userId,
+          changedAt: new Date(),
+          changeReason: metadata.reason,
+          changeSource: metadata.source
+        }
+      });
+      
+      // Update current record
+      return await tx.user.update({
+        where: { id },
+        data
+      });
+    });
+  }
+  
+  // Historical state retrieval
+  async getHistoryById(id: string): Promise<UserHistoryEntry[]> {
+    return await prisma.userHistory.findMany({
+      where: { userId: id },
+      orderBy: { changedAt: 'desc' }
+    });
+  }
+  
+  // Point-in-time reconstruction
+  async getStateAtTime(id: string, pointInTime: Date): Promise<User | null> {
+    // Find the most recent history entry before or at the specified time
+    const historyEntry = await prisma.userHistory.findFirst({
+      where: {
+        userId: id,
+        changedAt: {
+          lte: pointInTime
+        }
+      },
+      orderBy: {
+        changedAt: 'desc'
+      }
+    });
+    
+    if (!historyEntry) {
+      return null;
+    }
+    
+    return historyEntry.snapshot as User;
+  }
+}
+</example>
+
+<example>
+// Good: Temporal table schema design
+const userSchema = `
+CREATE TABLE users (
+  id UUID PRIMARY KEY,
+  email TEXT NOT NULL,
+  name TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE user_history (
+history_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+user_id UUID NOT NULL REFERENCES users(id),
+snapshot JSONB NOT NULL,
+changed_by TEXT NOT NULL,
+changed_at TIMESTAMP NOT NULL,
+change_reason TEXT,
+change_source TEXT,
+CONSTRAINT fk_user_id FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_user_history_user_id ON user_history(user_id);
+CREATE INDEX idx_user_history_changed_at ON user_history(changed_at);
+`;
+</example>
+
+<example type="invalid">
+// Bad: No versioning or audit trail
+async function updateUser(id: string, data: any) {
+  return await prisma.user.update({
+    where: { id },
+    data
+  });
+  
+  // No history tracking
+  // No metadata about the change
+  // No way to reconstruct historical state
+}
+</example>
+
+<example type="invalid">
+// Bad: Inconsistent manual tracking
+async function updateUserProfile(id: string, profile: any) {
+  // Ad-hoc tracking with inconsistent format
+  await prisma.userLog.create({
+    data: {
+      userId: id,
+      action: 'profile_update',
+      // Only storing current values, not previous state
+      data: JSON.stringify(profile)
+    }
+  });
+  
+  // Update without transaction
+  return await prisma.user.update({
+    where: { id },
+    data: {
+      ...profile,
+      updatedAt: new Date()
+    }
+  });
+}
+</example>
+
+---
+
+## See Also
+
+### Related Rules
+
+**Database Domain** (Foundation):
+
+- @065-database-access-patterns.mdc - Repository pattern (use WITH this rule for versioned repositories)
+- @208-database-operations.mdc - Database backups and disaster recovery (complementary)
+- @066-database-migration-standards.mdc - Schema migrations (for history tables)
+- @068-database-monitoring-standards.mdc - Monitor history table growth and query performance
+- @082-database-performance-budgets.mdc - Optimize history queries and storage
+
+**Data Standards**:
+
+- @080-cross-service-data-consistency.mdc - Cross-service data consistency patterns
+- @025-multi-tenancy.mdc - Multi-tenant data isolation (apply to history tables)
+- @104-stable-interfaces.mdc - Stable interfaces for historical data APIs
+
+**Security & Compliance**:
+
+- @010-security-compliance.mdc - Security compliance requirements
+- @012-api-security.mdc - Secure historical data access APIs
+- @011-env-var-security.mdc - Protect audit log access credentials
+
+**Testing**:
+
+- @370-api-testing-database.mdc - Test versioning in API tests
+- @376-database-test-isolation.mdc - Isolate history tables in tests
+- @380-comprehensive-testing-standards.mdc - Test audit trail completeness
+
+### Tools & Documentation
+
+**Database Operations**:
+
+- **`.cursor/tools/inspect-model.sh`** - Inspect entity models and history tables
+  ```bash
+  ./.cursor/tools/inspect-model.sh User
+  ./.cursor/tools/inspect-model.sh UserHistory
+  # Shows: Schema, relationships, indexes
+  ```
+
+**Migration Tools**:
+
+- **`.cursor/tools/check-migrations.sh`** - Validate history table migrations
+  ```bash
+  ./.cursor/tools/check-migrations.sh
+  # Checks: History table schema consistency
+  ```
+
+**Monitoring**:
+
+- **`.cursor/tools/check-history-growth.sh`** - Monitor history table size and growth
+  ```bash
+  ./.cursor/tools/check-history-growth.sh
+  # Reports: Table sizes, growth rate, retention recommendations
+  ```
+
+### Comprehensive Guides
+
+**Essential for Data Versioning**:
+
+- **`guides/Database-Operations-Complete-Guide.md`** - Database operations including audit trails
+- **`guides/Multi-Tenant-Architecture-Complete-Guide.md`** - Multi-tenant versioning patterns
+- **`guides/Compliance-Audit-Trail-Guide.md`** - Compliance requirements for audit trails
+
+**Implementation Guides**:
+
+- **`guides/Repository-Pattern-Guide.md`** - Repository pattern with versioning
+- **`guides/Point-In-Time-Recovery-Guide.md`** - Implementing time-travel queries
+
+### Quick Start - Implementing Data Versioning
+
+```bash
+# 1. Create history table schema
+# Add migration for {Entity}History table with:
+# - entity_id (foreign key)
+# - snapshot (JSONB)
+# - changed_by, changed_at, change_reason, change_source
+# - Indexes on (entity_id, changed_at)
+
+# 2. Update repository to include versioning
+# Modify {Entity}Repository.update() to:
+# - Begin transaction
+# - Read current state
+# - Insert into history table
+# - Update current record
+# - Commit transaction
+
+# 3. Add historical query methods
+# Implement:
+# - getHistoryById(id)
+# - getStateAtTime(id, timestamp)
+# - getChangesBetween(id, startDate, endDate)
+# - diffVersions(id, version1, version2)
+
+# 4. Test versioning
+./.cursor/tools/run-tests.sh tests/repositories/user_repository.test.ts
+# Verify: History created on update, point-in-time works
+
+# 5. Monitor history table growth
+./.cursor/tools/check-history-growth.sh
+# Set up alerts for rapid growth
+```
+
+### When to Use This Rule
+
+**✅ Apply This Rule When**:
+
+- Entity requires audit trail (compliance, security)
+- Need to track who changed what and when
+- Disputes or customer support need historical data
+- Legal/regulatory requirements mandate change tracking
+- Business needs rollback or "undo" capability
+
+**❌ Do NOT Apply When**:
+
+- Low-value transient data (sessions, caches)
+- High-frequency immutable data (logs, events) - use append-only instead
+- Storage costs outweigh business value
+- Performance is critical and versioning overhead unacceptable
+- Entity changes are already tracked elsewhere (event sourcing)
+
+### Implementation Checklist
+
+**Schema Setup**:
+
+- [ ] Create history table with proper foreign keys
+- [ ] Add indexes on (entity_id, changed_at)
+- [ ] Include all required metadata fields
+- [ ] Set up partitioning for large tables (optional)
+
+**Repository Implementation**:
+
+- [ ] Wrap updates in transactions
+- [ ] Capture current state before update
+- [ ] Insert history record with full metadata
+- [ ] Implement getHistoryById() method
+- [ ] Implement getStateAtTime() method
+- [ ] Add diffing capability (optional)
+
+**Testing**:
+
+- [ ] Test history creation on update
+- [ ] Test point-in-time queries
+- [ ] Test transaction rollback (history not created)
+- [ ] Test performance with large history tables
+- [ ] Test retention/cleanup procedures
+
+**Operations**:
+
+- [ ] Set up monitoring for history table growth
+- [ ] Define retention policies (legal requirements)
+- [ ] Implement cleanup/archival procedures
+- [ ] Document compliance requirements
+- [ ] Set up alerts for anomalies (missing history, rapid growth)
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important for compliance and audit)  
+**Applies To**: Business-critical entities requiring change history  
+**Last Updated**: November 20, 2025

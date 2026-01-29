@@ -1,0 +1,505 @@
+---
+description: ENFORCE Vercel structural constraints when TRIGGER deploying to Vercel or making structural changes to OUTCOME prevent deployment failures from incompatible project structures
+globs: "**/*.{ts,tsx,js,jsx,json,md,sh}, **/vercel.json, **/next.config.*"
+---
+
+# Vercel Structural Constraints & Limitations
+
+## Context
+
+- **CRITICAL**: Vercel has specific structural requirements that differ from other platforms
+- **CRITICAL**: Project structures that work locally may NOT work on Vercel
+- **CRITICAL**: Root Directory configuration can cause routing failures
+- **CRITICAL**: Subdirectory structures can break Next.js routing
+- **CRITICAL LESSON**: Always verify structure compatibility BEFORE deploying to Vercel
+
+## Vercel Structural Requirements
+
+### ✅ REQUIRED: Flat Next.js Structure
+
+**Vercel Expects**:
+
+```
+project-root/
+├── app/              # Next.js App Router (if using App Router)
+├── pages/            # Next.js Pages Router (if using Pages Router)
+├── public/          # Static assets
+├── package.json     # MUST be at root
+├── next.config.ts   # MUST be at root
+├── tsconfig.json    # MUST be at root
+└── .env.local       # Environment variables
+```
+
+**❌ FORBIDDEN: Nested Next.js Structure**
+
+```
+project-root/
+└── app/              # ❌ DON'T DO THIS!
+    ├── app/          # Next.js app nested in subdirectory
+    ├── package.json
+    └── next.config.ts
+```
+
+**Why It Fails**:
+
+- Vercel Root Directory setting creates path confusion
+- Next.js routing breaks with nested structures
+- Build outputs go to wrong locations
+- All routes return 404
+
+### ✅ REQUIRED: Root Directory Setting
+
+**For Flat Structure** (Recommended):
+
+- **Root Directory**: EMPTY (leave blank)
+- **Structure**: Next.js app at repository root
+
+**For Subdirectory Structure** (NOT Recommended):
+
+- **Root Directory**: `app` (or subdirectory name)
+- **⚠️ WARNING**: This often causes routing issues
+- **⚠️ WARNING**: Requires careful configuration
+
+**Critical Rule**:
+
+- **PREFER**: Flat structure (Next.js at root)
+- **AVOID**: Subdirectory structure unless absolutely necessary
+- **VERIFY**: Test routing after setting Root Directory
+
+### ❌ FORBIDDEN: Dual vercel.json Files
+
+**❌ DON'T DO THIS**:
+
+```
+project-root/
+├── vercel.json       # ❌ Conflicts with Root Directory
+└── app/
+    └── vercel.json  # ❌ Conflicts with root config
+```
+
+**Why It Fails**:
+
+- Vercel doesn't know which config to use
+- Root Directory setting conflicts with vercel.json
+- Build commands conflict
+- Routing breaks
+
+**✅ CORRECT**:
+
+- **Option 1**: No vercel.json (let Vercel auto-detect)
+- **Option 2**: Single vercel.json at root (if needed)
+- **Option 3**: Use Root Directory setting instead
+
+### ❌ FORBIDDEN: Middleware Edge Runtime Incompatibilities
+
+**Vercel Edge Runtime Limitations**:
+
+- ❌ Cannot import Node.js modules (`fs`, `path`, etc.)
+- ❌ Cannot use dynamic imports that aren't Edge-compatible
+- ❌ Cannot access file system
+- ❌ Limited to Edge-compatible APIs
+
+**Common Failures**:
+
+```typescript
+// ❌ FORBIDDEN - Will fail on Vercel Edge Runtime
+import { readFileSync } from "fs";
+import { join } from "path";
+import { someNodeModule } from "@/lib/auth"; // If it uses Node.js APIs
+
+export function middleware(req: NextRequest) {
+  // This will fail: MIDDLEWARE_INVOCATION_FAILED
+}
+```
+
+**✅ CORRECT**:
+
+```typescript
+// ✅ SAFE - Edge-compatible only
+import { NextRequest, NextResponse } from "next/server";
+
+export function middleware(req: NextRequest) {
+  // Only use Edge-compatible APIs
+  return NextResponse.next();
+}
+```
+
+### ❌ FORBIDDEN: Long-Running Processes
+
+**Vercel Serverless Limitations**:
+
+- ❌ No long-running processes (max 60s on Pro, 10s on Hobby)
+- ❌ No background workers (use external service)
+- ❌ No persistent connections
+- ❌ No file system writes (except `/tmp`)
+
+**What Won't Work**:
+
+- Background job processing (> 60s)
+- WebSocket servers
+- Long-running API routes
+- File upload processing (> 60s)
+
+**✅ CORRECT**: Use external services:
+
+- Background jobs: Vercel Cron, external queue (BullMQ on separate server)
+- WebSockets: External service (Pusher, Ably)
+- Long processing: Queue jobs, external workers
+
+### ❌ FORBIDDEN: Python Backend on Vercel
+
+**Vercel Python Limitations**:
+
+- ❌ Limited to serverless functions only
+- ❌ 10-second timeout (Hobby), 60s (Pro)
+- ❌ No long-running workers
+- ❌ Not suitable for background processing
+
+**What Happened**:
+
+- Project tried to use Python backend
+- Tests take 8-10 minutes
+- Vercel timeout: 10-60 seconds
+- **Result**: Complete failure
+
+**✅ CORRECT**:
+
+- Use TypeScript/Node.js for Vercel deployments
+- Use Python SDK for customer-side only
+- Use external services for long-running tasks
+
+## Pre-Deployment Structure Verification
+
+### Mandatory Checks Before Vercel Deployment
+
+1. **🚨 CRITICAL**: Check for rogue `/api/` folder at root
+
+   ```bash
+   # This MUST return empty or only show app/api/ (inside /app/)
+   ls -d api 2>/dev/null && echo "❌ DANGER: Rogue /api/ folder found at root!" || echo "✅ No rogue /api/ folder"
+
+   # If found, DELETE IT or MOVE to app/api/
+   rm -rf api  # Or move contents to app/api/
+   ```
+
+2. **REQUIRED**: Verify Next.js structure is flat (at root or properly configured subdirectory)
+
+   ```bash
+   # Check structure
+   ls -la | grep -E "app|pages|package.json|next.config"
+
+   # If using subdirectory, verify Root Directory is set correctly
+   ```
+
+3. **REQUIRED**: Check for conflicting vercel.json files
+
+   ```bash
+   # Find all vercel.json files
+   find . -name "vercel.json" -not -path "./node_modules/*"
+
+   # Should be: 0 or 1 file at root
+   # If multiple: Remove or consolidate
+   ```
+
+4. **REQUIRED**: Verify Root Directory setting matches structure
+
+   ```bash
+   # Flat structure: Root Directory = EMPTY
+   # Subdirectory: Root Directory = subdirectory name
+
+   # Check Vercel Dashboard → Settings → General → Root Directory
+   ```
+
+5. **REQUIRED**: Test middleware Edge Runtime compatibility
+
+   ```bash
+   # Check middleware imports
+   grep -r "import.*from.*fs\|import.*from.*path" app/middleware.ts 2>/dev/null
+
+   # Should be: No Node.js module imports
+   ```
+
+6. **REQUIRED**: Verify no long-running processes
+
+   ```bash
+   # Check API routes for long operations
+   grep -r "setTimeout\|setInterval\|while.*true" app/api/ 2>/dev/null
+
+   # Should be: No infinite loops or long waits
+   ```
+
+## Examples
+
+<example>
+// ✅ CORRECT - Flat structure at root
+project-root/
+├── app/
+│   ├── page.tsx
+│   └── layout.tsx
+├── package.json
+├── next.config.ts
+└── tsconfig.json
+
+// Vercel Settings:
+// Root Directory: (empty)
+// Build Command: npm run build
+// Output Directory: .next
+</example>
+
+<example type="invalid">
+// ❌ WRONG - Nested structure
+project-root/
+└── app/
+    ├── app/
+    │   ├── page.tsx
+    │   └── layout.tsx
+    ├── package.json
+    ├── next.config.ts
+    └── tsconfig.json
+
+// This WILL cause 404 errors on Vercel!
+// Even with Root Directory = "app", routing breaks
+</example>
+
+<example>
+// ✅ CORRECT - Middleware Edge-compatible
+import { NextRequest, NextResponse } from 'next/server';
+
+export function middleware(req: NextRequest) {
+// Only Edge-compatible APIs
+const url = req.nextUrl.pathname;
+return NextResponse.next();
+}
+
+export const config = {
+matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+};
+</example>
+
+<example type="invalid">
+// ❌ FORBIDDEN - Node.js modules in middleware
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { someAuthLib } from '@/lib/auth'; // If it uses Node.js APIs
+
+export function middleware(req: NextRequest) {
+// This will fail: MIDDLEWARE_INVOCATION_FAILED
+const config = readFileSync(join(process.cwd(), 'config.json'));
+return NextResponse.next();
+}
+</example>
+
+## Structural Change Impact Analysis
+
+### Before Making Structural Changes
+
+**REQUIRED Checklist**:
+
+- [ ] **Verify current Vercel structure works**
+
+  ```bash
+  # Check if deployment is working
+  curl https://yourdomain.vercel.app/
+  ```
+
+- [ ] **Document current structure**
+
+  ```bash
+  # Create structure snapshot
+  tree -L 3 -I node_modules > structure-before.txt
+  ```
+
+- [ ] **Check all path references**
+
+  ```bash
+  # Find all references to old structure
+  grep -rn "app/" --include="*.{ts,tsx,js,jsx,sh,yml,yaml}" . | grep -v node_modules
+  ```
+
+- [ ] **Verify Vercel Root Directory setting**
+
+  - Check Vercel Dashboard → Settings → General → Root Directory
+  - Document current setting
+
+- [ ] **Plan new structure**
+
+  - Prefer flat structure (Next.js at root)
+  - If subdirectory needed, plan Root Directory update
+  - Plan vercel.json removal/consolidation
+
+- [ ] **Create backup**
+  ```bash
+  git checkout -b backup/before-structure-change
+  git tag backup/before-$(date +%Y%m%d)
+  ```
+
+### After Making Structural Changes
+
+**REQUIRED Verification**:
+
+- [ ] **Update Root Directory** (if structure changed)
+
+  - Flat structure: Set to EMPTY
+  - Subdirectory: Set to subdirectory name
+
+- [ ] **Remove conflicting vercel.json files**
+
+  ```bash
+  # Remove if using Root Directory setting
+  rm vercel.json app/vercel.json 2>/dev/null || true
+  ```
+
+- [ ] **Test local build**
+
+  ```bash
+  npm run build
+  # Should succeed without errors
+  ```
+
+- [ ] **Test routing locally**
+
+  ```bash
+  npm run dev
+  # Visit http://localhost:3000
+  # All routes should work
+  ```
+
+- [ ] **Deploy and verify**
+  ```bash
+  git push origin main
+  # Wait for Vercel deployment
+  # Verify all routes work (not 404)
+  ```
+
+## See Also
+
+### Related Rules
+
+- @201-vercel-deployment-standards.mdc - Vercel deployment best practices
+- @202-vercel-production-gotchas.mdc - **CRITICAL** Vercel runtime gotchas
+- @207-infrastructure-verification.mdc - **CRITICAL** Verify before structural changes
+- @203-production-deployment-safety.mdc - Production deployment safety
+- @200-deployment-infrastructure.mdc - General deployment standards
+
+### Tools & Documentation
+
+- **`.cursor/tools/verify-infrastructure-reality.sh`** - Verify structure compatibility
+
+```bash
+./.cursor/tools/verify-infrastructure-reality.sh
+# Checks: Structure, vercel.json conflicts, Root Directory compatibility
+```
+
+- **`.cursor/tools/pre-deployment-check.sh`** - Pre-deployment validation
+
+```bash
+./.cursor/tools/pre-deployment-check.sh
+# Validates: Build, structure, configuration
+```
+
+- **`docs/DEPLOYMENT-INFRASTRUCTURE-GAPS.md`** - Gap analysis template
+- **`docs/BUG-VERCEL-DEPLOYMENT-404-Complete-Analysis.md`** - Real-world example
+
+### Comprehensive Guides
+
+- **`guides/Vercel-Deployment-Guide.md`** ⭐ **Essential** - Complete Vercel deployment guide
+- **`guides/Infrastructure-Verification-Guide.md`** ⭐ **NEW** - Structure verification process
+- **`guides/Deployment-Workflow-Complete-Guide.md`** - Complete deployment workflow
+
+### Quick Start - Vercel Structure Verification
+
+```bash
+# 1. Verify structure is flat (or properly configured)
+ls -la | grep -E "app|pages|package.json"
+
+# 2. Check for conflicting vercel.json files
+find . -name "vercel.json" -not -path "./node_modules/*"
+
+# 3. Verify Root Directory setting
+# Check: Vercel Dashboard → Settings → General → Root Directory
+# Flat structure: Should be EMPTY
+# Subdirectory: Should match subdirectory name
+
+# 4. Test middleware Edge compatibility
+grep -r "import.*from.*fs\|import.*from.*path" app/middleware.ts 2>/dev/null
+
+# 5. Run infrastructure verification
+./.cursor/tools/verify-infrastructure-reality.sh
+
+# 6. Test local build
+npm run build
+
+# 7. Deploy and verify routing
+git push origin main
+# Wait for deployment, then test all routes
+```
+
+---
+
+## When to Use This Rule
+
+- ✅ Before deploying to Vercel for the first time
+- ✅ Before making structural changes (flattening, moving directories)
+- ✅ When experiencing 404 errors on Vercel
+- ✅ When middleware fails with MIDDLEWARE_INVOCATION_FAILED
+- ✅ When planning project structure
+- ✅ When troubleshooting Vercel deployment issues
+
+---
+
+## Critical Lessons Learned
+
+**From Structure Flattening Experience (Dec 9, 2025)**:
+
+1. **Subdirectory Structure Doesn't Work Well**: Next.js in `app/` subdirectory caused persistent 404s even with Root Directory set correctly
+2. **Root Directory Setting Is Fragile**: Small misconfigurations cause complete routing failure
+3. **Dual vercel.json Files Cause Conflicts**: Multiple config files confuse Vercel's auto-detection
+4. **Middleware Edge Runtime Is Strict**: Any Node.js module import causes MIDDLEWARE_INVOCATION_FAILED
+5. **Flat Structure Is Preferred**: Next.js at repository root works most reliably
+
+**From Rogue `/api/` Folder Incident (Dec 9, 2025)**:
+
+6. **🚨 CRITICAL: Never have `/api/` folder at project root**: A rogue `/api/` folder outside of `/app/` will cause Vercel to detect the project as Pages Router instead of App Router. This breaks ALL routes with 404.
+
+   ```
+   ❌ FORBIDDEN - This breaks everything:
+   project-root/
+   ├── api/                 # ❌ ROGUE /api/ FOLDER - CAUSES 404!
+   │   └── some-route/
+   ├── app/                 # Next.js App Router (ignored by Vercel!)
+   │   ├── api/            # ✅ Correct location for API routes
+   │   ├── page.tsx
+   │   └── layout.tsx
+   └── package.json
+   ```
+
+7. **Vercel Project State Gets Corrupted**: After multiple failed deployments and config changes, Vercel's project cache can become corrupted. Symptoms:
+   - Build logs show all routes generated
+   - `vercel inspect` shows only 1 route in "Builds" section
+   - All routes return 404 even after "successful" deployment
+8. **Nuclear Reset Required**: When Vercel behaves unexpectedly, delete the project and redeploy fresh:
+
+   ```bash
+   # 1. Delete .vercel folder locally
+   rm -rf .vercel
+
+   # 2. Delete project in Vercel Dashboard
+   # Go to: Settings → Advanced → Delete Project
+
+   # 3. Redeploy fresh
+   vercel --prod --yes
+   ```
+
+9. **Deployment Protection Enabled by Default**: New Vercel projects have "Vercel Authentication" enabled, blocking public access. Disable in Dashboard → Settings → Deployment Protection.
+
+**Prevention**:
+
+- Always verify NO `/api/` folder exists at root level
+- Use flat structure when possible
+- When stuck, delete and recreate the Vercel project
+
+---
+
+**Last Updated**: December 9, 2025  
+**Status**: ✅ Core Rule (200-series)  
+**Priority**: P0 (REQUIRED for Vercel deployments)

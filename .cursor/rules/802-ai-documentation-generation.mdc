@@ -1,0 +1,721 @@
+---
+description: USE AI-assisted documentation generation when STARTING PROJECTS to CREATE comprehensive specifications efficiently
+globs: ["docs/**/*.md"]
+---
+
+# AI-Assisted Documentation Generation
+
+## Context
+
+This rule defines best practices for using AI (specifically Claude) to generate comprehensive project documentation. Based on proven success with the NCLB Survey Application, AI can generate production-ready documentation 10-15x faster than manual creation while maintaining high quality.
+
+## Requirements
+
+### Preparation Before AI Generation
+
+**Create Project Context Document:**
+
+```markdown
+# [PROJECT_NAME] - Context Document
+
+## Project Basics
+
+- Name: [Specific name]
+- Tagline: [One sentence value proposition]
+- Type: [Web app / Mobile app / API / etc.]
+
+## Problem Statement
+
+[2-3 paragraphs with specific data/stats]
+
+## Target Users
+
+1. [User Type] - [Specific description]
+2. [User Type] - [Specific description]
+3. [User Type] - [Specific description]
+
+## Core Features (Priority Order)
+
+1. [Feature] - [Specific description]
+2. [Feature] - [Specific description]
+   [3-5 total features]
+
+## Technical Preferences
+
+- Frontend: [Specific framework or "AI recommendation"]
+- Backend: [Specific framework or "AI recommendation"]
+- Database: [Specific type or "AI recommendation"]
+- Deployment: [Specific platform or "AI recommendation"]
+
+## Constraints
+
+- Budget: [Specific amount or "flexible"]
+- Timeline: [Specific weeks or "flexible"]
+- Team: [Size and skill level]
+- Compliance: [GDPR, HIPAA, etc. or "none"]
+
+## Success Criteria
+
+- [Measurable metric 1]
+- [Measurable metric 2]
+- [Measurable metric 3]
+```
+
+### AI Prompt Quality Standards
+
+**Always Provide:**
+
+- ✅ Specific project context (not generic descriptions)
+- ✅ Concrete examples (not "add appropriate features")
+- ✅ Clear constraints (budget, timeline, team skills)
+- ✅ Expected output format (with examples)
+- ✅ Success criteria for the document
+
+**Never Accept:**
+
+- ❌ Generic placeholders ("TODO: Add details")
+- ❌ Vague recommendations ("Use appropriate database")
+- ❌ Missing rationale ("Use PostgreSQL" without why)
+- ❌ Incomplete examples (pseudocode instead of real code)
+
+### Progressive Elaboration Approach
+
+Generate documents in strict order:
+
+1. Foundation (00-04): User stories → Overview → Tech → Database → Requirements
+2. Technical (05-09): UI/UX → Components → Data → API → Security
+3. Quality (10-14): Testing → Deployment → Workflow → PWA → Roadmap
+
+**Why Order Matters:**
+
+- Each document builds on previous ones
+- Later documents reference earlier ones
+- Skipping ahead creates inconsistencies
+- Sequential generation catches gaps early
+
+### Review Process Per Document
+
+After AI generates each document:
+
+**1. Immediate Review (5-10 minutes):**
+
+- Length check (meets minimum lines?)
+- Completeness check (all sections included?)
+- Placeholder check (any TODOs or generics?)
+
+**2. Content Review (10-15 minutes):**
+
+- Specificity check (concrete recommendations?)
+- Example check (code examples included?)
+- Cross-reference check (aligns with previous docs?)
+
+**3. Refinement (5-10 minutes if needed):**
+
+```
+This section is too generic. Please provide specific recommendations considering:
+- [Specific constraint 1]
+- [Specific constraint 2]
+- [Specific constraint 3]
+
+Include:
+- Exact tool names with versions
+- Why this over [Alternative A] and [Alternative B]
+- Configuration example
+- Potential gotchas
+```
+
+### Validation Requirements
+
+After generating all 15 documents, run these 4 validation prompts:
+
+**Validation 1: Cross-Reference Check**
+
+```
+Review all documents and identify:
+1. Inconsistencies between documents
+2. Missing features mentioned in one doc but not others
+3. Technical decisions that conflict
+4. User stories without corresponding API endpoints
+
+Provide: List of issues with severity, specific locations, suggested fixes
+```
+
+**Validation 2: Implementation Order**
+
+```
+Review the implementation roadmap and verify:
+1. Are phases in the right order considering dependencies?
+2. Are there circular dependencies?
+3. Is the timeline realistic for the scope?
+4. Are testing and security integrated throughout?
+
+Provide: Recommended restructuring with rationale
+```
+
+**Validation 3: Completeness**
+
+```
+Check for gaps:
+1. User stories missing from detailed requirements?
+2. API endpoints needed but not documented?
+3. Security considerations overlooked?
+4. Testing scenarios missing?
+
+Provide: Comprehensive gap checklist with impact assessment
+```
+
+**Validation 4: Developer Handoff**
+
+```
+Evaluate as if handing to a developer who's never seen this:
+1. Are requirements unambiguous?
+2. Can they start coding without questions?
+3. What examples are missing?
+4. What edge cases need documentation?
+
+Provide: Developer onboarding guide and clarification list
+```
+
+## Examples
+
+<example type="good">
+**Specific Prompt with Context:**
+
+```
+Create a comprehensive Database Schema document for ShopMaster Pro.
+
+Context:
+- E-commerce platform for small businesses
+- Expected data: 10-500 products per store, 5-50 orders/day
+- Users: Business owners (non-technical), store managers, customers
+- Features: Product management with AI descriptions, order processing,
+  inventory predictions, customer accounts, analytics
+- Tech: PostgreSQL 15.x, Prisma ORM, Next.js 14
+- Scale: 100 stores in first 6 months, 10,000 products total
+
+Based on these 32 user stories [summarize key stories], design a schema with:
+
+1. Complete Prisma schema with:
+   - UUID primary keys (explain why vs auto-increment)
+   - All relationships with cascade rules
+   - Indexes for: product search, order queries, inventory tracking
+   - JSONB fields for: product variants, AI metadata
+   - Timestamps on all tables
+   - Soft deletes for products and orders
+
+[Continue with specific requirements...]
+
+Ensure schema supports:
+- Multi-tenant isolation (each store's data separate)
+- Product variants without duplication
+- Order history with line items
+- Inventory tracking with predictions
+- Customer accounts with order history
+
+Provide actual Prisma code, not pseudocode.
+```
+
+**Result:** 276-line schema with 12 models, complete relationships,
+specific indexes, and working code examples.
+</example>
+
+<example type="invalid">
+**Generic Prompt:**
+
+```
+Create a database schema for my e-commerce app.
+Include products, orders, and users.
+```
+
+**Result:** Generic schema with:
+
+- "Use appropriate database" (not specific)
+- Basic models without relationships
+- No indexes specified
+- Placeholder validation rules
+- No consideration of scale or use cases
+- Requires 3-4 refinement rounds to make usable
+
+```
+</example>
+
+<example type="good">
+**Effective Refinement:**
+
+```
+
+Initial Output: "Use JWT tokens for authentication"
+
+Refinement Prompt:
+This is too vague. Our project has:
+
+- Multiple user types (customers, store owners, admins)
+- Mobile app + web app
+- Budget: $50/month maximum
+- Team: Solo developer, intermediate TypeScript
+- Scale: 100 concurrent users max initially
+
+Please provide specific authentication approach:
+
+1. Exact library/service (with version)
+2. Why this over Auth0, Clerk, and custom NextAuth?
+3. Cost breakdown (dev + production)
+4. Implementation complexity (1-10)
+5. How to handle multiple user types
+6. Session management approach
+7. Security considerations
+8. Migration path if we outgrow it
+
+Refined Output: "Use NextAuth.js v4.x with JWT + database sessions because:
+[Detailed comparison with costs, complexity ratings, implementation plan]"
+
+```
+</example>
+
+<example type="good">
+**Cross-Reference Validation Catches Gap:**
+
+```
+
+Generated Documents:
+✅ US-15: User can save products to wishlist (in user stories)
+❌ No wishlist endpoints in API documentation
+❌ No wishlist table in database schema
+❌ No wishlist component in UI specs
+
+Validation Prompt Identifies:
+"User Story US-15 references wishlist functionality but:
+
+- API doc has no wishlist endpoints (should have GET, POST, DELETE)
+- Database schema has no wishlists table
+- UI doc has no WishlistButton component
+  Impact: Cannot implement US-15 without these"
+
+Fix Applied:
+✅ Added 4 wishlist endpoints to 08-api-endpoints
+✅ Added wishlist table with user-product many-to-many to 03-database-schema
+✅ Added WishlistButton, WishlistPage to 05-ui-ux
+✅ Added wishlist test scenarios to 10-testing-strategy
+
+````
+</example>
+
+## AI Session Management
+
+### Optimal Session Structure
+
+**Session 1 (Foundation - 2-3 hours):**
+- Generate docs 00-04
+- Review each before proceeding
+- Refine immediately if generic
+- Save to version control
+
+**Session 2 (Technical - 2-3 hours):**
+- Generate docs 05-09
+- Cross-check against Session 1 docs
+- Refine and expand
+- Save to version control
+
+**Session 3 (Quality - 1-2 hours):**
+- Generate docs 10-14
+- Complete cross-references
+- Save to version control
+
+**Session 4 (Validation - 1-2 hours):**
+- Run all 4 validation prompts
+- Fix critical issues
+- Update documents
+- Final review and commit
+
+### Context Management
+
+**Maintain Context Across Sessions:**
+```markdown
+# Session Log
+
+## Session 1 - Foundation (Date)
+Generated:
+- 00-UserStories-MASTER.md (32 stories, 6 epics)
+- 01-project-overview.md (387 lines)
+- 02-tech-stack-architecture.md (Next.js, PostgreSQL, Vercel)
+- 03-database-schema.md (12 models)
+- 04-user-stories-requirements.md (489 lines)
+
+Key Decisions:
+- Using Next.js 14 App Router
+- PostgreSQL via Neon (free tier fits MVP)
+- Prisma ORM for type safety
+- shadcn/ui for components
+
+Open Questions:
+- Payment processor choice (deferred to Session 2)
+- Real-time inventory updates approach
+
+## Session 2 - Technical (Date)
+[Continue logging...]
+````
+
+## Quality Signals
+
+### Good AI Output Indicators
+
+✅ Specific tool names with versions (not "use a database")  
+✅ Rationale for every decision (compares alternatives)  
+✅ Working code examples (not pseudocode)  
+✅ Concrete numbers (not "appropriate size")  
+✅ Cross-references other documents  
+✅ Includes edge cases and errors  
+✅ Professional language suitable for stakeholders  
+✅ Meets minimum length requirements
+
+### Poor AI Output Indicators
+
+❌ Placeholder text ("TODO", "Add details here")  
+❌ Generic recommendations without context  
+❌ Missing code examples or has pseudocode  
+❌ No comparison of alternatives  
+❌ Vague metrics ("good performance")  
+❌ Inconsistent terminology  
+❌ Missing sections from prompt  
+❌ Under minimum length
+
+## Refinement Strategies
+
+### When AI Output Is Too Generic
+
+**Tactic 1: Provide Constraints**
+
+```
+Please reconsider with these specific constraints:
+- Budget: $50/month in production
+- Team: Solo developer, intermediate TypeScript, no DevOps experience
+- Timeline: 8 weeks to MVP
+- Scale: 500 users expected in first month
+- Must work on Vercel free tier
+
+Recommend specific alternatives that fit these constraints.
+```
+
+**Tactic 2: Request Comparison**
+
+```
+You recommended [Option X]. Please compare:
+
+Option X vs Option Y vs Option Z
+
+For each, provide:
+- Setup complexity (hours estimate)
+- Monthly cost (dev and production)
+- Learning curve (1-10)
+- Performance at 500 users
+- Limitations we'll hit
+- When we'd need to migrate
+
+Then recommend with clear rationale.
+```
+
+**Tactic 3: Request Examples**
+
+```
+This explanation is too abstract. Please provide:
+
+1. Complete code example (TypeScript, 30-50 lines)
+2. Configuration file example
+3. Step-by-step setup (5-7 commands)
+4. Common error and how to fix
+5. How to test it's working
+
+Make it copy-paste ready.
+```
+
+### When AI Output Is Inconsistent
+
+**Tactic: Glossary Generation**
+
+```
+I've noticed inconsistent terminology across documents:
+- Doc 00 calls it "store owner"
+- Doc 04 calls it "business owner"
+- Doc 08 calls it "shop manager"
+
+Please:
+1. Review all 15 documents
+2. Identify all terminology inconsistencies
+3. Recommend standard term for each concept
+4. Provide find-replace list for each document
+
+Format as actionable checklist.
+```
+
+## Success Metrics
+
+### Documentation Quality Metrics
+
+**Quantitative:**
+
+- ✅ All 15 documents generated (or 14 if skipping PWA)
+- ✅ Total lines: 4,000-6,000 across all docs
+- ✅ 25-30+ user stories in US-00
+- ✅ 20-30+ API endpoints in API-08
+- ✅ 8-12+ database models in DB-03
+- ✅ All 4 validation prompts run
+- ✅ 0 critical inconsistencies remain
+
+**Qualitative:**
+
+- ✅ Developer can start building immediately
+- ✅ Stakeholders approve approach
+- ✅ No ambiguous requirements
+- ✅ All technical decisions justified
+- ✅ Security comprehensive
+- ✅ Testing approach clear
+
+### Time Investment vs Return
+
+**Typical Investment:**
+
+- Documentation generation: 5-8 hours
+- Validation and refinement: 1-2 hours
+- Total: 6-10 hours
+
+**Typical Return:**
+
+- Requirements clarification saved: 20-40 hours
+- Refactoring avoided: 10-20 hours
+- Debugging prevented: 15-30 hours
+- Deployment issues avoided: 10-15 hours
+- Total saved: 55-105 hours
+
+**ROI: 5.5x to 17.5x return on time invested**
+
+## Common Pitfalls
+
+### ❌ Rushing Through Generation
+
+**Symptoms:** Thin documents, missing details, generic content
+
+**Prevention:**
+
+- Allocate full 5-8 hours
+- Review each doc for 15+ minutes
+- Refine immediately if generic
+
+### ❌ Skipping Validation Phase
+
+**Symptoms:** Inconsistencies discovered during development, missing features
+
+**Prevention:**
+
+- Always run all 4 validation prompts
+- Fix critical issues before starting dev
+- Batch minor issues for later
+
+### ❌ Not Tracking AI Decisions
+
+**Symptoms:** Can't remember why choices were made, duplicate work
+
+**Solution:**
+
+- Maintain decisions log
+- Track prompts that generated each section
+- Note rationale for major decisions
+
+## Related Rules
+
+- `801-project-documentation-structure.mdc` - What documents to create
+- `002-rule-application.mdc` - When to apply rules based on priority
+- `801-implementation-plan.mdc` - Using docs during implementation
+
+## Related Guides
+
+- `guides/Project-Requirements-Generation-Complete-Guide.md` - Complete step-by-step process
+- `guides/Developer-Onboarding-Guide.md` - How to use generated docs
+
+## See Also
+
+### Related Rules
+
+**Project Startup** (Use This Rule During Phase 2):
+
+- @000-project-startup-guide.mdc - Master project startup guide (this is Phase 2 methodology)
+- @900-tech-stack-selection.mdc - Tech stack selection (Phase 1, complete before this)
+- @801-project-documentation-structure.mdc - 15-document structure (use with this rule)
+- @800-workflow-guidelines.mdc - Workflow setup (Phase 3, after this)
+- @801-implementation-plan.mdc - Implementation planning (Phase 4, after this)
+
+**Quality & Standards**:
+
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @105-typescript-linter-standards.mdc - TypeScript standards
+- @100-coding-patterns.mdc - Coding patterns
+- @012-api-security.mdc - API security
+
+**Testing** (Documented During This Phase):
+
+- @300-testing-standards.mdc - General testing standards
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @375-api-test-first-time-right.mdc - API testing patterns
+
+### Tools & Documentation
+
+**AI Tools for Documentation**:
+
+- **Claude (Anthropic)** ⭐ **Recommended** - Best for comprehensive documentation generation
+- **GPT-4 (OpenAI)** - Alternative for documentation generation
+- **Context Management** - Use session logs (see Session Management section)
+
+**Validation Tools**:
+
+- **`.cursor/tools/inspect-model.sh`** - Validate database schema (doc 03) matches implementation
+  ```bash
+  ./.cursor/tools/inspect-model.sh ModelName
+  # Use to verify 03-database-schema.md accuracy
+  ```
+
+**Documentation Resources**:
+
+- **`.cursor/docs/ai-workflows.md#documentation-generation`** - Proven AI workflows
+- **`.cursor/docs/rules-guide.md`** - How to apply rules systematically
+
+### Comprehensive Guides
+
+**Essential for AI-Assisted Documentation**:
+
+- **`guides/Project-Requirements-Generation-Complete-Guide.md`** ⭐ **MUST READ** - Complete step-by-step process with:
+  - All 15 document prompts (copy-paste ready)
+  - Refinement strategies when output is generic
+  - 4 validation prompts for completeness
+  - Session management strategies
+  - Real examples from NCLB project
+  - Quality standards and metrics
+
+**Related Implementation Guides** (Use After Documentation):
+
+- **`guides/Developer-Onboarding-Guide.md`** - How to use generated docs during development
+- **`guides/API-Database-Testing-Complete-Guide.md`** - Testing patterns for documented APIs
+- **`guides/Git-Workflow-Complete-Guide.md`** - Git workflow during implementation
+
+### Quick Start - AI Documentation Generation
+
+```bash
+# CRITICAL: READ THIS FIRST
+# guides/Project-Requirements-Generation-Complete-Guide.md
+# Contains all prompts and validation strategies
+
+# 1. Preparation (30 minutes)
+# Create docs/_context.md with:
+# - Problem statement
+# - Target users (3-5 types)
+# - Core features (3-5 priorities)
+# - Tech stack (from Phase 1)
+# - Constraints (budget, timeline, team)
+
+# 2. AI Session 1 - Foundation (2-3 hours)
+# Generate docs 00-04 using prompts from guide
+# Review each for 15 minutes before proceeding
+# Refine if generic or missing details
+
+# 3. AI Session 2 - Technical (2-3 hours)
+# Generate docs 05-09 using prompts from guide
+# Cross-check against Session 1 docs
+# Ensure consistency
+
+# 4. AI Session 3 - Quality (1-2 hours)
+# Generate docs 10-14 using prompts from guide
+# Complete all cross-references
+
+# 5. AI Session 4 - Validation (1 hour)
+# Run 4 validation prompts from guide:
+# - Cross-reference check
+# - Implementation order
+# - Completeness
+# - Developer handoff
+
+# 6. Fix critical issues, proceed to Phase 3
+```
+
+### Quality Signals
+
+| Signal          | Good Output ✅                        | Poor Output ❌             |
+| --------------- | ------------------------------------- | -------------------------- |
+| **Specificity** | "PostgreSQL 15.x via Neon ($20/mo)"   | "Use appropriate database" |
+| **Rationale**   | Compares 3 alternatives with criteria | No comparison              |
+| **Examples**    | Working TypeScript code               | Pseudocode or no examples  |
+| **Numbers**     | "500 users, <2s load time"            | "Good performance"         |
+| **Cross-refs**  | References other docs                 | Standalone                 |
+| **Length**      | 300-600 lines per doc                 | <150 lines                 |
+
+### Common AI Generation Pitfalls
+
+| Pitfall                      | Prevention                           | Rule      |
+| ---------------------------- | ------------------------------------ | --------- |
+| **Generic output**           | Use refinement prompts immediately   | This rule |
+| **Skipping validation**      | Always run 4 validation prompts      | This rule |
+| **Inconsistent terminology** | Generate glossary after all docs     | This rule |
+| **Missing details**          | Specify "copy-paste ready code"      | This rule |
+| **Accepting placeholders**   | Never accept "TODO" or "Add details" | This rule |
+
+### Success Metrics
+
+**Quantitative**:
+
+- ✅ 15 documents (or 14 without PWA)
+- ✅ 4,000-6,000 total lines
+- ✅ 25-30+ user stories
+- ✅ 20-30+ API endpoints
+- ✅ 8-12+ database models
+- ✅ All 4 validation prompts run
+- ✅ 0 critical inconsistencies
+
+**Qualitative**:
+
+- ✅ Developer can start immediately
+- ✅ Stakeholders approve approach
+- ✅ No ambiguous requirements
+- ✅ All decisions justified
+
+**ROI**:
+
+- Time Investment: 5-8 hours
+- Time Saved: 55-105 hours
+- Return: 7-13x
+
+---
+
+**Integration**: This rule is the **methodology for Phase 2** of the Project Startup Sequence (@000-project-startup-guide.mdc)
+
+**Next Phase**: After documentation, proceed to Phase 3 (@800-workflow-guidelines.mdc) for workflow setup
+
+**Proven Success**: NCLB Survey Application used this exact approach:
+
+- 8 hours → 15 comprehensive documents → 5,200+ lines
+- Zero major architecture changes during development
+- 308 automated tests with 100% pass rate
+- Deployed in 6 weeks
+
+## Implementation Notes
+
+**Proven Success:**
+NCLB Survey Application documentation:
+
+- Generated in 8 hours using this approach
+- 15 comprehensive documents
+- 5,200+ total lines
+- Zero major architecture changes needed during development
+- Enabled 308 automated tests
+- Supported 6-week development timeline
+
+**When This Approach Excels:**
+
+- New projects requiring comprehensive specs
+- Projects using AI-assisted development
+- Projects requiring stakeholder buy-in
+- Projects with multiple developers
+- Projects with complex requirements
+
+**When to Use Simpler Approach:**
+
+- Spike/prototype projects (< 20 hours total)
+- Personal experiments
+- Single-feature additions to existing projects
+- Well-understood problem domains

@@ -1,0 +1,683 @@
+---
+description: Use when writing tests that interact with the database to ensure proper isolation, cleanup, and data integrity
+globs: "**/__tests__/**/*.test.ts, **/__tests__/**/*.test.tsx, **/tests/**/*.test.ts"
+---
+
+# Database Test Isolation Standards
+
+## Context
+
+- Database tests fail when data leaks between tests or when parallel execution causes collisions
+- Immutability triggers (good for production) conflict with test cleanup (bad for tests)
+- Test data must be truly unique to prevent constraint violations in parallel execution
+- Proper cleanup prevents database pollution that causes cascading failures
+- This rule emerged from 40+ hours of debugging database test issues
+
+## Requirements
+
+### Test Data Uniqueness
+
+ALL test data MUST use UUIDs or cryptographically random identifiers:
+
+```typescript
+// ✅ CORRECT: UUID-based uniqueness
+export async function createTestOrganization(name?: string): Promise<Organization> {
+  const uuid = crypto.randomUUID();
+  
+  return await prisma.organization.create({
+    data: {
+      name: name || `Test Organization ${uuid.slice(0, 8)}`,
+      slug: `test-org-${uuid}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+}
+
+export async function createTestUser(organizationId: string): Promise<User> {
+  const uuid = crypto.randomUUID();
+  
+  return await prisma.user.create({
+    data: {
+      email: `test-user-${uuid}@example.com`,
+      name: `Test User ${uuid.slice(0, 8)}`,
+      organizationId,
+      role: 'MEMBER',
+    },
+  });
+}
+
+// ❌ WRONG: Timestamp-based (collides in parallel tests)
+export async function createTestOrganization() {
+  const timestamp = Date.now();
+  return await prisma.organization.create({
+    data: {
+      slug: `test-org-${timestamp}`, // Multiple tests at same millisecond = collision!
+    },
+  });
+}
+
+// ❌ WRONG: Sequential numbers (not thread-safe)
+let counter = 0;
+export async function createTestOrganization() {
+  counter++;
+  return await prisma.organization.create({
+    data: {
+      slug: `test-org-${counter}`, // Parallel tests share counter = collision!
+    },
+  });
+}
+```
+
+**Why:** Parallel test execution happens at microsecond scale; millisecond timestamps collide
+
+### Foreign Key Relationship Cleanup Strategy
+
+Understanding foreign key relationships is CRITICAL for proper test cleanup. You MUST identify direct vs indirect relationships.
+
+#### Step 1: Map Foreign Key Graph
+```bash
+# Extract all foreign key relationships from schema
+cat prisma/schema.prisma | grep "@relation"
+```
+
+#### Step 2: Identify Direct vs Indirect Relationships
+
+##### Direct Relationship (Has organizationId field)
+```typescript
+// Model HAS direct organizationId field
+model HealthCheckTestRun {
+  organizationId String @db.Uuid
+  organization   Organization @relation(...)
+}
+
+// ✅ Delete by organizationId directly
+await prisma.healthCheckTestRun.deleteMany({ 
+  where: { organizationId } 
+});
+```
+
+##### Indirect Relationship (NO organizationId field)
+```typescript
+// Model has NO organizationId (uses foreign key to parent)
+model HealthCheckResponse {
+  testRunId String @db.Uuid
+  testRun   HealthCheckTestRun @relation(..., onDelete: Cascade)
+  // NO organizationId field here!
+}
+
+// ✅ Option 1: Let CASCADE handle it (delete parent first)
+await prisma.healthCheckTestRun.deleteMany({ 
+  where: { organizationId } 
+});
+// Responses automatically deleted via CASCADE
+
+// ✅ Option 2: Explicit delete via nested query
+await prisma.healthCheckResponse.deleteMany({
+  where: {
+    testRun: {
+      organizationId: organizationId
+    }
+  }
+});
+```
+
+#### Step 3: Verify CASCADE Configuration
+```prisma
+model HealthCheckResponse {
+  testRun HealthCheckTestRun @relation(..., onDelete: Cascade)
+  //                                      ^^^^^^^^^^^^^^^^
+  //                                      If CASCADE exists: parent delete auto-deletes children
+  //                                      If missing: you MUST delete children manually first!
+}
+```
+
+#### Step 4: Cleanup Order Decision Tree
+
+```
+Does table have direct organizationId field?
+├─ YES → Delete by organizationId directly
+│         await prisma.model.deleteMany({ where: { organizationId } });
+│
+└─ NO → Check for parent relationship
+    ├─ Parent has onDelete: Cascade?
+    │  ├─ YES → Delete parent first (children auto-delete)
+    │  │         await prisma.parent.deleteMany({ where: { organizationId } });
+    │  │
+    │  └─ NO → Delete children manually via nested query
+    │            await prisma.child.deleteMany({
+    │              where: { parent: { organizationId } }
+    │            });
+    │            await prisma.parent.deleteMany({ where: { organizationId } });
+    │
+    └─ No parent relationship → Table is not org-scoped (skip cleanup)
+```
+
+**Why:** Prevents "Cannot query field organizationId" errors that cause 20+ hours of debugging
+
+### Schema Field Name Pattern Recognition
+
+Learn to recognize Prisma field naming patterns to avoid mismatches:
+
+#### Common Field Suffixes and Their Meanings
+
+| Suffix | Type | Example | Usage Pattern |
+|--------|------|---------|---------------|
+| `*Json` | String | `detailsJson`, `axisScoresJson`, `metadataJson` | JSON.stringify() before save, JSON.parse() after read |
+| `*At` | DateTime | `createdAt`, `startedAt`, `completedAt` | Always Date objects, use `.toISOString()` for API |
+| `*Id` | String/UUID | `organizationId`, `userId`, `testRunId` | Foreign key reference, usually @db.Uuid |
+| `*Hash` | String | `keyHash`, `responseHash`, `resultHash` | Cryptographic hash (SHA256), never store plain text |
+| `*ed` | Boolean | `locked`, `passed`, `archived` | Boolean flag, use `true`/`false` |
+
+#### Synonym Detection Strategy
+
+If test code references a field that doesn't exist in schema:
+
+**Example 1: Field Name Synonyms**
+```typescript
+// ❌ Test expects: eventType
+// ✅ Schema has: action
+
+// Fix: Search for synonyms
+cat prisma/schema.prisma | grep -i "event\|action\|type"
+
+// Update test to use 'action'
+await prisma.healthCheckAuditLog.create({
+  data: {
+    action: 'api_key_generated', // ✅ NOT eventType
+  },
+});
+```
+
+**Example 2: Field Name vs Display Name**
+```typescript
+// ❌ Test expects: name
+// ✅ Schema has: label
+
+// Fix: Check schema directly
+cat prisma/schema.prisma | sed -n '/model HealthCheckApiKey/,/^}/p'
+
+// Update test to use 'label'
+await prisma.healthCheckApiKey.create({
+  data: {
+    label: 'Production Key', // ✅ NOT name
+  },
+});
+```
+
+**Example 3: Metadata Field Variations**
+```typescript
+// ❌ Test expects: metadata (generic)
+// ✅ Schema has: detailsJson (specific)
+
+// Pattern: Look for *Json suffix for metadata fields
+await prisma.healthCheckAuditLog.create({
+  data: {
+    detailsJson: JSON.stringify({ key: 'value' }), // ✅ NOT metadata
+  },
+});
+```
+
+#### Pre-Test Field Name Verification
+
+Before writing ANY test with new models:
+
+```bash
+# Step 1: List ALL fields for the model
+cat prisma/schema.prisma | sed -n '/model YourModel/,/^}/p'
+
+# Step 2: Note exact field names (case-sensitive!)
+# Step 3: Check for common patterns (*Json, *At, *Id, *Hash, *ed)
+# Step 4: Import Prisma type and let TypeScript catch errors
+
+# Example:
+import { HealthCheckAuditLog } from '@prisma/client';
+
+const log: HealthCheckAuditLog = await prisma.healthCheckAuditLog.create({
+  data: {
+    action: 'test',        // ✅ TypeScript will error if you use 'eventType'
+    detailsJson: '{}',     // ✅ TypeScript will error if you use 'metadata'
+  },
+});
+```
+
+**Why:** Prevents 40+ hours of debugging field name mismatches (name vs label, metadata vs detailsJson, eventType vs action)
+
+### Immutability Trigger Bypass
+
+Tables with immutability triggers MUST use trigger bypass during test cleanup:
+
+```typescript
+/**
+ * Cleanup test data with proper trigger bypass
+ * 
+ * Use this for tables with immutability triggers:
+ * - HealthCheckResult (prevent_healthcheck_result_update trigger)
+ * - HealthCheckAuditLog (prevent_healthcheck_auditlog_delete trigger)
+ * - HealthCheckResponse (prevent_healthcheck_response_update trigger)
+ * - HealthCheckTestRun (prevent_healthcheck_testrun_update trigger when locked=true)
+ */
+export async function cleanupTestData(organizationId: string): Promise<void> {
+  const prisma = DatabaseTestHelpers.getPrisma();
+  
+  try {
+    console.log(`🧹 Cleaning up test data for org: ${organizationId.slice(0, 8)}...`);
+    
+    // ✅ CRITICAL: Disable triggers for test cleanup
+    // 'replica' role bypasses triggers in PostgreSQL
+    await prisma.$executeRawUnsafe('SET session_replication_role = replica;');
+    
+    // ✅ Delete in correct order (child tables first, parent tables last)
+    // This respects foreign key constraints
+    
+    // 1. Immutable tables (have triggers that prevent deletion)
+    await prisma.healthCheckResult.deleteMany({ 
+      where: { organizationId } 
+    });
+    await prisma.healthCheckAuditLog.deleteMany({ 
+      where: { organizationId } 
+    });
+    
+    // 2. Tables with cascading deletes
+    // HealthCheckResponse cascades from HealthCheckTestRun, so delete TestRun first
+    await prisma.healthCheckTestRun.deleteMany({ 
+      where: { organizationId } 
+    });
+    
+    // 3. Independent tables
+    await prisma.healthCheckApiKey.deleteMany({ 
+      where: { organizationId } 
+    });
+    await prisma.healthCheckSettings.deleteMany({ 
+      where: { organizationId } 
+    });
+    
+    // 4. Assessment system tables (if present)
+    await prisma.assessmentResult.deleteMany({ 
+      where: { assessment: { organizationId } } 
+    });
+    await prisma.response.deleteMany({ 
+      where: { assessment: { organizationId } } 
+    });
+    await prisma.assessment.deleteMany({ 
+      where: { organizationId } 
+    });
+    
+    // 5. User table (references organization)
+    await prisma.user.deleteMany({ 
+      where: { organizationId } 
+    });
+    
+    // 6. Organization table (parent table, delete last)
+    await prisma.organization.deleteMany({ 
+      where: { id: organizationId } 
+    });
+    
+    // ✅ CRITICAL: Re-enable triggers
+    await prisma.$executeRawUnsafe('SET session_replication_role = DEFAULT;');
+    
+    console.log(`✅ Cleanup complete for org: ${organizationId.slice(0, 8)}`);
+  } catch (error) {
+    // ✅ CRITICAL: Always re-enable triggers even if cleanup fails
+    // Otherwise, all subsequent tests will fail!
+    await prisma.$executeRawUnsafe('SET session_replication_role = DEFAULT;');
+    
+    console.error(`❌ Cleanup failed for org ${organizationId}:`, error);
+    throw error; // Re-throw to fail the test
+  }
+}
+```
+
+**Why:** Immutability triggers prevent tampering in production but block test cleanup
+
+### Sequential Test Execution
+
+Tests that modify the database MUST run sequentially:
+
+```javascript
+// jest.integration.config.js (for database integration tests)
+module.exports = {
+  displayName: 'integration',
+  testMatch: ['**/__tests__/integration/**/*.test.ts'],
+  testEnvironment: 'node',
+  
+  // ✅ CRITICAL: Sequential execution prevents database collisions
+  maxWorkers: 1,
+  
+  // Database operations can be slow
+  testTimeout: 30000,
+  
+  setupFilesAfterEnv: ['<rootDir>/tests/setup/jest.integration.setup.ts'],
+};
+
+// jest.unit.config.js (for unit tests without database)
+module.exports = {
+  displayName: 'unit',
+  testMatch: ['**/__tests__/unit/**/*.test.ts'],
+  
+  // ✅ Unit tests can run in parallel (no shared state)
+  maxWorkers: '50%',
+  
+  testTimeout: 5000,
+};
+```
+
+**Why:** Database transactions, foreign keys, and constraints fail in parallel execution
+
+### Transaction Rollback Pattern
+
+For tests that should NOT modify the database permanently, use transaction rollback:
+
+```typescript
+/**
+ * Execute test within a transaction that rolls back automatically
+ * 
+ * Use this when:
+ * - Testing read operations that don't need persistent data
+ * - Testing complex multi-step workflows where cleanup is difficult
+ * - Testing error scenarios that might leave database in bad state
+ */
+export async function withTestTransaction<T>(
+  testFn: (prisma: PrismaClient) => Promise<T>
+): Promise<T> {
+  const prisma = DatabaseTestHelpers.getPrisma();
+  
+  return await prisma.$transaction(async (tx) => {
+    try {
+      const result = await testFn(tx as unknown as PrismaClient);
+      
+      // ✅ Force rollback by throwing error after test completes
+      throw new Error('TEST_ROLLBACK');
+    } catch (error) {
+      if (error instanceof Error && error.message === 'TEST_ROLLBACK') {
+        // Test passed, rollback transaction
+        throw error;
+      }
+      // Test failed, re-throw real error
+      throw error;
+    }
+  }).catch((error) => {
+    if (error instanceof Error && error.message === 'TEST_ROLLBACK') {
+      // Expected rollback, test passed
+      return undefined as T;
+    }
+    // Real error, fail test
+    throw error;
+  });
+}
+
+// Usage in tests:
+it('should calculate scores correctly', async () => {
+  await withTestTransaction(async (prisma) => {
+    // Create test data
+    const org = await prisma.organization.create({ data: { ... } });
+    const assessment = await prisma.assessment.create({ data: { ... } });
+    
+    // Run test
+    const result = await calculateScores(assessment.id);
+    
+    // Assert
+    expect(result.scores.lying).toBe(7.5);
+    
+    // Transaction automatically rolls back after this block
+    // No cleanup needed!
+  });
+});
+```
+
+**Why:** Automatic cleanup via rollback is simpler than manual cleanup for complex tests
+
+### Test Isolation Verification
+
+Every test file MUST have proper setup and teardown:
+
+```typescript
+describe('Feature Tests', () => {
+  let testOrgId: string;
+  let testUserId: string;
+  
+  // ✅ Create test data ONCE before all tests
+  beforeAll(async () => {
+    console.log('🔧 Setting up test data');
+    
+    const org = await createTestOrganization();
+    testOrgId = org.id;
+    
+    const user = await createTestUser(testOrgId);
+    testUserId = user.id;
+    
+    console.log(`✅ Test org: ${testOrgId.slice(0, 8)}...`);
+  });
+  
+  // ✅ Clean up test data ONCE after all tests
+  afterAll(async () => {
+    console.log('🧹 Cleaning up test data');
+    await cleanupTestData(testOrgId);
+  });
+  
+  // ✅ Reset state between tests (if needed)
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+  
+  // ✅ Verify cleanup worked (optional, but helpful)
+  afterAll(async () => {
+    const org = await prisma.organization.findUnique({
+      where: { id: testOrgId },
+    });
+    expect(org).toBeNull(); // Verify org was deleted
+  });
+});
+```
+
+**Why:** Proper isolation prevents test pollution and cascading failures
+
+## Examples
+
+<example>
+```typescript
+/**
+ * Integration Test: Complete Assessment Workflow
+ * 
+ * DATABASE SETUP:
+ * - Creates: Organization, User, Assessment, 120 Responses
+ * - Cleanup: cleanupTestData(organizationId) with trigger bypass
+ * - Execution: Sequential (maxWorkers: 1)
+ */
+
+import { PrismaClient } from '@prisma/client';
+import { DatabaseTestHelpers } from '../../helpers/database-helpers';
+import { 
+  createTestOrganization,
+  createTestUser,
+  cleanupTestData,
+} from '../../helpers/database-helpers';
+
+describe('Complete Assessment Workflow Integration', () => {
+  let prisma: PrismaClient;
+  let testOrgId: string;
+  let testUserId: string;
+  
+  beforeAll(async () => {
+    console.log('🧪 Setting up integration test environment');
+    prisma = DatabaseTestHelpers.getPrisma();
+    
+    // ✅ UUID-based unique data
+    const org = await createTestOrganization();
+    testOrgId = org.id;
+    
+    const user = await createTestUser(testOrgId);
+    testUserId = user.id;
+    
+    console.log(`✅ Test org: ${testOrgId.slice(0, 8)}...`);
+  });
+  
+  afterAll(async () => {
+    // ✅ Proper cleanup with trigger bypass
+    await cleanupTestData(testOrgId);
+    await DatabaseTestHelpers.disconnect();
+  });
+  
+  it('✅ should complete full assessment workflow', async () => {
+    // Create assessment
+    const assessment = await prisma.assessment.create({
+      data: {
+        organizationId: testOrgId,
+        userId: testUserId,
+        mode: 'GENERAL',
+        status: 'IN_PROGRESS',
+      },
+    });
+    
+    // Submit 120 responses
+    const questions = await prisma.question.findMany({ take: 120 });
+    
+    for (const question of questions) {
+      await prisma.response.create({
+        data: {
+          assessmentId: assessment.id,
+          questionId: question.id,
+          selectedPersonality: 'Well-Adjusted',
+          dimension: question.dimension,
+        },
+      });
+    }
+    
+    // Calculate scores
+    const result = await calculateScores(assessment.id);
+    
+    expect(result.scores.lying).toBeGreaterThan(0);
+    expect(result.scores.cheating).toBeGreaterThan(0);
+    expect(result.scores.stealing).toBeGreaterThan(0);
+    expect(result.scores.harm).toBeGreaterThan(0);
+  });
+});
+```
+</example>
+
+<example type="invalid">
+```typescript
+// ❌ BAD: No cleanup, data leaks between tests
+describe('Tests', () => {
+  it('test 1', async () => {
+    await prisma.organization.create({ ... });
+    // No cleanup!
+  });
+  
+  it('test 2', async () => {
+    // Will find leftover org from test 1!
+    const orgs = await prisma.organization.findMany();
+    expect(orgs).toHaveLength(1); // Fails unpredictably!
+  });
+});
+
+// ❌ BAD: Parallel execution with shared database state
+// jest.config.js
+module.exports = {
+  maxWorkers: '50%', // Multiple tests modifying database simultaneously!
+};
+
+// ❌ BAD: Timestamp-based data (collides)
+beforeAll(async () => {
+  const org = await prisma.organization.create({
+    data: { slug: `test-${Date.now()}` }, // Collision in parallel!
+  });
+});
+
+// ❌ BAD: No trigger bypass in cleanup
+afterAll(async () => {
+  // This will fail with "Cannot modify locked result"!
+  await prisma.healthCheckResult.deleteMany({ ... });
+});
+```
+</example>
+
+## Database-Specific Patterns
+
+### PostgreSQL Trigger Bypass
+
+For PostgreSQL databases with immutability triggers:
+
+```typescript
+// Disable ALL triggers (use with caution!)
+await prisma.$executeRawUnsafe('SET session_replication_role = replica;');
+
+// Re-enable triggers
+await prisma.$executeRawUnsafe('SET session_replication_role = DEFAULT;');
+```
+
+### MySQL Trigger Bypass
+
+For MySQL databases:
+
+```sql
+-- Disable triggers
+SET @DISABLE_TRIGGERS = 1;
+
+-- Your cleanup code here
+
+-- Re-enable triggers
+SET @DISABLE_TRIGGERS = NULL;
+```
+
+### SQLite (No Triggers)
+
+SQLite doesn't support session-level trigger disabling, use transaction rollback pattern instead.
+
+## Integration with Other Rules
+
+- Implements @002-rule-application.mdc (Source of Truth Hierarchy - Schema First!)
+- Works with @375-api-test-first-time-right.mdc for API-specific database testing
+- Complements @370-api-testing-database.mdc for overall database test patterns
+- Extends @380-comprehensive-testing-standards.mdc with database-specific isolation
+- Supports @371-api-test-architecture.mdc test infrastructure decisions
+
+## Tools & Documentation
+
+### Required Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Understand foreign key relationships
+  ```bash
+  # Check if model has direct organizationId
+  ./.cursor/tools/inspect-model.sh YourModel
+  
+  # See relationships and CASCADE configuration
+  ./.cursor/tools/inspect-model.sh YourModel --relations
+  ```
+
+- **`.cursor/tools/check-schema-changes.sh`** - Validate before committing
+  ```bash
+  ./.cursor/tools/check-schema-changes.sh
+  ```
+
+### Complete Pattern Documentation
+- **`.cursor/docs/ai-workflows.md#database-test-patterns`** - UUID-based data, cleanup patterns
+- **`.cursor/docs/ai-workflows.md#schema-first-development`** - Always inspect schema first
+- **`.cursor/docs/tools-guide.md`** - Tool usage for database work
+
+### Quick Start
+1. **Read:** `.cursor/rules/003-cursor-system-overview.mdc` (system overview)
+2. **Inspect:** `.cursor/tools/inspect-model.sh YourModel` (check organizationId pattern)
+3. **Follow:** This rule's patterns (UUID-based, cleanup, isolation)
+4. **Test:** Should be stable (98%+ pass rate)
+
+## Troubleshooting Checklist
+
+If database tests are failing:
+
+- [ ] Are you using UUIDs instead of timestamps for uniqueness?
+- [ ] Is `maxWorkers: 1` set in integration test config?
+- [ ] Does cleanup function use trigger bypass pattern?
+- [ ] Are tables deleted in correct order (children first, parents last)?
+- [ ] Is trigger re-enabling in try/finally block (not just try)?
+- [ ] Are you waiting for async cleanup (await cleanupTestData)?
+- [ ] Does beforeAll/afterAll match (both present)?
+- [ ] Are foreign key constraints respected in delete order?
+
+## Success Criteria
+
+- ✅ Tests pass consistently (98%+ pass rate)
+- ✅ No "duplicate key" constraint violations
+- ✅ No "Cannot modify locked" trigger errors
+- ✅ No data leakage between tests
+- ✅ Database is clean after test suite completes
+- ✅ Tests can run multiple times without manual cleanup

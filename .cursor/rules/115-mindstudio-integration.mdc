@@ -1,0 +1,291 @@
+---
+description: Use when integrating with MindStudio API to ensure proper implementation of workers, API keys, and handling of responses
+globs: "app/api/mindstudio/**/*.ts, lib/services/mindstudio/**/*.ts"
+---
+
+# MindStudio Integration Guidelines
+
+## Context
+- MindStudio is a core AI provider for AgentMinder
+- Integration requires proper handling of API keys and worker IDs
+- Must maintain security and organization isolation
+- Responses need to be properly transformed to match our interfaces
+
+## Requirements
+
+### API Key Management
+- Store workspace keys securely using `WorkspaceKeyData` interface
+- Never expose full API keys in responses or logs
+- Validate keys before storing and periodically after
+- Handle key rotation and invalidation gracefully
+
+### Worker ID Management
+- Use `AgentId` interface for all worker ID operations
+- Maintain relationship between workers and workspace keys
+- Track usage and status of worker IDs
+- Handle worker lifecycle (creation, validation, deletion)
+
+### Response Transformation
+- Transform MindStudio responses to match our interfaces
+- Handle errors and rate limits appropriately
+- Cache responses when appropriate
+- Maintain audit trail of API interactions
+
+## Interface Requirements
+
+### MindStudio API Client
+```typescript
+interface MindStudioConfig {
+  baseUrl: string;
+  version: string;
+  timeout: number;
+  retryConfig: {
+    maxRetries: number;
+    backoffFactor: number;
+  };
+}
+
+interface MindStudioClient {
+  validateKey(key: string): Promise<boolean>;
+  getWorkerMetadata(workerId: string, key: string): Promise<WorkerMetadata>;
+  executeWorker(workerId: string, input: any): Promise<WorkerResponse>;
+  // Additional methods as needed
+}
+```
+
+### Worker Metadata
+```typescript
+interface WorkerMetadata {
+  id: string;
+  name: string;
+  description?: string;
+  capabilities: string[];
+  inputSchema?: any;
+  outputSchema?: any;
+  version: string;
+  lastUpdated: string;
+}
+```
+
+### Error Handling
+```typescript
+interface MindStudioError extends Error {
+  code: string;
+  status: number;
+  retryable: boolean;
+  context?: {
+    workerId?: string;
+    keyId?: string;
+    operation: string;
+  };
+}
+```
+
+## Implementation Guidelines
+
+### API Client Setup
+```typescript
+// Good: Proper client initialization
+const client = new MindStudioClient({
+  baseUrl: config.mindstudio.apiUrl,
+  version: 'v1',
+  timeout: 30000,
+  retryConfig: {
+    maxRetries: 3,
+    backoffFactor: 1.5
+  }
+});
+
+// Bad: Avoid direct fetch calls
+const response = await fetch('https://api.mindstudio.com/v1/workers');
+```
+
+### Key Validation
+```typescript
+// Good: Proper key validation
+async function validateWorkspaceKey(key: WorkspaceKeyData): Promise<boolean> {
+  try {
+    const isValid = await client.validateKey(key.keyId);
+    await updateKeyValidationStatus(key.id, isValid);
+    return isValid;
+  } catch (error) {
+    handleMindStudioError(error);
+    return false;
+  }
+}
+
+// Bad: Unsafe key handling
+async function checkKey(key: string) {
+  const response = await fetch('/validate', {
+    headers: { Authorization: key } // Never expose full key!
+  });
+}
+```
+
+### Worker Management
+```typescript
+// Good: Proper worker handling
+async function getWorkerDetails(agentId: AgentId): Promise<WorkerMetadata> {
+  const key = await getWorkspaceKey(agentId.workspaceKeyId);
+  return await client.getWorkerMetadata(agentId.workerId, key.keyId);
+}
+
+// Bad: Improper interface usage
+async function getWorker(id: string) {
+  return await db.workers.findOne({ id }); // Missing proper typing and org context
+}
+```
+
+### Response Transformation
+```typescript
+// Good: Proper response transformation
+function transformWorkerMetadata(metadata: WorkerMetadata): AgentMetadata {
+  return {
+    name: metadata.name,
+    description: metadata.description,
+    capabilities: metadata.capabilities,
+    inputSchema: metadata.inputSchema,
+    outputSchema: metadata.outputSchema,
+    version: metadata.version,
+    lastUpdated: new Date(metadata.lastUpdated)
+  };
+}
+
+// Bad: Direct response usage
+const metadata = await client.getWorkerMetadata(workerId);
+return metadata; // Missing transformation to our interface
+```
+
+### Error Handling
+```typescript
+// Good: Proper error handling
+async function handleMindStudioError(error: MindStudioError) {
+  if (error.status === 401) {
+    await invalidateWorkspaceKey(error.context?.keyId);
+  }
+  
+  if (error.retryable && error.context) {
+    await queueForRetry(error.context);
+  }
+  
+  throw new ApiError({
+    code: mapErrorCode(error.code),
+    message: 'MindStudio operation failed',
+    details: sanitizeErrorDetails(error)
+  });
+}
+
+// Bad: Basic error handling
+try {
+  await client.executeWorker(workerId, input);
+} catch (e) {
+  console.error(e); // Missing proper error handling and logging
+  throw e;
+}
+```
+
+## Integration with Other Rules
+
+- Works with [060-api-standards.mdc](mdc:060-api-standards.mdc) for consistent API interfaces
+- Supports [025-multi-tenancy.mdc](mdc:025-multi-tenancy.mdc) for organization isolation
+- Follows [020-payment-security.mdc](mdc:020-payment-security.mdc) for API key handling
+
+## Testing Requirements
+
+1. Mock Responses
+- Create mock MindStudio responses for testing
+- Test error scenarios and retries
+- Validate response transformations
+
+2. Integration Tests
+- Test full integration flow
+- Verify proper error handling
+- Check rate limiting behavior
+
+3. Security Tests
+- Verify key security
+- Test organization isolation
+- Validate access controls
+
+## Example Test Cases
+```typescript
+describe('MindStudio Integration', () => {
+  it('should properly validate workspace key', async () => {
+    const key: WorkspaceKeyData = {
+      id: 'test-key',
+      orgId: 'org-1',
+      label: 'Test Key',
+      keyId: 'sk-test',
+      isSharedAcrossOrgs: false,
+      restrictedToOrgIds: [],
+      lastValidated: new Date(),
+      isValid: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    const result = await validateWorkspaceKey(key);
+    expect(result).toBe(true);
+  });
+  
+  it('should handle invalid worker ID', async () => {
+    const agentId: AgentId = {
+      id: 'test-agent',
+      orgId: 'org-1',
+      name: 'Test Agent',
+      workerId: 'invalid-worker',
+      workspaceKeyId: 'test-key',
+      workspaceKeyLabel: 'Test Key',
+      isSharedAcrossOrgs: false,
+      restrictedToOrgIds: [],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    await expect(getWorkerDetails(agentId)).rejects.toThrow('Worker not found');
+  });
+});
+```
+
+## See Also
+
+### Related Rules
+- @117-mindstudio-agent-integration.mdc - **CRITICAL:** Secure agent integration patterns
+- @118-mindstudio-type-safety.mdc - **CRITICAL:** Type safety with `npx mindstudio sync`
+- @119-mindstudio-error-handling.mdc - **CRITICAL:** Error handling and retry logic
+- @120-mindstudio-orchestration.mdc - Multi-agent coordination patterns
+- @121-mindstudio-testing.mdc - **CRITICAL:** Testing AI agent integrations
+- @011-env-var-security.mdc - Environment variable security
+- @069-database-resilience-patterns.mdc - Retry and circuit breaker patterns
+- @221-application-monitoring.mdc - Monitoring AI agent calls
+
+### Tools & Documentation
+- **`npx mindstudio sync`** - Generate TypeScript types from agents
+- **`.cursor/tools/check-env-vars.sh`** - Validate MindStudio API keys
+- **`.cursor/docs/ai-workflows.md`** - AI integration workflows
+
+### Comprehensive Guides
+- **`guides/MindStudio-Integration-Complete-Guide.md`** ⭐ **Essential** - Complete integration guide
+- **`guides/AI-Agent-Orchestration-Guide.md`** - "Dragon Orchestra" patterns
+
+### Quick Start
+1. **Install**: `npm install mindstudio`
+2. **Configure**: Set `MINDSTUDIO_KEY` in environment
+3. **Sync types**: Run `npx mindstudio sync`
+4. **Implement**: Use typed client methods
+5. **Test**: See @121-mindstudio-testing.mdc
+
+### When to Use This Rule
+- ✅ Setting up MindStudio integration
+- ✅ Managing API keys and workers
+- ✅ Transforming agent responses
+- ✅ Handling organization isolation
+
+### Related MindStudio Rules (Complete Domain)
+Use these rules together for comprehensive AI integration:
+1. @115-mindstudio-integration.mdc (THIS RULE - Core setup)
+2. @117-mindstudio-agent-integration.mdc (Security patterns)
+3. @118-mindstudio-type-safety.mdc (Type safety)
+4. @119-mindstudio-error-handling.mdc (Error handling)
+5. @120-mindstudio-orchestration.mdc (Multi-agent)
+6. @121-mindstudio-testing.mdc (Testing)

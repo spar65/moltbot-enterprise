@@ -1,0 +1,86 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply consistent Next.js architecture patterns when building pages and features to ensure maintainable and performant application structure
+globs: "src/{pages,app}/**/*.{js,jsx,ts,tsx}"
+___
+
+# Next.js Architecture Standards
+
+## Directory Structure
+- `/src/pages` or `/src/app`: Page components and API routes (based on routing strategy)
+- `/src/components`: Reusable UI components
+- `/src/hooks`: Custom React hooks
+- `/src/lib`: Core utilities and API clients
+- `/src/context`: Application state providers
+- `/src/types`: TypeScript type definitions
+- `/src/styles`: Global styles and theme configuration
+- `/src/middleware`: Next.js middleware implementations
+
+## Routing Strategy
+- Use consistent route naming convention (kebab-case)
+- Implement proper dynamic route segmentation
+- Document route parameters in page component comments
+- Apply middleware selectively with clear path matching rules
+
+## Data Fetching Patterns
+- Use `getStaticProps` for content that can be determined at build time
+- Implement `getStaticPaths` with fallback strategies for collection pages
+- Use `getServerSideProps` only when data must be fetched at request time
+- Apply SWR or React Query for client-side data fetching with revalidation
+
+## API Route Design
+- Create focused API routes with single responsibility
+- Implement consistent error handling and response formatting
+- Use middleware for cross-cutting concerns (auth, logging, etc.)
+- Document API routes with JSDoc comments including request/response examples
+
+## Environment Configuration
+- Separate client-side and server-side environment variables
+- Prefix client-side variables with `NEXT_PUBLIC_`
+- Document all environment variables in a central reference file
+- Implement environment-specific configuration validation
+
+## See Also
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @042-ui-component-architecture.mdc - **CRITICAL:** UI component patterns
+- @060-api-standards.mdc - API patterns
+- @061-database-integration.mdc - Database integration with Next.js
+- @070-nextjs-api-organization.mdc - API organization
+- @071-nextjs-data-fetching.mdc - Data fetching patterns
+- @071-state-management.mdc - State management
+- @072-auth-security.mdc - **CRITICAL:** Next.js authentication patterns
+- @100-feature-separation.mdc - Feature organization
+- @110-middleware-architecture.mdc - **CRITICAL:** Middleware composition
+- @120-technical-stack.mdc - Technical stack guidelines
+
+### Tools & Documentation
+- **`.cursor/docs/ai-workflows.md`** - Next.js architecture patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+- **`.cursor/tools/inspect-model.sh`** - Check data models
+
+### Comprehensive Guides
+- **`guides/Next.js-Architecture-Guide.md`** ⭐ **Essential** - Complete Next.js patterns
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Performance optimization
+
+### Quick Start
+1. **Structure:** Follow directory structure defined in this rule
+2. **Routing:** Use App Router with proper middleware (@110-middleware-architecture.mdc)
+3. **APIs:** Follow @060-api-standards.mdc for API routes
+4. **Auth:** Implement @072-auth-security.mdc patterns
+5. **Components:** Use @042-ui-component-architecture.mdc
+
+### When to Use This Rule
+- ✅ Starting new Next.js project
+- ✅ Refactoring existing project structure
+- ✅ Setting up routing strategy
+- ✅ Implementing middleware
+
+### Do NOT Use This Rule
+- ❌ For non-Next.js React projects
+- ❌ For backend-only services

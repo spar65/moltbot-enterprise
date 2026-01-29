@@ -1,0 +1,253 @@
+---
+
+description: Use when testing PRD creation workflow to ensure organization assignment, status progression, and AI metadata handling work correctly
+globs: "src/components/tools/prd/\*_/_.{ts,tsx}"
+
+---
+
+# PRD Creation Testing Standards
+
+## Context
+
+- PRD creation involves complex multi-step workflows with organization assignment, AI enhancement, and status management
+- Organization assignment must be consistent from creation through task generation
+- AI metadata handling requires verification of proper saving and loading
+- Status progression logic needs validation at each step transition
+
+## Requirements
+
+### Organization Assignment Verification
+
+- Monitor organization_id assignment from PRD creation start
+- Verify organization consistency throughout all 9 steps
+- Check organization matching between PRD and user context
+- Alert immediately if organization assignment fails or changes
+
+### Step Progression Monitoring
+
+- Track current_step and completed_steps array progression
+- Verify status transitions (draft → in_progress → completed)
+- Monitor wizard_data saving at each step
+- Validate step completion logic and constraints
+
+### AI Enhancement Tracking
+
+- Monitor AI metadata saving when AI enhancement is used
+- Verify model information persistence and display
+- Track AI generation timestamps and model selection
+- Validate AI metadata loading in Step 9 results
+
+### Data Persistence Validation
+
+- Verify all step data saves to database correctly
+- Check wizard_data structure and content
+- Monitor for silent save failures or transaction rollbacks
+- Validate data loading consistency across page refreshes
+
+## Implementation Guidelines
+
+### PRD Creation Monitoring Setup
+
+```javascript
+// Initialize PRD testing session
+console.log("🧪 PRD CREATION TESTING STARTED");
+
+let currentTestPrdId = null;
+const prdTestSession = {
+  startTime: Date.now(),
+  topic: "[Test Topic]",
+  steps: [],
+  issues: [],
+};
+
+const monitorPRDStep = (stepNumber) => {
+  fetch("/api/tools/prd-basic/dashboard-list")
+    .then((r) => r.json())
+    .then((data) => {
+      const latestPrd = data.prds[0];
+      const stepData = {
+        stepNumber,
+        timestamp: new Date().toLocaleTimeString(),
+        prdId: latestPrd?.id,
+        currentStep: latestPrd?.current_step,
+        completedSteps: latestPrd?.completed_steps,
+        organizationId: latestPrd?.organization_id || "NULL",
+        userOrgId: data.userOrganization?.id || "NULL",
+        organizationMatch:
+          latestPrd?.organization_id === data.userOrganization?.id,
+        status: latestPrd?.status,
+        isAIEnhanced: latestPrd?.is_ai_enhanced,
+      };
+
+      prdTestSession.steps.push(stepData);
+      window.testPrdId = latestPrd?.id;
+
+      console.log(`📊 Step ${stepNumber} Complete:`, stepData);
+
+      // Critical organization alerts
+      if (!stepData.organizationMatch) {
+        console.log(`🚨 ORGANIZATION ISSUE at Step ${stepNumber}`);
+        prdTestSession.issues.push(
+          `Organization mismatch at Step ${stepNumber}`
+        );
+      }
+    });
+};
+```
+
+### AI Enhancement Monitoring
+
+```javascript
+// Monitor AI enhancement process
+const monitorAIEnhancement = (stepName) => {
+  fetch("/api/tools/prd-basic/dashboard-list")
+    .then((r) => r.json())
+    .then((data) => {
+      const latestPrd = data.prds[0];
+      console.log(`🤖 ${stepName} - AI Status:`, {
+        step: stepName,
+        isAIEnhanced: latestPrd?.is_ai_enhanced,
+        hasAIMetadata: !!latestPrd?.ai_model_metadata,
+        aiModel: latestPrd?.ai_model_metadata?.model,
+        aiGeneratedAt: latestPrd?.ai_model_metadata?.generatedAt,
+        wizardDataStep8: latestPrd?.wizard_data?.step8?.model,
+      });
+
+      if (latestPrd?.is_ai_enhanced && !latestPrd?.ai_model_metadata?.model) {
+        console.log("⚠️ AI metadata missing despite enhancement flag");
+      }
+    });
+};
+```
+
+### Status Progression Validation
+
+```javascript
+// Validate PRD status progression
+const validateStatusProgression = () => {
+  const prdId = window.testPrdId;
+  fetch("/api/tools/prd-basic/dashboard-list")
+    .then((r) => r.json())
+    .then((data) => {
+      const prd = data.prds.find((p) => p.id === prdId);
+      console.log("🔍 STATUS PROGRESSION CHECK:", {
+        currentStep: prd?.current_step,
+        completedSteps: prd?.completed_steps?.length,
+        status: prd?.status,
+        shouldBeCompleted: prd?.completed_steps?.length === 9,
+        statusCorrect:
+          prd?.completed_steps?.length === 9
+            ? prd?.status === "completed"
+            : true,
+      });
+
+      if (prd?.completed_steps?.length === 9 && prd?.status !== "completed") {
+        console.log(
+          '🚨 STATUS BUG: All steps complete but status not "completed"'
+        );
+      }
+    });
+};
+```
+
+## Examples
+
+<example>
+// Good: Systematic PRD testing with organization verification
+// 1. Initialize session
+console.log('🧪 PRD TESTING SESSION STARTED');
+const testSession = { startTime: Date.now(), steps: [] };
+
+// 2. Monitor each step
+monitorPRDStep(1); // After Step 1
+monitorPRDStep(2); // After Step 2
+// ... continue through all steps
+
+// 3. Validate completion
+validateStatusProgression(); // After Step 9
+</example>
+
+<example>
+// Good: AI enhancement verification
+// Monitor before AI enhancement
+monitorAIEnhancement("Before AI Enhancement");
+
+// [User triggers AI enhancement]
+
+// Monitor after AI enhancement  
+monitorAIEnhancement("After AI Enhancement");
+
+// Verify metadata persistence
+setTimeout(() => monitorAIEnhancement("AI Metadata Persistence Check"), 2000);
+</example>
+
+<example type="invalid">
+// Bad: Testing without systematic monitoring
+// Just clicking through PRD creation without verification
+// No organization consistency checking
+// No real-time data flow validation
+// Missing critical failure detection
+</example>
+
+## Critical Success Criteria
+
+### PRD Creation Success
+
+- Organization assignment consistent throughout all steps
+- Status progression follows expected pattern (draft → in_progress → completed)
+- All step data persists correctly to database
+- AI metadata (if used) saves and loads properly
+
+### Data Integrity Success
+
+- No silent save failures or transaction rollbacks
+- Organization context maintained across step transitions
+- Wizard data structure remains intact
+- API responses include all required fields
+
+### User Experience Success
+
+- No manual refreshes needed for data visibility
+- Real-time updates work correctly
+- Error states handled gracefully
+- Performance remains acceptable throughout workflow
+
+## Anti-Patterns to Avoid
+
+1. **Blind Testing**: Testing without real-time data verification
+2. **Single-Point Validation**: Only checking final results
+3. **Organization Assumption**: Assuming organization assignment works without verification
+4. **Silent Failure Acceptance**: Accepting success logs without database verification
+5. **Manual Workaround Reliance**: Depending on page refreshes for correct data display
+
+## Integration with Testing Standards
+
+- Follows [380-comprehensive-testing-standards.mdc](mdc:380-comprehensive-testing-standards.mdc) visual organization principles
+- Implements [350-debug-test-failures.mdc](mdc:350-debug-test-failures.mdc) systematic debugging approach
+- Supports [390-systematic-frontend-testing.mdc](mdc:390-systematic-frontend-testing.mdc) console monitoring methodology
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - PRD testing workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check PRD data models
+  ```bash
+  ./.cursor/tools/inspect-model.sh PRD
+  ./.cursor/tools/inspect-model.sh Task
+  ```
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (schema first!)
+- @300-testing-standards.mdc - General testing standards
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @392-task-generation-testing.mdc - Task generation testing
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh PRD` (check organizationId pattern!)
+2. **Follow:** @375-api-test-first-time-right.mdc (schema-first)
+3. **Test:** PRD creation, status progression, AI metadata

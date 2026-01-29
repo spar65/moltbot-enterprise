@@ -1,0 +1,295 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Implement structured approaches to troubleshooting and debugging authentication issues to ensure efficient resolution and proper security
+globs: "**/*.{ts,js,tsx,jsx,md}"
+___
+
+# Debugging Authentication
+
+## Context
+- This rule applies when troubleshooting authentication-related issues
+- Authentication problems can be complex and span multiple systems
+- Authentication debugging requires balancing security with diagnostic visibility
+- Applies to development, testing, and production environments
+
+## Requirements
+
+### Structured Troubleshooting Approach
+- Follow a structured approach to authentication debugging:
+  - Document the specific auth flow experiencing issues
+  - Isolate whether issue is in client, API, or auth provider
+  - Check browser console and network logs for client-side issues
+  - Examine server logs for backend auth issues
+  - Verify correct environment variables and configuration
+  - Confirm proper token validation and handling
+  - Check for clock skew between systems
+  - Validate callback URLs and redirect URIs
+  - Review CORS settings for cross-domain issues
+- Document debugging process and findings
+- Create runbooks for common authentication issues
+
+### Common Error Patterns and Solutions
+- Maintain documentation of known error patterns:
+  - Map error codes to potential causes
+  - Document telltale signs of specific issues
+  - Create decision trees for diagnosing auth problems
+  - Categorize errors by component (Auth0, app code, network)
+  - Document previously solved issues and their resolutions
+  - Record authentication error frequencies and patterns
+  - Update documentation after resolving new types of issues
+- Make error documentation searchable
+- Include error samples in documentation
+
+### Logging Strategies for Auth Problems
+- Implement proper logging for authentication troubleshooting:
+  - Log auth events with consistent structured format
+  - Include correlation IDs to track auth flows across systems
+  - Log key points in the authentication process
+  - Use different log levels for different auth events
+  - Include relevant context without sensitive data
+  - Implement separate auth audit logs for security events
+  - Ensure logs are accessible to appropriate team members
+  - Implement log retention policies appropriate for auth data
+- Avoid logging sensitive authentication information
+- Create logging guidelines specific to authentication
+
+### Tools and Techniques for Auth Debugging
+- Utilize appropriate tools for authentication debugging:
+  - Browser developer tools for client-side auth
+  - Token inspection and validation tools
+  - Network analyzers for tracking auth requests
+  - Auth provider debugging dashboards
+  - Session inspection tools
+  - API request proxies for examining auth headers
+  - Environment-specific tools (development vs. production)
+- Document common debugging tools and their applications
+- Create an authentication debugging toolkit or dashboard
+
+### Secure Debugging Practices
+- Maintain security during debugging processes:
+  - Never log or expose user credentials
+  - Limit distribution of auth debug logs
+  - Use dedicated test accounts for auth debugging
+  - Avoid creating backdoors or auth bypasses during debugging
+  - Clean up debug code before pushing to production
+  - Consider legal/compliance issues when debugging auth
+  - Sanitize auth debugging logs before sharing
+  - Limit production auth debugging to essential personnel
+- Document secure debugging practices for authentication
+- Train team members on secure auth debugging
+
+## Examples
+
+<example>
+// Good authentication debugging approach
+// auth-debug.ts
+
+import { logger } from '../utils/logger';
+
+interface AuthDebugContext {
+  userId?: string;
+  correlationId: string;
+  requestId?: string;
+  source: 'client' | 'server' | 'auth-provider';
+  flow: 'login' | 'logout' | 'token-refresh' | 'callback' | 'session-validate';
+}
+
+/**
+ * Helper for structured auth debugging
+ * IMPORTANT: Never log credentials, tokens, or secrets!
+ */
+export class AuthDebugger {
+  constructor(private context: AuthDebugContext) {}
+
+  // Log authentication step with structured context
+  logAuthStep(step: string, details: Record<string, any> = {}) {
+    // Sanitize details to prevent logging sensitive data
+    const safeDetails = this.sanitizeAuthDetails(details);
+    
+    logger.debug('Auth flow step', {
+      ...this.context,
+      step,
+      details: safeDetails,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  // Log authentication error with context
+  logAuthError(error: Error, details: Record<string, any> = {}) {
+    const safeDetails = this.sanitizeAuthDetails(details);
+    
+    logger.error('Auth flow error', {
+      ...this.context,
+      errorMessage: error.message,
+      errorName: error.name,
+      errorStack: process.env.NODE_ENV !== 'production' ? error.stack : undefined,
+      details: safeDetails,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  // Prevent accidentally logging sensitive information
+  private sanitizeAuthDetails(details: Record<string, any>): Record<string, any> {
+    const sensitiveKeys = ['password', 'token', 'secret', 'apiKey', 'credential'];
+    const safeDetails = { ...details };
+    
+    // Replace sensitive values with [REDACTED]
+    Object.keys(safeDetails).forEach(key => {
+      if (
+        sensitiveKeys.some(sensitiveKey => 
+          key.toLowerCase().includes(sensitiveKey.toLowerCase())
+        )
+      ) {
+        safeDetails[key] = '[REDACTED]';
+      }
+    });
+    
+    return safeDetails;
+  }
+}
+
+// Usage example:
+// const debugger = new AuthDebugger({
+//   correlationId: 'abc-123',
+//   userId: user?.sub,
+//   source: 'server',
+//   flow: 'login'
+// });
+// 
+// try {
+//   debugger.logAuthStep('Validating credentials');
+//   // Authentication code...
+// } catch (error) {
+//   debugger.logAuthError(error, { attemptCount, lastAttempt });
+//   throw error;
+// }
+</example>
+
+<example type="invalid">
+// Poor authentication debugging practices
+
+// Logging sensitive information
+console.log('Login attempt', {
+  email: user.email,
+  password: password,  // NEVER log passwords
+  token: token         // NEVER log tokens
+});
+
+// No structured approach
+function handleAuthError(error) {
+  // Just dump the raw error with no context
+  console.error('Auth error:', error);
+}
+
+// No isolation of auth components in debugging
+async function login() {
+  try {
+    // Jumbled code with no clear separation for debugging
+    const response = await fetch('/api/login', { /* ... */ });
+    return await response.json();
+  } catch (error) {
+    console.log('Something went wrong');
+    return null;
+  }
+}
+</example>
+
+<example>
+// Good authentication error mapping documentation
+
+/**
+ * Authentication Error Codes and Troubleshooting
+ * 
+ * This document maps common Auth0 error codes to causes and solutions.
+ */
+
+/**
+ * Error: access_denied
+ * Error description: Unauthorized
+ * 
+ * Potential causes:
+ * 1. User canceled the authentication
+ * 2. Auth0 rule rejected the authentication
+ * 3. User does not have permission to access the resource
+ * 
+ * Troubleshooting steps:
+ * 1. Check Auth0 logs for specific rule failures
+ * 2. Verify user permissions in Auth0 dashboard
+ * 3. Inspect network requests for specific error details
+ * 4. Check application logs with correlation ID
+ */
+
+/**
+ * Error: invalid_grant
+ * Error description: Invalid refresh token
+ * 
+ * Potential causes:
+ * 1. Refresh token has been revoked
+ * 2. Refresh token has expired
+ * 3. Refresh token rotation is enabled and token was already used
+ * 
+ * Troubleshooting steps:
+ * 1. Check token expiry settings in Auth0 dashboard
+ * 2. Verify refresh token rotation settings
+ * 3. Examine application token storage implementation
+ * 4. Force user to re-authenticate to obtain new tokens
+ */
+
+// Additional error types documented...
+</example>
+
+<example type="invalid">
+// Insufficient error documentation
+
+// Uncommented, unexplained error handling
+function handleLoginError(error) {
+  if (error.code === 'invalid_grant') {
+    localStorage.removeItem('token');
+    redirectToLogin();
+  } else if (error.code === 'access_denied') {
+    showErrorMessage('You are not authorized');
+  } else {
+    showErrorMessage('Unknown error');
+  }
+}
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Auth patterns for debugging
+- **`.cursor/docs/ai-workflows.md#debugging-with-ai`** - Systematic debugging
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - First step: validate configuration
+- **`.cursor/tools/check-env-vars.sh`** - Check environment variables
+- **`.cursor/tools/scan-secrets.sh`** - Check for exposed secrets
+- **`.cursor/tools/inspect-model.sh`** - Check user/session data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @019-auth0-integration.mdc - Auth0 patterns (what might be wrong)
+- @047-session-token-debugging.mdc - Session-specific debugging
+- @072-auth-security.mdc - Security issues to check
+- @115-auth0-m2m-troubleshooting.mdc - M2M-specific debugging
+- @140-troubleshooting-standards.mdc - General troubleshooting patterns
+- @350-debug-test-failures.mdc - Systematic test debugging
+- @374-authentication-architecture-standards.mdc - Architecture patterns
+- @400-auth-testing-patterns.mdc - Validate with tests
+
+### Quick Start
+1. **Validate:** `.cursor/tools/check-auth-config.sh` (check configuration)
+2. **Scan:** `.cursor/tools/scan-secrets.sh` (check for exposure)
+3. **Debug:** Follow systematic debugging in @350-debug-test-failures.mdc
+4. **Test:** Use @400-auth-testing-patterns.mdc to validate fixes
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH0_TROUBLESHOOTING_GUIDE.md`** - **CRITICAL:** Auth0 troubleshooting guide!
+- **`guides/AUTH0_DOS_AND_DONTS.md`** - Common mistakes and solutions
+- **`guides/AUTH0_QUICK_REFERENCE.md`** - Quick debugging reference

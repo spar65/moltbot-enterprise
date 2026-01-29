@@ -1,0 +1,63 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply Stripe Connect standards when implementing marketplace payment features to ensure proper multi-party transactions
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Stripe Connect Standards
+
+## Account Onboarding
+- Implement proper account linking flows
+- Create consistent onboarding experience
+- Apply appropriate verification requirements
+- Document account capability requirements
+- Implement proper error handling for account creation
+
+## Split Payments
+- Implement consistent split payment logic
+- Apply proper platform fee calculations
+- Create clear reporting for platform vs. connected account revenue
+- Document transfer timing and settlement process
+- Implement proper reconciliation procedures
+
+## Connected Account Management
+- Create dashboard for connected account management
+- Implement proper access controls for account operations
+- Apply consistent notification patterns for account events
+- Document account limitation scenarios
+- Create proper testing environments for connected accounts
+
+## Compliance Management
+- Implement required compliance documentation collection
+- Apply proper validation for tax and business information
+- Create audit trails for compliance-related changes
+- Document regulatory requirements by region
+- Implement proper notifications for compliance issues
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Stripe Connect patterns
+- **`.cursor/docs/security-checklist.md#payment-security-if-applicable`** - Connect validation
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Check Connect secret keys
+- **`.cursor/tools/check-env-vars.sh`** - Validate Connect configuration
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @020-payment-security.mdc - Payment security (critical!)
+- @020-stripe-integration.mdc - Stripe patterns
+- @078-payment-testing-standards.mdc - Testing Connect flows
+- @330-third-party-integration-testing.mdc - Integration testing
+- @331-high-risk-feature-testing.mdc - Critical testing
+
+### Quick Start
+1. **Scan:** `.cursor/tools/scan-secrets.sh` (Connect keys)
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Test:** See @078-payment-testing-standards.mdc

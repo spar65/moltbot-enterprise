@@ -1,0 +1,541 @@
+---
+description: Use when managing environment variables, configuration, and secrets to ensure proper security, type safety, validation, and isolation between client-side and server-side code
+globs: "**/*.env*, **/next.config.js, **/netlify.toml, **/vercel.json, **/*.tsx, **/*.jsx, **/*.ts, **/*.js, **/config.{ts,js}"
+alwaysApply: false
+---
+
+# Environment Variable Security & Management
+
+**Purpose**: Secure, type-safe, validated environment variable management  
+**Scope**: Security, type safety, validation, organization, documentation  
+**Works With**: @224-secrets-management.mdc (secret storage infrastructure)  
+**Last Updated**: November 20, 2025
+
+---
+
+## Context
+
+- Environment variables often contain sensitive credentials and secrets
+- Exposing secrets in client-side code creates security vulnerabilities
+- Screenshots or recordings showing environment variables can lead to credential leaks
+- Modern frameworks have specific patterns for handling client vs. server variables
+- CI/CD systems need secure methods to access secrets without exposing them
+- **Type safety prevents configuration errors** and catches issues at compile time
+- **Startup validation fails fast** instead of failing in production
+- **Proper organization** makes environment variables maintainable across teams
+
+## Requirements
+
+### Environment Variable Organization
+
+**Structured Categories** (REQUIRED):
+- Organize environment variables in logical groups:
+  - **Authentication** (AUTH_*, NEXT_PUBLIC_AUTH_*)
+  - **Database** (DB_*, DATABASE_*)
+  - **API Keys** (API_*, *_API_KEY)
+  - **Feature Flags** (FEATURE_*, NEXT_PUBLIC_FEATURE_*)
+  - **External Services** (SERVICE_*, STRIPE_*, OPENAI_*, etc.)
+  - **Infrastructure** (PORT, NODE_ENV, LOG_LEVEL)
+
+**Documentation Requirements**:
+- Document each environment variable with:
+  - Description and purpose
+  - Required vs. optional status
+  - Format and validation rules (URL, min length, enum values)
+  - Security classification (public, confidential, secret)
+  - Example value (placeholder for secrets)
+  - Where/how to obtain valid values
+- Maintain separate .env files for different environments:
+  - `.env.example` - Template with all variables (no real secrets)
+  - `.env.development` - Local development values
+  - `.env.test` - Test environment values
+  - `.env.production` - Production values (NEVER commit!)
+
+### Variable Classification and Naming
+- **REQUIRED**: Use clear naming conventions for client-safe vs. server-only variables
+- **REQUIRED**: Prefix client-safe variables appropriately (e.g., `NEXT_PUBLIC_` for Next.js)
+- Use descriptive names that indicate the purpose of the variable
+- Document all environment variables with descriptions and sensitivity levels
+- Review variable naming in pull requests to catch security issues early
+
+```typescript
+// Good: Clear naming convention for client/server variables
+// .env.example
+// Client-safe (public) variables - will be exposed in browser
+NEXT_PUBLIC_API_URL=https://api.example.com
+NEXT_PUBLIC_FEATURE_FLAGS_ENABLED=true
+
+// Server-only variables - must NEVER be exposed to client
+DATABASE_URL=postgresql://username:password@localhost:5432/mydb
+JWT_SECRET=your-jwt-secret-here
+STRIPE_SECRET_KEY=sk_test_123456789
+```
+
+### Type-Safe Configuration (RECOMMENDED)
+
+**Why Type Safety Matters**:
+- Catches configuration errors at compile time (not runtime)
+- Provides autocomplete and IntelliSense in IDEs
+- Self-documenting code through TypeScript interfaces
+- Prevents typos in environment variable names
+- Validates value types (string, number, boolean, URL, etc.)
+
+**Implementation Pattern** (using Zod):
+
+```typescript
+// config.ts - Type-safe environment configuration
+import { z } from 'zod';
+
+// Schema definition with validation
+const envSchema = z.object({
+  // Node environment
+  NODE_ENV: z.enum(['development', 'test', 'production']),
+  
+  // Authentication variables (server-only)
+  AUTH_SECRET: z.string().min(32, 'AUTH_SECRET must be at least 32 characters'),
+  AUTH0_DOMAIN: z.string().url('AUTH0_DOMAIN must be a valid URL'),
+  AUTH0_CLIENT_ID: z.string().min(1, 'AUTH0_CLIENT_ID is required'),
+  AUTH0_CLIENT_SECRET: z.string().min(1, 'AUTH0_CLIENT_SECRET is required'),
+  AUTH0_AUDIENCE: z.string().url().optional(),
+  
+  // Database variables (server-only)
+  DATABASE_URL: z.string().url('DATABASE_URL must be a valid PostgreSQL URL').refine(
+    (url) => url.startsWith('postgresql://'),
+    'DATABASE_URL must be a PostgreSQL connection string'
+  ),
+  
+  // API variables (server-only)
+  STRIPE_SECRET_KEY: z.string().startsWith('sk_', 'STRIPE_SECRET_KEY must start with sk_'),
+  OPENAI_API_KEY: z.string().startsWith('sk-', 'OPENAI_API_KEY must start with sk-').optional(),
+  
+  // Public variables (client-safe)
+  NEXT_PUBLIC_API_URL: z.string().url('NEXT_PUBLIC_API_URL must be a valid URL'),
+  NEXT_PUBLIC_ENVIRONMENT: z.enum(['development', 'staging', 'production']),
+  NEXT_PUBLIC_FEATURE_ANALYTICS: z.string().transform((val) => val === 'true').optional(),
+});
+
+// Type inference from schema
+export type Env = z.infer<typeof envSchema>;
+
+// Parse and validate at startup
+function loadEnvironment(): Env {
+  try {
+    // Validate environment variables
+    const parsed = envSchema.parse(process.env);
+    
+    // Log success (without exposing secrets)
+    console.log('✅ Environment variables validated successfully');
+    
+    return parsed;
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      console.error('❌ Environment validation failed:');
+      error.errors.forEach((err) => {
+        console.error(`  - ${err.path.join('.')}: ${err.message}`);
+      });
+    } else {
+      console.error('❌ Unexpected error during environment validation:', error);
+    }
+    
+    // Fail fast - don't start the application with invalid config
+    process.exit(1);
+  }
+}
+
+// Exported configuration (validated and type-safe)
+export const env = loadEnvironment();
+
+// Usage elsewhere in your application
+// import { env } from './config';
+// 
+// // TypeScript knows the types!
+// const client = new Auth0Client({
+//   domain: env.AUTH0_DOMAIN,        // string (validated URL)
+//   clientId: env.AUTH0_CLIENT_ID,   // string
+// });
+// 
+// // Autocomplete works!
+// const dbUrl = env.DATABASE_URL;
+// 
+// // Compile-time error if you typo the variable name!
+// const wrong = env.DATABSE_URL;  // ❌ TypeScript error
+```
+
+**Best Practices for Type-Safe Config**:
+- **REQUIRED**: Create centralized config module (don't access `process.env` directly)
+- **REQUIRED**: Validate at application startup (fail fast if config is invalid)
+- **RECOMMENDED**: Use Zod for runtime validation + TypeScript types
+- **RECOMMENDED**: Export typed `env` object, not raw `process.env`
+- **RECOMMENDED**: Use enums for variables with specific allowed values
+- Provide clear error messages with troubleshooting hints
+- Never log actual secret values (even in error messages)
+
+**Alternative: t3-env** (Next.js specific):
+```typescript
+// env.mjs - Using t3-env for Next.js
+import { createEnv } from "@t3-oss/env-nextjs";
+import { z } from "zod";
+
+export const env = createEnv({
+  // Server-side environment variables
+  server: {
+    DATABASE_URL: z.string().url(),
+    AUTH_SECRET: z.string().min(32),
+    STRIPE_SECRET_KEY: z.string(),
+  },
+  
+  // Client-side environment variables (must be prefixed with NEXT_PUBLIC_)
+  client: {
+    NEXT_PUBLIC_API_URL: z.string().url(),
+    NEXT_PUBLIC_ENVIRONMENT: z.enum(["development", "staging", "production"]),
+  },
+  
+  // Runtime environment variables (for Next.js)
+  runtimeEnv: {
+    DATABASE_URL: process.env.DATABASE_URL,
+    AUTH_SECRET: process.env.AUTH_SECRET,
+    STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    NEXT_PUBLIC_ENVIRONMENT: process.env.NEXT_PUBLIC_ENVIRONMENT,
+  },
+});
+```
+
+### Validation at Startup (REQUIRED)
+
+**Tiered Validation**:
+- **Critical Variables** (P0): Application cannot start without them (DATABASE_URL, AUTH_SECRET)
+- **Important Variables** (P1): Application can start but with degraded functionality (OPENAI_API_KEY)
+- **Optional Variables** (P2): Nice to have, application works without them (FEATURE_FLAGS)
+
+**Validation Checklist**:
+- [ ] Check for presence of all required variables
+- [ ] Validate format and structure (URL, email, min length, etc.)
+- [ ] Verify external service connectivity where possible (database, APIs)
+- [ ] Implement tiered validation (critical vs. non-critical)
+- [ ] Fail fast with clear error messages if critical variables are missing
+- [ ] Log warnings (not errors) for non-critical missing variables
+- [ ] Include troubleshooting information in validation error messages
+
+**Enhanced Validation Example**:
+```typescript
+// startup-validation.ts
+import { env } from './config';
+import { PrismaClient } from '@prisma/client';
+
+export async function validateEnvironmentAndServices() {
+  console.log('🔍 Validating environment and services...');
+  
+  // 1. Config validation (already done by Zod in config.ts)
+  // env object is already validated at this point
+  
+  // 2. Database connectivity
+  try {
+    const prisma = new PrismaClient();
+    await prisma.$connect();
+    console.log('✅ Database connection successful');
+    await prisma.$disconnect();
+  } catch (error) {
+    console.error('❌ CRITICAL: Database connection failed');
+    console.error('   Check DATABASE_URL and ensure database is running');
+    process.exit(1);  // Critical - cannot proceed
+  }
+  
+  // 3. Optional service checks (warn, don't fail)
+  if (env.OPENAI_API_KEY) {
+    try {
+      // Test OpenAI API key (optional)
+      const response = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${env.OPENAI_API_KEY}` }
+      });
+      if (response.ok) {
+        console.log('✅ OpenAI API key validated');
+      } else {
+        console.warn('⚠️  OpenAI API key may be invalid (status: ' + response.status + ')');
+      }
+    } catch (error) {
+      console.warn('⚠️  Could not validate OpenAI API key (service may be down)');
+    }
+  } else {
+    console.log('ℹ️  OpenAI API key not configured (AI features disabled)');
+  }
+  
+  console.log('✅ Environment validation complete\n');
+}
+
+// Call this in your server startup
+// await validateEnvironmentAndServices();
+```
+
+### Client-Side Security
+- **REQUIRED**: Never access server-only variables in client-side code
+- **REQUIRED**: Never log environment variables to the console
+- Use server components, API routes, or server-side rendering to keep sensitive operations server-side
+- Validate that no secrets are bundled with client code using build-time checks
+- Implement schema validation for environment variables to prevent misconfigurations
+
+```typescript
+// BAD: Exposing server-only variables in client components
+// client-component.tsx
+export default function PaymentForm() {
+  // SECURITY RISK: Stripe secret key exposed in client bundle
+  const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY);
+  
+  return (
+    <form onSubmit={handlePayment}>
+      {/* Form fields */}
+    </form>
+  );
+}
+
+// GOOD: Keeping sensitive operations server-side
+// client-component.tsx
+export default function PaymentForm() {
+  const handlePayment = async (formData) => {
+    // Make API call to server-side endpoint that uses the secret
+    const response = await fetch('/api/process-payment', {
+      method: 'POST',
+      body: JSON.stringify(formData),
+    });
+    // Handle response
+  };
+  
+  return (
+    <form onSubmit={handlePayment}>
+      {/* Form fields */}
+    </form>
+  );
+}
+
+// server-endpoint.js
+export async function POST(request) {
+  // Safely use secret key server-side only
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  const { paymentMethodId, amount } = await request.json();
+  
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount,
+    currency: 'usd',
+    payment_method: paymentMethodId,
+  });
+  
+  return Response.json({ clientSecret: paymentIntent.client_secret });
+}
+```
+
+### Development and CI/CD Practices
+- **REQUIRED**: Never commit actual `.env` files to version control
+- **REQUIRED**: Use `.env.example` files with placeholder values
+- Use secrets management services in CI/CD pipelines
+- Rotate secrets regularly and after team member departures
+- Implement access controls for production secrets
+- Use different secrets for development, staging, and production
+
+```bash
+# Good: .gitignore configuration for environment files
+# .gitignore
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
+
+# Exception for example files that don't contain real secrets
+!.env.example
+```
+
+### Visual Documentation Safety
+- **REQUIRED**: Never include environment variables in screenshots or recordings
+- Use placeholder text or blur sensitive information in documentation
+- Implement tools to automatically detect and redact secrets in images
+- Create screenshots in environments with dummy values when demonstrating configurations
+- Review all documentation materials for accidental secret exposure before sharing
+
+```markdown
+# BAD: Documentation with exposed secrets
+![Database Configuration](mdc:images/db-config-with-visible-password.png)
+
+# GOOD: Documentation with redacted secrets
+![Database Configuration](mdc:images/db-config-with-redacted-password.png)
+
+# GOOD: Using placeholders in documentation
+```
+```bash
+# Example database connection string (replace with your actual credentials)
+DATABASE_URL=postgresql://[USERNAME]:[PASSWORD]@[HOST]:[PORT]/[DATABASE]
+```
+
+### Secret Validation and Monitoring
+- Implement startup validation to verify required environment variables
+- Monitor for accidental secret exposures in logs
+- Set up alerts for potential environment variable leaks
+- Use tools to scan code and PRs for accidental secret commits
+- Implement secret rotation policies and procedures
+
+```typescript
+// GOOD: Validating environment variables on startup
+function validateEnvVariables() {
+  const requiredVars = [
+    'DATABASE_URL',
+    'JWT_SECRET',
+    'STRIPE_SECRET_KEY'
+  ];
+  
+  const missingVars = requiredVars.filter(
+    varName => !process.env[varName]
+  );
+  
+  if (missingVars.length > 0) {
+    throw new Error(
+      `Missing required environment variables: ${missingVars.join(', ')}`
+    );
+  }
+  
+  // Validate format of specific variables
+  if (process.env.DATABASE_URL && !process.env.DATABASE_URL.startsWith('postgresql://')) {
+    throw new Error('DATABASE_URL must be a valid PostgreSQL connection string');
+  }
+}
+
+// Call this during server startup
+validateEnvVariables();
+```
+
+## Implementation Checklist
+
+**Security**:
+- [ ] Use appropriate naming conventions for client vs. server variables
+- [ ] Keep `.env` files out of version control
+- [ ] Ensure no server-only variables are used in client-side code
+- [ ] Set up secrets scanning in CI/CD pipelines
+- [ ] Review documentation for accidental secret exposure
+- [ ] Configure proper secrets management for CI/CD
+- [ ] Train team members on environment variable security practices
+
+**Type Safety & Validation**:
+- [ ] Create centralized config module with Zod schema
+- [ ] Implement type-safe environment variable access
+- [ ] Add startup validation for all required variables
+- [ ] Test validation with missing/invalid variables
+- [ ] Provide clear error messages with troubleshooting hints
+
+**Organization & Documentation**:
+- [ ] Organize variables into logical categories
+- [ ] Create `.env.example` with all variables documented
+- [ ] Document required vs. optional status for each variable
+- [ ] Include security classification (public/confidential/secret)
+- [ ] Add troubleshooting guide for common configuration errors
+
+---
+
+## See Also
+
+### Related Rules
+
+**Security & Secrets**:
+- @224-secrets-management.mdc - Secret storage infrastructure (Vault, AWS Secrets Manager, rotation)
+- @010-security-compliance.mdc - Core security standards
+- @012-api-security.mdc - API security measures
+- @204-vercel-build-environment-variables.mdc - Vercel-specific env var patterns
+
+**Development Standards**:
+- @100-coding-patterns.mdc - General coding patterns
+- @105-typescript-linter-standards.mdc - TypeScript standards (type safety)
+- @130-logging-standards.mdc - Logging standards (don't log secrets!)
+
+**Deployment & Operations**:
+- @200-deployment-infrastructure.mdc - Deployment infrastructure
+- @203-production-deployment-safety.mdc - Production deployment safety
+
+### Tools & Documentation
+
+**Validation Tools**:
+- **`.cursor/tools/check-env-vars.sh`** - **CRITICAL**: Run before every commit!
+  ```bash
+  ./.cursor/tools/check-env-vars.sh
+  # Validates: No secrets in .env.example, client/server separation, .gitignore
+  ```
+
+**Secret Scanning**:
+- **`.cursor/tools/scan-secrets.sh`** - Detect hardcoded secrets in code
+  ```bash
+  ./.cursor/tools/scan-secrets.sh
+  # Scans: All files for accidental secret commits
+  ```
+
+**Documentation**:
+- **`.cursor/docs/security-workflows.md#environment-variable-security-workflow`** - Step-by-step workflow
+- **`.cursor/docs/security-checklist.md`** - Pre-deployment checklist
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview
+
+### Comprehensive Guides
+
+**Essential for Environment Variables**:
+- **`guides/Environment-Variables-Complete-Guide.md`** - Complete env var guide
+- **`guides/Secrets-Management-Complete-Guide.md`** - Secret storage and rotation
+- **`guides/Type-Safe-Config-Guide.md`** - TypeScript configuration patterns
+
+### Quick Start - Environment Variable Setup
+
+```bash
+# 1. Check current environment variable status
+./.cursor/tools/check-env-vars.sh
+# Reports: Missing .env.example, client/server separation issues
+
+# 2. Create centralized config module
+# Create src/config/env.ts with Zod schema (see examples above)
+
+# 3. Add validation to startup
+# In src/server.ts or src/index.ts:
+# import { validateEnvironmentAndServices } from './config/startup-validation';
+# await validateEnvironmentAndServices();
+
+# 4. Update .env.example
+# Document all variables with descriptions, examples, security classification
+
+# 5. Test validation
+# Try running with missing variables to ensure fail-fast works
+
+# 6. Set up secret scanning in CI/CD
+# Add .cursor/tools/scan-secrets.sh to pre-commit hook
+```
+
+### When to Use This Rule
+
+**✅ Apply This Rule When**:
+- Setting up new project environment configuration
+- Adding new environment variables
+- Implementing authentication or payment integrations
+- Deploying to new environments (staging, production)
+- Onboarding new team members (security training)
+- Refactoring configuration management
+
+**❌ This Rule Does NOT Cover**:
+- Secret storage infrastructure (use @224-secrets-management.mdc)
+- Secret rotation schedules (use @224-secrets-management.mdc)
+- Vault/AWS Secrets Manager setup (use @224-secrets-management.mdc)
+- Production incident response (use @210-operations-incidents.mdc)
+
+### Rule Relationship
+
+```
+011-env-var-security.mdc (THIS RULE)
+├── Security: Client vs server, leak prevention
+├── Type Safety: Zod validation, TypeScript interfaces
+├── Validation: Startup checks, fail-fast
+└── Organization: Categories, documentation
+
+224-secrets-management.mdc (COMPLEMENTARY)
+├── Storage: Vault, AWS Secrets Manager
+├── Rotation: Automated rotation schedules
+├── Access Control: Who can access which secrets
+└── Incident Response: Secret compromise procedures
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P0 (Required for all environments)  
+**Scope**: Security, type safety, validation, organization  
+**Last Updated**: November 20, 2025

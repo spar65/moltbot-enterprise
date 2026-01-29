@@ -1,0 +1,240 @@
+---
+
+description: Use when building multi-step wizards or forms to ensure consistent architecture, state management, and user experience patterns
+globs: "**/{components,pages}/**/_.{tsx,ts}, \*\*/wizard_.{tsx,ts}, \*_/step_.{tsx,ts}"
+
+---
+
+# Wizard Architecture Standards
+
+## Context
+
+- Based on real PRD Wizard development (July 22-27, 2025) - these are battle-tested patterns
+- Multi-step wizards have critical state synchronization challenges (Step 9 race condition)
+- AI integration must be optional with graceful fallbacks when user API keys fail
+- Copy functionality requires duplicate prevention and relationship tracking
+- Final steps need special "no return" behavior for publish workflows
+
+## Requirements
+
+### Core Architecture Patterns
+
+#### State Management
+
+- Use centralized wizard state with auto-save functionality
+- Implement debounced persistence to prevent excessive API calls
+- Store all step data in normalized JSON structure
+- Provide optimistic updates with rollback on failure
+
+```typescript
+interface WizardState {
+  currentStep: number;
+  totalSteps: number;
+  stepData: Record<string, any>;
+  isComplete: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  validationErrors: Record<string, string[]>;
+}
+```
+
+#### Step Navigation
+
+- Implement progressive disclosure - users cannot skip steps without completing previous ones
+- Provide clear visual indicators of current position and progress
+- Handle final steps differently (publish pattern - no return navigation)
+- Validate each step before allowing progression
+
+#### Data Persistence
+
+- Auto-save step data on change with debouncing (1-2 second delay)
+- Provide visual feedback for save status (saving, saved, error)
+- Store wizard state in database with JSON column for flexibility
+- Implement version tracking for copy and template functionality
+
+### AI Integration Patterns
+
+#### User API Key Management
+
+- Allow users to configure their own AI API keys in settings
+- Encrypt API keys before database storage
+- Provide clear prompts when API keys are missing
+- Make AI enhancement optional, never required for completion
+
+#### Content Enhancement
+
+- Implement AI enhancement as overlay feature, not core functionality
+- Provide fallback options when AI services fail
+- Track AI usage for analytics and cost management
+- Use user's preferred models and settings
+
+### Validation and Security
+
+#### Step Validation
+
+- Implement progressive validation - validate each step before advancement
+- Provide real-time validation feedback
+- Handle validation dependencies between steps
+- Store validation state alongside wizard data
+
+#### User Access Control
+
+- Ensure users can only access their own wizards
+- Implement read-only vs edit permissions
+- Validate wizard ownership on every API call
+- Provide secure sharing mechanisms for collaboration
+
+### Copy and Template Features
+
+#### Copy Functionality
+
+- Prevent multiple copies of same wizard by same user
+- Maintain relationship tracking between original and copies
+- Copy all data except user-specific metadata
+- Provide clear labeling of copied content
+
+#### Final Step Behavior
+
+- Implement "publish" pattern for final steps - no back navigation
+- Mark wizards as completed with timestamp
+- Redirect to results page after completion
+- Prevent editing of published wizards without explicit versioning
+
+## Examples
+
+<example>
+Good wizard state management:
+```typescript
+const useWizardState = (wizardId: string) => {
+  const [wizardData, setWizardData] = useState<WizardState>(initialState);
+  
+  useEffect(() => {
+    const saveProgress = debounce(async (data) => {
+      await fetch(`/api/tools/wizard/${wizardId}/save-progress`, {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+    }, 1000);
+    
+    saveProgress(wizardData);
+  }, [wizardData]);
+  
+  return { wizardData, setWizardData };
+};
+```
+</example>
+
+<example>
+Good step navigation:
+```typescript
+const useStepNavigation = (currentStep: number, totalSteps: number) => {
+  const canGoBack = currentStep > 1 && currentStep < totalSteps;
+  const canGoForward = currentStep < totalSteps && isStepValid(currentStep);
+  const isLastStep = currentStep === totalSteps;
+  
+  return { canGoBack, canGoForward, isLastStep };
+};
+```
+</example>
+
+<example type="invalid">
+Bad step navigation - allowing step skipping:
+```typescript
+const goToStep = (stepNumber: number) => {
+  setCurrentStep(stepNumber); // No validation or progression check
+};
+```
+</example>
+
+<example type="invalid">
+Bad AI integration - requiring API keys:
+```typescript
+if (!userApiKey) {
+  throw new Error('API key required'); // Blocks user from completing wizard
+}
+```
+</example>
+
+## Database Schema Requirements
+
+### Core Wizard Table
+
+```sql
+CREATE TABLE wizards (
+  id VARCHAR(255) PRIMARY KEY,
+  user_id VARCHAR(255) NOT NULL,
+  title VARCHAR(500),
+  wizard_data JSONB,
+  current_step INTEGER DEFAULT 1,
+  total_steps INTEGER DEFAULT 9,
+  is_completed BOOLEAN DEFAULT FALSE,
+  completed_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Copy Relationship Tracking
+
+```sql
+CREATE TABLE wizard_copies (
+  original_wizard_id VARCHAR(255),
+  copy_wizard_id VARCHAR(255),
+  copied_by_user_id VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(original_wizard_id, copied_by_user_id)
+);
+```
+
+## UI/UX Requirements
+
+### Visual Progress Indicators
+
+- Show current step position clearly
+- Indicate completed vs. incomplete steps
+- Provide clickable navigation for completed steps only
+- Use consistent color coding (active, completed, pending)
+
+### Auto-Save Feedback
+
+- Display save status with icons (saving spinner, checkmark, error)
+- Show last saved timestamp
+- Provide retry mechanism for failed saves
+- Never lose user data due to navigation
+
+### Final Step Handling
+
+- Change navigation buttons for final step (Complete & Finalize)
+- Disable back navigation from final step
+- Provide clear confirmation before publishing
+- Redirect to results page after completion
+
+This rule ensures consistent, secure, and user-friendly wizard implementations across all multi-step forms and processes.
+description:
+globs:
+alwaysApply: false
+
+---
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Wizard implementation patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools
+- **`.cursor/tools/inspect-model.sh`** - Check wizard data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @042-ui-component-architecture.mdc - UI component patterns
+- @130-error-handling.mdc - Error handling in wizards
+- @300-testing-standards.mdc - General testing standards
+- @310-component-visual-testing.mdc - Wizard UI testing
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @390-systematic-frontend-testing.mdc - Frontend testing patterns
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (wizard data models)
+2. **Implement:** Multi-step patterns per this rule
+3. **Test:** See @310-component-visual-testing.mdc + @380

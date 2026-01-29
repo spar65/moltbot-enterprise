@@ -1,0 +1,72 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply payment error recovery standards when implementing failed payments to minimize revenue loss and improve customer experience
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Payment Error Recovery Standards
+
+## Failed Payment Handling
+- Implement intelligent retry schedules based on failure reason
+- Create customer notification sequences for payment failures
+- Apply payment method update prompts with clear instructions
+- Document escalation procedures for repeated failures
+- Implement proper logging of recovery attempts
+
+## Intelligent Retry Schedules
+- Implement immediate retry for network errors
+- Apply delayed retry for temporary card issues
+- Create escalated communication for persistent failures
+- Document retry logic and timing
+- Monitor retry success rates by error type
+
+## Dunning Management
+- Create standardized dunning email sequences
+- Implement grace period management for failed payments
+- Apply account limitations during recovery periods
+- Create clear customer messaging for service impacts
+- Track recovery success rates by recovery attempt
+
+## Card Expiration Handling
+- Implement proactive card update reminders before expiration
+- Create automated notifications for expired cards
+- Apply proper handling of card expiration events
+- Implement smooth card update experience
+- Track card update completion rates
+
+## Recovery Analytics
+- Track payment recovery success rates by failure reason
+- Implement cohort analysis for recovery effectiveness
+- Create reporting on revenue saved through recovery
+- Document optimization strategies for recovery processes
+- Apply continuous improvement to recovery flows
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Error handling patterns
+- **`.cursor/docs/ai-workflows.md#debugging-with-ai`** - Systematic debugging
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check payment data models
+- **`.cursor/tools/scan-secrets.sh`** - Verify Stripe keys
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @020-payment-security.mdc - Payment security
+- @020-stripe-integration.mdc - Stripe patterns
+- @069-stripe-webhook-debugging.mdc - Webhook errors
+- @078-payment-testing-standards.mdc - Testing error scenarios
+- @130-error-handling.mdc - General error handling
+- @140-troubleshooting-standards.mdc - Systematic troubleshooting
+- @331-high-risk-feature-testing.mdc - Testing recovery flows
+
+### Quick Start
+1. **Debug:** See @140-troubleshooting-standards.mdc
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Test:** See @078-payment-testing-standards.mdc (error scenarios)

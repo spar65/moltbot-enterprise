@@ -1,0 +1,290 @@
+---
+description: Use when setting up or debugging E2E tests (Jest or Playwright) to ensure proper server lifecycle management, port handling, and authentication configuration
+globs: "**/e2e/**/*.{ts,tsx,js,jsx},**/e2e-playwright/**/*.{ts,tsx,js,jsx},**/jest.e2e.*.{ts,js},**/playwright.*.{ts,js},tests/setup/*e2e*"
+---
+
+# E2E Test Server Management Standards
+
+## Context
+
+E2E tests require a running application server. This rule captures hard-won lessons from debugging server lifecycle, port management, and authentication redirect issues.
+
+**Key Pain Points This Rule Prevents:**
+- `EADDRINUSE` errors (port already in use)
+- `ERR_CONNECTION_REFUSED` (server died or wrong port)
+- Auth redirects going to wrong port (localhost:3000 instead of test port)
+- Zombie processes after tests complete
+- Flaky tests due to server startup timing
+
+## Requirements
+
+### 1. Port Management (CRITICAL)
+
+**Use a dedicated test port (not 3000):**
+```typescript
+// ✅ CORRECT: Use port 3001 for tests
+const TEST_SERVER_PORT = process.env.TEST_SERVER_PORT || '3001';
+
+// ❌ WRONG: Use same port as dev server
+const TEST_SERVER_PORT = '3000';  // Conflicts with `npm run dev`!
+```
+
+**Clear the port before starting:**
+```typescript
+// ✅ CORRECT: Clear port with process tree killing
+async function clearPort(port: string): Promise<void> {
+  return new Promise((resolve) => {
+    exec(`lsof -t -i:${port}`, (err, stdout) => {
+      if (!stdout?.trim()) {
+        console.log(`✅ Port ${port} already clear`);
+        return resolve();
+      }
+      
+      const pids = stdout.trim().split('\n').filter(p => /^\d+$/.test(p));
+      pids.forEach(pidStr => {
+        const pid = parseInt(pidStr, 10);
+        try {
+          // Kill entire process tree with negative PID
+          process.kill(-pid, 'SIGKILL');
+        } catch (e) {
+          try { process.kill(pid, 'SIGKILL'); } catch {}
+        }
+      });
+      
+      setTimeout(resolve, 2000);  // Wait for cleanup
+    });
+  });
+}
+```
+
+### 2. Server Startup (CRITICAL)
+
+**Use explicit port flag, NOT environment variable:**
+```typescript
+// ✅ CORRECT: Use npx with explicit -p flag
+spawn('npx', ['next', 'dev', '-p', String(port)], {
+  cwd: projectRoot,
+  env: { ...process.env, NODE_ENV: 'test' },
+  detached: true,  // Create process group for cleanup
+});
+
+// ❌ WRONG: Rely on PORT env var (unreliable)
+spawn('npm', ['run', 'dev'], {
+  env: { ...process.env, PORT: '3001' },  // May be ignored!
+});
+```
+
+### 3. AUTH_URL Configuration (CRITICAL - EASY TO MISS!)
+
+**Auth.js defaults to localhost:3000.** If your test server runs on a different port, auth redirects will fail with `ERR_CONNECTION_REFUSED`.
+
+```typescript
+// ✅ CORRECT: Set AUTH_URL to match test port
+spawn('npx', ['next', 'dev', '-p', '3001'], {
+  env: {
+    ...process.env,
+    NODE_ENV: 'test',
+    AUTH_URL: 'http://localhost:3001',           // CRITICAL!
+    NEXTAUTH_URL: 'http://localhost:3001',       // Legacy compatibility
+  },
+});
+
+// ❌ WRONG: Missing AUTH_URL
+spawn('npx', ['next', 'dev', '-p', '3001'], {
+  env: { ...process.env },  // Auth redirects go to port 3000!
+});
+```
+
+**Symptoms of missing AUTH_URL:**
+- Public pages (signin, signup) work fine
+- Protected pages fail with `ERR_CONNECTION_REFUSED`
+- Browser follows 307 redirect to wrong port
+
+### 4. Health Check Wait Pattern
+
+**Wait for the server to be ready before running tests:**
+```typescript
+async function waitForServer(url: string, maxRetries = 60): Promise<void> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await fetch(`${url}/api/health`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (response.ok) {
+        console.log('✅ Server is ready');
+        return;
+      }
+    } catch {
+      // Server not ready yet
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  throw new Error(`Server did not respond within ${maxRetries} seconds`);
+}
+```
+
+**Ensure you have a health endpoint:**
+```typescript
+// app/api/health/route.ts
+import { NextResponse } from 'next/server';
+
+export async function GET() {
+  return NextResponse.json({ status: 'ok' }, { status: 200 });
+}
+```
+
+### 5. Process Cleanup (Teardown)
+
+**Kill the entire process tree, not just the parent:**
+```typescript
+function stopServer(pid: number): void {
+  try {
+    // Kill entire process group with negative PID
+    process.kill(-pid, 'SIGTERM');
+    setTimeout(() => {
+      try { process.kill(-pid, 'SIGKILL'); } catch {}
+    }, 1000);
+  } catch {
+    try { process.kill(pid, 'SIGKILL'); } catch {}
+  }
+}
+```
+
+### 6. Playwright vs Jest Configuration
+
+**Playwright** (uses globalSetup/globalTeardown):
+```typescript
+// playwright.config.ts
+export default defineConfig({
+  globalSetup: './tests/setup/playwright.global-setup.ts',
+  globalTeardown: './tests/teardown/playwright.global-teardown.ts',
+  use: {
+    baseURL: 'http://localhost:3001',  // Match test port!
+  },
+  // REMOVED webServer - using globalSetup instead for more control
+});
+```
+
+**Jest** (uses setupFilesAfterEnv):
+```javascript
+// jest.e2e.config.js
+module.exports = {
+  setupFilesAfterEnv: ['<rootDir>/tests/setup/jest.e2e.setup.ts'],
+  // ...
+};
+```
+
+## Examples
+
+<example>
+// ✅ CORRECT: Complete E2E setup with all required env vars
+async function startServer(): Promise<void> {
+  await clearPort('3001');
+  
+  const serverProcess = spawn('npx', ['next', 'dev', '-p', '3001'], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      USE_PG_ADAPTER: 'true',
+      AUTH_URL: 'http://localhost:3001',
+      NEXTAUTH_URL: 'http://localhost:3001',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+  });
+  
+  serverProcess.unref();
+  await waitForServer('http://localhost:3001');
+}
+</example>
+
+<example type="invalid">
+// ❌ WRONG: Missing AUTH_URL, using npm instead of npx, no port clearing
+async function startServer(): Promise<void> {
+  const serverProcess = spawn('npm', ['run', 'dev'], {
+    env: { ...process.env, PORT: '3001' },
+  });
+  
+  // Wait arbitrary time instead of health check
+  await new Promise(r => setTimeout(r, 5000));
+}
+</example>
+
+## Debugging Checklist
+
+When E2E tests fail, check these in order:
+
+1. **Is the port clear?**
+   ```bash
+   lsof -ti:3001 && echo "Port in use!" || echo "Port clear"
+   ```
+
+2. **Does the server start on the right port?**
+   ```bash
+   npx next dev -p 3001
+   curl http://localhost:3001/api/health
+   ```
+
+3. **Is AUTH_URL set correctly?**
+   ```bash
+   curl -v http://localhost:3001/dashboard 2>&1 | grep "location:"
+   # Should redirect to localhost:3001/auth/signin, NOT localhost:3000
+   ```
+
+4. **Does the health endpoint exist?**
+   ```bash
+   curl http://localhost:3001/api/health
+   # Should return: {"status":"ok"}
+   ```
+
+## See Also
+
+### Related Rules
+- @380-comprehensive-testing-standards.mdc - General testing standards
+- @376-database-test-isolation.mdc - Database test patterns
+- @011-env-var-security.mdc - Environment variable management
+- @014-third-party-auth.mdc - Authentication configuration
+
+### Files to Check
+- `tests/setup/jest.e2e.setup.ts` - Jest E2E server management
+- `tests/setup/playwright.global-setup.ts` - Playwright server management
+- `jest.e2e.config.js` - Jest E2E configuration
+- `playwright.config.ts` - Playwright configuration
+- `app/api/health/route.ts` - Health check endpoint
+
+### Quick Start
+
+```bash
+# 1. Ensure health endpoint exists
+cat app/api/health/route.ts
+
+# 2. Clear port and start test server manually
+lsof -ti:3001 | xargs kill -9 2>/dev/null
+AUTH_URL=http://localhost:3001 npx next dev -p 3001
+
+# 3. In another terminal, test the server
+curl http://localhost:3001/api/health
+curl -v http://localhost:3001/dashboard  # Check redirect goes to port 3001
+
+# 4. Run E2E tests
+npm run test:e2e
+npm run test:e2e:playwright
+```
+
+## Common Gotchas
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `EADDRINUSE` | Port not cleared | Call `clearPort()` before starting |
+| `ERR_CONNECTION_REFUSED` on public pages | Server crashed or wrong port | Check server logs, verify port |
+| `ERR_CONNECTION_REFUSED` on protected pages ONLY | Missing `AUTH_URL` | Set `AUTH_URL=http://localhost:3001` |
+| Tests timeout waiting for server | No health endpoint | Create `/api/health` route |
+| Zombie processes after tests | Parent killed but not children | Use `process.kill(-pid)` with negative PID |
+| Flaky tests | Race condition in startup | Use health check, not `setTimeout` |
+
+---
+
+**Version**: 1.5.3.10  
+**Created**: January 16, 2026  
+**Based on**: Extensive debugging session resolving E2E test infrastructure issues

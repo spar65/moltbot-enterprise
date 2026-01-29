@@ -1,0 +1,164 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+---
+
+description: Document version-specific implementations when making API or dependency version changes to ensure maintainability and clarity
+globs: "\*_/_.{ts,tsx,md,js,jsx}"
+
+---
+
+# Version Documentation Standards
+
+## Context
+
+- This rule applies when implementing or updating features that are version-specific
+- Applies to Auth0, API integrations, and other external services with versioned interfaces
+- Important for cross-team collaboration and future maintenance
+- Critical for handling upgrades and version transitions
+
+## Requirements
+
+### Version Information Documentation
+
+- Document the specific version number of each external dependency or API in use
+- Include release date and EOL (End of Life) information where available
+- Note any planned upgrade timelines in documentation
+- Document compatibility requirements with other services
+
+### Implementation Documentation
+
+- Document version-specific implementation details using standardized templates
+- Include code samples of version-specific API calls or configurations
+- Maintain separate documentation for each major version in use
+- Use code comments to highlight version-specific implementation details
+
+### Quick Reference Guides
+
+- Create and maintain quick reference guides for each major version
+- Structure quick references with consistent format:
+  - Version number and release date
+  - Key API endpoints or features
+  - Breaking changes from previous versions
+  - Common usage patterns
+  - Troubleshooting section
+
+### Version Comparison Documentation
+
+- When supporting multiple versions, maintain comparison documentation
+- Document feature parity and gaps between versions
+- Include migration complexity assessments
+- Provide clear decision criteria for version selection
+
+### Migration Documentation
+
+- Create detailed migration guides for version upgrades
+- Document pre-migration requirements and compatibility checks
+- Include step-by-step migration procedures
+- Provide rollback instructions and verification steps
+- Document post-migration validation procedures
+
+## Examples
+
+<example>
+// Good version documentation in code
+/**
+ * Auth0 Management API Client (v2)
+ * @version 2.44.0
+ * @releaseDate 2023-09-15
+ * @EOL Not announced
+ * @compatibility Requires Node.js 14+
+ * 
+ * IMPORTANT: This implementation uses Auth0 Management API v2.
+ * For migration to v3, see docs/auth/migration-v2-to-v3.md
+ */
+</example>
+
+<example type="invalid">
+// Missing version information
+const auth0Client = new ManagementClient({
+  domain: process.env.AUTH0_DOMAIN,
+  clientId: process.env.AUTH0_CLIENT_ID,
+  clientSecret: process.env.AUTH0_CLIENT_SECRET,
+});
+</example>
+
+<example>
+// Good version documentation in markdown
+# Auth0 Integration Documentation
+## Version: 4.6.0
+**Release Date:** 2023-11-10  
+**EOL Date:** Not announced  
+**Breaking Changes:** Yes, from v3.x (see below)
+
+### Key Differences from v3.x
+
+- Session handling completely redesigned
+- New middleware-based approach
+- Configuration structure changed
+- Callback handlers now async/await based
+
+For migration instructions, see [Migration Guide](./migration-v3-to-v4.md)
+</example>
+
+<example type="invalid">
+# Auth0 Integration Documentation
+This document describes how to use Auth0 in our application.
+
+First, install the package:
+
+```
+npm install @auth0/nextjs-auth0
+```
+
+</example>
+
+## See Also
+
+### Related Rules
+
+**Documentation Standards**:
+
+- @800-workflow-guidelines.mdc - Development workflows
+- @801-project-documentation-structure.mdc - Documentation structure
+- @802-ai-documentation-generation.mdc - AI-assisted documentation
+
+**Dependency Management**:
+
+- @013-dependency-auditing.mdc - Dependency auditing and security
+- @110-integration-dependencies.mdc - Integration dependencies
+
+**Operations**:
+
+- @210-operations-incidents.mdc - Incident response
+- @140-troubleshooting-standards.mdc - Troubleshooting
+
+### Tools & Documentation
+
+- **`.cursor/tools/audit-dependencies.sh`** - Audit dependency versions
+- **`.cursor/docs/ai-workflows.md`** - Documentation workflows
+
+### Quick Start
+
+```markdown
+# Document versions clearly
+
+## Package Versions
+
+- next: 14.0.3
+- @auth0/nextjs-auth0: 3.5.0
+- react: 18.2.0
+
+## Breaking Changes
+
+List any breaking changes from previous versions
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P2  
+**Last Updated**: November 20, 2025

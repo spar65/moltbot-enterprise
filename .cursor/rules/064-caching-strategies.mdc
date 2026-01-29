@@ -1,0 +1,486 @@
+---
+description: Implement multi-layer caching when building features to ensure optimal performance and scalability
+globs: "app/**/*.{ts,tsx,js,jsx}"
+---
+
+# Caching Strategies
+
+## Context
+Effective caching is critical for production performance and scalability. A well-designed caching strategy can reduce server load by 80%+ and improve response times by 10x. This rule establishes patterns for browser, CDN, server, and database caching.
+
+**Caching Layers:**
+1. **Browser Cache** - HTTP caching, Service Workers
+2. **CDN/Edge Cache** - Vercel Edge, CloudFront
+3. **Server Cache** - In-memory, Redis
+4. **Database Cache** - Query result caching
+
+## Requirements
+
+### Browser Caching
+
+**HTTP Cache Headers:**
+```typescript
+// app/api/static-content/route.ts
+import { NextResponse } from 'next/server';
+
+export async function GET() {
+  const data = await fetchStaticContent();
+  
+  return new NextResponse(JSON.stringify(data), {
+    headers: {
+      'Content-Type': 'application/json',
+      // Cache for 1 hour, revalidate in background
+      'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+    },
+  });
+}
+```
+
+**Cache Control Directives:**
+- `public` - Can be cached by browser and CDN
+- `private` - Can only be cached by browser (user-specific)
+- `no-cache` - Must revalidate before using cached version
+- `no-store` - Never cache (sensitive data)
+- `max-age=N` - Cache for N seconds
+- `s-maxage=N` - CDN cache duration (overrides max-age)
+- `stale-while-revalidate=N` - Serve stale while fetching fresh
+
+<example>
+// ✅ GOOD: Appropriate cache strategies by content type
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const type = url.searchParams.get('type');
+  
+  let cacheControl: string;
+  
+  if (type === 'user-data') {
+    // Private, short cache
+    cacheControl = 'private, max-age=300'; // 5 minutes
+  } else if (type === 'public-content') {
+    // Public, long cache with background revalidation
+    cacheControl = 'public, s-maxage=3600, stale-while-revalidate=86400';
+  } else if (type === 'sensitive') {
+    // Never cache
+    cacheControl = 'no-store, must-revalidate';
+  }
+  
+  return new NextResponse(JSON.stringify(data), {
+    headers: { 'Cache-Control': cacheControl },
+  });
+}
+</example>
+
+<example type="invalid">
+// ❌ BAD: No cache control or inappropriate caching
+export async function GET() {
+  // No cache headers - unpredictable caching behavior
+  return NextResponse.json(data);
+}
+
+// ❌ BAD: Caching sensitive user data
+export async function GET() {
+  const userData = await getUserSensitiveData();
+  return new NextResponse(JSON.stringify(userData), {
+    headers: {
+      // NEVER cache sensitive data in CDN!
+      'Cache-Control': 'public, max-age=3600',
+    },
+  });
+}
+</example>
+
+### CDN/Edge Caching (Vercel)
+
+**Next.js Route Handlers:**
+```typescript
+// app/api/content/route.ts
+export const revalidate = 3600; // Revalidate every hour
+
+export async function GET() {
+  const content = await fetchContent();
+  return NextResponse.json(content);
+}
+```
+
+**Static Pages with ISR:**
+```typescript
+// app/blog/[slug]/page.tsx
+export const revalidate = 3600; // ISR - regenerate every hour
+
+export async function generateStaticParams() {
+  const posts = await getBlogPosts();
+  return posts.map((post) => ({ slug: post.slug }));
+}
+
+export default async function BlogPost({ params }: { params: { slug: string } }) {
+  const post = await getPost(params.slug);
+  return <Article post={post} />;
+}
+```
+
+**Edge Runtime:**
+```typescript
+// app/api/edge-cached/route.ts
+export const runtime = 'edge'; // Deploy to edge
+export const revalidate = 60; // Cache for 60 seconds
+
+export async function GET(request: Request) {
+  const data = await fetchData();
+  
+  return new NextResponse(JSON.stringify(data), {
+    headers: {
+      'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+    },
+  });
+}
+```
+
+<example>
+// ✅ GOOD: Edge-cached API with appropriate revalidation
+export const runtime = 'edge';
+export const revalidate = 300; // 5 minutes
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const organizationId = searchParams.get('organizationId');
+  
+  // Public data, safe to cache
+  const stats = await getPublicStats(organizationId);
+  
+  return new NextResponse(JSON.stringify(stats), {
+    headers: {
+      'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+      'CDN-Cache-Control': 'max-age=300',
+    },
+  });
+}
+</example>
+
+### Server-Side Caching
+
+**In-Memory Cache (Development/Simple Cases):**
+```typescript
+// lib/cache/memory-cache.ts
+const cache = new Map<string, { data: any; expiry: number }>();
+
+export function getCached<T>(key: string): T | null {
+  const item = cache.get(key);
+  if (!item) return null;
+  
+  if (Date.now() > item.expiry) {
+    cache.delete(key);
+    return null;
+  }
+  
+  return item.data;
+}
+
+export function setCache<T>(key: string, data: T, ttlSeconds: number): void {
+  cache.set(key, {
+    data,
+    expiry: Date.now() + (ttlSeconds * 1000),
+  });
+}
+
+export function invalidateCache(key: string): void {
+  cache.delete(key);
+}
+```
+
+**Redis Cache (Production):**
+```typescript
+// lib/cache/redis-cache.ts
+import { Redis } from '@upstash/redis';
+
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
+
+export async function getCached<T>(key: string): Promise<T | null> {
+  const data = await redis.get<T>(key);
+  return data;
+}
+
+export async function setCache<T>(
+  key: string, 
+  data: T, 
+  ttlSeconds: number
+): Promise<void> {
+  await redis.setex(key, ttlSeconds, JSON.stringify(data));
+}
+
+export async function invalidateCache(key: string): Promise<void> {
+  await redis.del(key);
+}
+
+export async function invalidatePattern(pattern: string): Promise<void> {
+  const keys = await redis.keys(pattern);
+  if (keys.length > 0) {
+    await redis.del(...keys);
+  }
+}
+```
+
+<example>
+// ✅ GOOD: Cached API endpoint with proper key structure
+import { getCached, setCache } from '@/lib/cache/redis-cache';
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const organizationId = searchParams.get('organizationId')!;
+  
+  // Structured cache key
+  const cacheKey = `org:${organizationId}:stats`;
+  
+  // Try cache first
+  let stats = await getCached<Stats>(cacheKey);
+  
+  if (!stats) {
+    // Cache miss - fetch from database
+    stats = await prisma.organizationStats.findUnique({
+      where: { organizationId },
+    });
+    
+    // Cache for 5 minutes
+    await setCache(cacheKey, stats, 300);
+  }
+  
+  return NextResponse.json(stats);
+}
+</example>
+
+### Database Query Caching
+
+**Prisma Result Caching:**
+```typescript
+// lib/db-cache.ts
+import { prisma } from '@/lib/db';
+import { getCached, setCache } from '@/lib/cache/redis-cache';
+
+export async function cachedQuery<T>(
+  cacheKey: string,
+  ttlSeconds: number,
+  queryFn: () => Promise<T>
+): Promise<T> {
+  // Try cache first
+  const cached = await getCached<T>(cacheKey);
+  if (cached) return cached;
+  
+  // Cache miss - execute query
+  const result = await queryFn();
+  
+  // Cache result
+  await setCache(cacheKey, result, ttlSeconds);
+  
+  return result;
+}
+
+// Usage
+export async function getOrganizationWithCache(organizationId: string) {
+  return cachedQuery(
+    `org:${organizationId}`,
+    300, // 5 minutes
+    () => prisma.organization.findUnique({
+      where: { id: organizationId },
+      include: { users: true },
+    })
+  );
+}
+```
+
+<example>
+// ✅ GOOD: Query caching with invalidation
+import { cachedQuery } from '@/lib/db-cache';
+import { invalidateCache } from '@/lib/cache/redis-cache';
+
+// Read operation - cached
+export async function getAssessments(organizationId: string) {
+  return cachedQuery(
+    `org:${organizationId}:assessments`,
+    300,
+    () => prisma.assessment.findMany({
+      where: { organizationId },
+    })
+  );
+}
+
+// Write operation - invalidate cache
+export async function createAssessment(data: AssessmentInput) {
+  const assessment = await prisma.assessment.create({ data });
+  
+  // Invalidate cached assessments
+  await invalidateCache(`org:${data.organizationId}:assessments`);
+  
+  return assessment;
+}
+</example>
+
+### Cache Invalidation Strategies
+
+**1. Time-Based Invalidation (TTL):**
+```typescript
+// Simple - cache expires after N seconds
+await setCache(key, data, 300); // 5 minutes
+```
+
+**2. Event-Based Invalidation:**
+```typescript
+// Invalidate on write operations
+export async function updateUser(userId: string, data: UserUpdate) {
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data,
+  });
+  
+  // Invalidate user cache
+  await invalidateCache(`user:${userId}`);
+  
+  // Invalidate related caches
+  await invalidateCache(`org:${user.organizationId}:users`);
+  
+  return user;
+}
+```
+
+**3. Pattern-Based Invalidation:**
+```typescript
+// Invalidate all caches matching pattern
+export async function invalidateOrganizationCaches(orgId: string) {
+  await invalidatePattern(`org:${orgId}:*`);
+}
+```
+
+**4. Cache Tags (Advanced):**
+```typescript
+// Tag-based cache invalidation
+const CACHE_TAGS = {
+  organization: (id: string) => [`org:${id}`],
+  user: (id: string) => [`user:${id}`],
+  assessment: (id: string) => [`assessment:${id}`],
+};
+
+export async function setCacheWithTags<T>(
+  key: string,
+  data: T,
+  ttl: number,
+  tags: string[]
+) {
+  await setCache(key, data, ttl);
+  
+  // Store tags for invalidation
+  for (const tag of tags) {
+    await redis.sadd(`tag:${tag}`, key);
+  }
+}
+
+export async function invalidateByTag(tag: string) {
+  const keys = await redis.smembers(`tag:${tag}`);
+  if (keys.length > 0) {
+    await redis.del(...keys);
+    await redis.del(`tag:${tag}`);
+  }
+}
+```
+
+### Cache Key Naming Convention
+
+**Required Pattern:**
+```
+{entity}:{id}:{scope}
+```
+
+**Examples:**
+- `org:abc123:stats`
+- `user:xyz789:profile`
+- `org:abc123:assessments:pending`
+- `global:config:features`
+
+<example>
+// ✅ GOOD: Structured cache keys
+const keys = {
+  orgStats: (orgId: string) => `org:${orgId}:stats`,
+  userProfile: (userId: string) => `user:${userId}:profile`,
+  assessments: (orgId: string, status?: string) => 
+    status ? `org:${orgId}:assessments:${status}` : `org:${orgId}:assessments`,
+};
+</example>
+
+## Common Caching Patterns
+
+### Pattern 1: Read-Through Cache
+```typescript
+async function getWithCache<T>(key: string, fetchFn: () => Promise<T>) {
+  let data = await getCached<T>(key);
+  if (!data) {
+    data = await fetchFn();
+    await setCache(key, data, 300);
+  }
+  return data;
+}
+```
+
+### Pattern 2: Write-Through Cache
+```typescript
+async function updateWithCache<T>(key: string, updateFn: () => Promise<T>) {
+  const data = await updateFn();
+  await setCache(key, data, 300);
+  return data;
+}
+```
+
+### Pattern 3: Cache-Aside (Lazy Loading)
+```typescript
+async function getData(id: string) {
+  // Try cache
+  let data = await getCached(`entity:${id}`);
+  if (data) return data;
+  
+  // Load from DB
+  data = await prisma.entity.findUnique({ where: { id } });
+  
+  // Populate cache
+  await setCache(`entity:${id}`, data, 300);
+  return data;
+}
+```
+
+## Tools & Documentation
+
+### Required Tools (USE THESE!)
+- **`.cursor/tools/analyze-performance.sh`** - Check cache effectiveness
+
+### Complete Workflow Documentation
+- **`guides/Caching-Complete-Guide.md`** - Comprehensive caching guide
+- **`guides/Performance-Monitoring-Complete-Guide.md`** - Monitor cache hit rates
+- **`.cursor/docs/ai-workflows.md#caching-patterns`** - Proven patterns
+
+### Quick Start
+1. **Read:** This rule + Caching Complete Guide
+2. **Choose:** Appropriate caching layer for your use case
+3. **Implement:** Follow patterns above
+4. **Monitor:** Track cache hit rates and effectiveness
+
+## See Also
+
+### Documentation
+- **`guides/Caching-Complete-Guide.md`** - Detailed caching strategies
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master performance guide
+- **`.cursor/docs/ai-workflows.md`** - Proven development patterns
+
+### Related Rules
+- @060-performance-metrics.mdc - Performance monitoring
+- @062-core-web-vitals.mdc - Core Web Vitals optimization
+- @069-database-resilience-patterns.mdc - Database patterns
+
+### Related Tools
+- **`.cursor/tools/analyze-performance.sh`** - Performance analysis
+
+## Priority
+**P0 (Required)** - Caching is critical for production performance and scalability. Must be implemented for all data-intensive features.
+
+## References
+- [Next.js Caching](https://nextjs.org/docs/app/building-your-application/caching)
+- [Vercel Edge Caching](https://vercel.com/docs/concepts/edge-network/caching)
+- [HTTP Caching MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching)
+- [Redis Caching Best Practices](https://redis.io/docs/manual/patterns/)

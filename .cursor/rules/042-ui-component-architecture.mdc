@@ -1,0 +1,532 @@
+---
+description: Use when implementing UI components to ensure consistent architecture, reusability, and maintainability across the application
+globs: "**/components/**/*.{tsx,jsx,ts,js}, **/app/**/*.{tsx,jsx}"
+---
+
+___
+description: Apply consistent component architecture patterns when building UI components to ensure reusability and maintainability
+globs: "src/components/**/*.{jsx,tsx}"
+___
+
+# UI Component Architecture
+
+## Context
+- AgentMinder requires a consistent approach to building UI components
+- Components should be reusable, maintainable, and follow established patterns
+- Primary UI library is shadcn/ui, extended with custom components as needed
+- Component architecture must support both design system and feature requirements
+- Proper component architecture improves development velocity and code quality
+- Consistent patterns help new developers understand the codebase quickly
+
+## Requirements
+
+### UI Consistency Across Multiple Locations (v2.1.1 Lesson)
+
+- **CRITICAL**: When adding new UI patterns, audit ALL similar elements and apply the same logic
+- **EXAMPLE**: If adding `disabled` logic to export buttons, apply to ALL export buttons (top and bottom)
+- **CONSISTENCY RULE**: Users expect consistent behavior across the interface
+- **AUDIT CHECKLIST**: 
+  - Same interaction patterns (hover, disabled states)
+  - Same visual feedback (opacity, cursor styles)
+  - Same selection logic across similar components
+  - Same styling classes and color schemes
+
+### Component Scope and Utility Functions (v2.1.1 Lesson)
+
+- **SCOPE RULE**: Utility functions used by multiple components should be at module scope, not inside component functions
+- **EXAMPLE**: `getStoryPointColor`, `STORY_POINT_OPTIONS` should be outside component definitions
+- **PROBLEM**: Functions defined inside components can't be accessed by sibling components
+- **SOLUTION**: Move shared utilities to module scope (outside all components)
+- **CONSIDER**: Where functions need to be accessible from before defining scope
+
+### Component Hierarchy
+
+- **REQUIRED**: Follow the component hierarchy from pre-built to custom:
+  1. Use existing library components unchanged whenever possible
+  2. Compose multiple library components before creating custom ones
+  3. Extend library components to add app-specific functionality
+  4. Create custom components only when necessary
+
+```typescript
+// Good: Using standard library component
+import { Button } from "@/components/ui/button";
+
+function ActionBar() {
+  return (
+    <div className="flex justify-end space-x-2">
+      <Button variant="outline">Cancel</Button>
+      <Button>Save</Button>
+    </div>
+  );
+}
+
+// Good: Composed components
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+
+function PricingCard({ title, price, features, onSelect }) {
+  return (
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="text-3xl font-bold">${price}</div>
+        <ul className="mt-4 space-y-2">
+          {features.map((feature, index) => (
+            <li key={index} className="flex items-center">
+              <CheckIcon className="mr-2 h-4 w-4 text-green-500" />
+              <span>{feature}</span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+      <CardFooter>
+        <Button onClick={onSelect} className="w-full">
+          Select Plan
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
+
+// Good: Extended component with additional functionality
+import { useState } from "react";
+import { Button, ButtonProps } from "@/components/ui/button";
+
+interface LoadingButtonProps extends ButtonProps {
+  isLoading?: boolean;
+  loadingText?: string;
+}
+
+export function LoadingButton({
+  children,
+  isLoading = false,
+  loadingText = "Loading...",
+  disabled,
+  ...props
+}: LoadingButtonProps) {
+  return (
+    <Button disabled={isLoading || disabled} {...props}>
+      {isLoading ? (
+        <>
+          <Spinner className="mr-2 h-4 w-4 animate-spin" />
+          {loadingText}
+        </>
+      ) : (
+        children
+      )}
+    </Button>
+  );
+}
+```
+
+### Component Organization
+
+- **REQUIRED**: Organize components into a logical directory structure
+- Group related components together in feature or type-based directories
+- Keep reusable UI components in a central location (`components/ui`)
+- Place feature-specific components with their respective features
+- Use consistent file naming conventions (PascalCase for component files)
+- Export components from index files for easier imports
+
+```
+// Good: Component organization
+├── components/
+│   ├── ui/                     # Reusable UI components
+│   │   ├── button.tsx
+│   │   ├── card.tsx
+│   │   ├── input.tsx
+│   │   └── index.ts            # Re-export all UI components
+│   ├── layout/                 # Layout components
+│   │   ├── Header.tsx
+│   │   ├── Sidebar.tsx
+│   │   └── Footer.tsx
+│   ├── data-display/           # Data visualization components
+│   │   ├── DataTable.tsx
+│   │   ├── Chart.tsx
+│   │   └── MetricsCard.tsx
+│   └── features/               # Feature-specific components
+│       ├── agents/
+│       │   ├── AgentCard.tsx
+│       │   ├── AgentList.tsx
+│       │   └── AgentDetail.tsx
+│       └── workflows/
+│           ├── WorkflowEditor.tsx
+│           └── WorkflowViewer.tsx
+```
+
+### Styling and Customization
+
+- Use Tailwind classes as the primary styling method
+- Apply consistent styling patterns across components
+- Follow the customization hierarchy:
+  1. Apply Tailwind classes first (via `className` prop)
+  2. Use component variants when available (via component props)
+  3. Modify theme configurations when necessary
+  4. Create custom components only when other methods are insufficient
+- Maintain accessibility features when customizing components
+
+```typescript
+// Good: Proper style customization
+import { Button } from "@/components/ui/button";
+
+function ActionButton({ importance, ...props }) {
+  // Use variants from the component library first
+  if (importance === "primary") {
+    return <Button {...props} />;
+  }
+  
+  if (importance === "secondary") {
+    return <Button variant="outline" {...props} />;
+  }
+  
+  if (importance === "danger") {
+    return <Button variant="destructive" {...props} />;
+  }
+  
+  // Use className for layout/spacing/positioning
+  if (importance === "subtle") {
+    return <Button variant="ghost" className="h-8 px-2 text-sm" {...props} />;
+  }
+  
+  // Default fallback
+  return <Button variant="secondary" {...props} />;
+}
+
+// Bad: Inconsistent style customization
+function BadCustomButton({ ...props }) {
+  return (
+    <Button
+      style={{ backgroundColor: "#ff5500 !important" }} // Avoid direct style overrides and !important
+      className="custom-button" // Using non-Tailwind classes
+      {...props}
+    />
+  );
+}
+```
+
+### Component Props and API Design
+
+- **REQUIRED**: Use TypeScript interfaces to define component props
+- Provide sensible defaults for optional props
+- Forward all relevant props to underlying components
+- Use consistent naming conventions for props across components
+- Document props with JSDoc comments
+- Handle common prop patterns consistently (e.g., className, children, disabled)
+
+```typescript
+// Good: Well-defined props interface
+interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  /** Title displayed in the card header */
+  title?: string;
+  /** Whether the card is in a loading state */
+  isLoading?: boolean;
+  /** Optional footer content */
+  footer?: React.ReactNode;
+  /** Whether the card has a hover effect */
+  interactive?: boolean;
+}
+
+// Good: Component with proper prop handling
+export function Card({
+  title,
+  children,
+  isLoading = false,
+  footer,
+  interactive = false,
+  className,
+  ...props
+}: CardProps) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border bg-card text-card-foreground shadow",
+        interactive && "transition-shadow hover:shadow-md",
+        className
+      )}
+      {...props}
+    >
+      {title && (
+        <div className="border-b px-6 py-4 font-medium">
+          {title}
+        </div>
+      )}
+      <div className="p-6">
+        {isLoading ? <CardSkeleton /> : children}
+      </div>
+      {footer && (
+        <div className="border-t px-6 py-4">
+          {footer}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### Component Composition Patterns
+
+- Use component composition patterns to create flexible interfaces
+- Implement slot patterns for customizable component sections
+- Use children props for content projection
+- Use the compound component pattern for related component groups
+- Create context when needed for component state sharing
+
+```typescript
+// Good: Compound component pattern
+import { createContext, useContext, useState } from "react";
+
+// Create context for the accordion
+const AccordionContext = createContext<{
+  expandedItem: string | null;
+  toggleItem: (id: string) => void;
+}>({ expandedItem: null, toggleItem: () => {} });
+
+// Parent component
+export function Accordion({ children }: { children: React.ReactNode }) {
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  
+  const toggleItem = (id: string) => {
+    setExpandedItem(expandedItem === id ? null : id);
+  };
+  
+  return (
+    <AccordionContext.Provider value={{ expandedItem, toggleItem }}>
+      <div className="divide-y rounded-md border">{children}</div>
+    </AccordionContext.Provider>
+  );
+}
+
+// Child component
+export function AccordionItem({ 
+  id, 
+  title, 
+  children 
+}: { 
+  id: string; 
+  title: string; 
+  children: React.ReactNode;
+}) {
+  const { expandedItem, toggleItem } = useContext(AccordionContext);
+  const isExpanded = expandedItem === id;
+  
+  return (
+    <div>
+      <button
+        className="flex w-full justify-between px-4 py-2 text-left"
+        onClick={() => toggleItem(id)}
+      >
+        {title}
+        <ChevronIcon className={`transform ${isExpanded ? 'rotate-180' : ''}`} />
+      </button>
+      {isExpanded && (
+        <div className="px-4 py-2">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Usage
+function MyAccordion() {
+  return (
+    <Accordion>
+      <AccordionItem id="item-1" title="Section 1">
+        Content for section 1
+      </AccordionItem>
+      <AccordionItem id="item-2" title="Section 2">
+        Content for section 2
+      </AccordionItem>
+    </Accordion>
+  );
+}
+```
+
+### Reusability and Extensibility
+
+- Design components to be reusable across different contexts
+- Create abstraction layers for app-specific logic
+- Separate presentation from business logic
+- Make components extensible for future requirements
+- Document component usage patterns and examples
+
+```typescript
+// Good: Reusable and extensible component
+import React from "react";
+import { cn } from "@/lib/utils";
+
+interface AlertProps extends React.HTMLAttributes<HTMLDivElement> {
+  variant?: "info" | "warning" | "error" | "success";
+  title?: string;
+  icon?: React.ReactNode;
+  action?: React.ReactNode;
+}
+
+export function Alert({
+  variant = "info",
+  title,
+  children,
+  icon,
+  action,
+  className,
+  ...props
+}: AlertProps) {
+  // Variant-specific styling
+  const variantStyles = {
+    info: "bg-blue-50 text-blue-800 border-blue-200",
+    warning: "bg-yellow-50 text-yellow-800 border-yellow-200",
+    error: "bg-red-50 text-red-800 border-red-200",
+    success: "bg-green-50 text-green-800 border-green-200",
+  };
+  
+  // Default icons if not provided
+  const defaultIcons = {
+    info: <InfoIcon className="h-5 w-5 text-blue-500" />,
+    warning: <WarningIcon className="h-5 w-5 text-yellow-500" />,
+    error: <ErrorIcon className="h-5 w-5 text-red-500" />,
+    success: <CheckIcon className="h-5 w-5 text-green-500" />,
+  };
+  
+  const iconToShow = icon || defaultIcons[variant];
+  
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-3 rounded-md border p-4",
+        variantStyles[variant],
+        className
+      )}
+      role="alert"
+      {...props}
+    >
+      {iconToShow && <div className="flex-shrink-0">{iconToShow}</div>}
+      <div className="flex-grow">
+        {title && <div className="font-medium">{title}</div>}
+        <div className="text-sm">{children}</div>
+      </div>
+      {action && <div className="flex-shrink-0">{action}</div>}
+    </div>
+  );
+}
+
+// Usage examples
+function AlertExamples() {
+  return (
+    <div className="space-y-4">
+      <Alert>Default info alert</Alert>
+      
+      <Alert variant="warning" title="Warning">
+        This action cannot be undone.
+      </Alert>
+      
+      <Alert 
+        variant="error" 
+        title="Error occurred"
+        action={
+          <Button variant="outline" size="sm">
+            Retry
+          </Button>
+        }
+      >
+        Failed to save your changes.
+      </Alert>
+      
+      <Alert
+        variant="success"
+        icon={<CustomIcon />}
+        className="border-2"
+      >
+        Custom alert with custom icon and additional classes
+      </Alert>
+    </div>
+  );
+}
+```
+
+## Dependencies
+- Related rules: [030-visual-design-system.mdc](mdc:030-visual-design-system.mdc), [054-accessibility-requirements.mdc](mdc:054-accessibility-requirements.mdc), [200-shadcn-ui-strictness.mdc](mdc:200-shadcn-ui-strictness.mdc)
+- Required packages: react, tailwindcss, shadcn/ui components
+- External standards: WCAG 2.1 AA for accessibility compliance
+
+## Testing Guidelines
+- Create unit tests for component logic and rendering
+- Test component variants and prop combinations
+- Verify component accessibility with testing libraries
+- Test responsive behavior across different screen sizes
+- Create storybook stories for visual testing and documentation
+- Test component composition patterns with realistic usage examples
+
+## Implementation Checklist
+
+- [ ] Component Structure: Organize components following the established directory structure
+- [ ] TypeScript Typing: Define clear interfaces for all component props
+- [ ] Prop Handling: Implement consistent prop patterns with proper forwarding
+- [ ] Styling: Use Tailwind classes consistently following the customization hierarchy
+- [ ] Composition: Apply appropriate composition patterns for complex components
+- [ ] Documentation: Add JSDoc comments and usage examples
+- [ ] Accessibility: Ensure components meet accessibility requirements
+- [ ] Reusability: Design components to be reusable across different contexts
+- [ ] Testing: Create unit tests and storybook stories for components
+
+## Component Organization
+- Group components by domain (features) first, then by type (layout, form, display)
+- Keep component-specific hooks, utilities, and types within the component directory
+- Implement barrel exports (index.ts) for component directories
+
+## Next.js Page Components
+- Use the Page-Layout-Section-Component hierarchy
+- Keep page components minimal, focused on data fetching and layout composition
+- Extract reusable logic to custom hooks
+- Implement proper loading and error states for all async operations
+
+## Component Composition Patterns
+- Apply the Compound Component pattern for related component sets
+- Use React Context for component-specific state that spans multiple children
+- Implement Render Props pattern for components with variable rendering logic
+- Use Controlled vs. Uncontrolled patterns appropriately and document the choice
+
+## State Management
+- Use local state for UI-only concerns limited to a single component
+- Implement React Context for shared state across component trees
+- Document state management decisions in component README files
+- Maintain clear separation between UI state and application state
+
+## Testing Requirements
+- Create test files for all components
+- Test component rendering, state changes, and user interactions
+- Implement accessibility testing for all user-facing components
+- Document component testing patterns and edge cases
+``` 
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Component development patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Comprehensive Guides
+- **`guides/Component-Library-Guide.md`** - **CRITICAL:** Component architecture patterns!
+- **`guides/development/Build-Multi-Step-Wizards-Complete-Guide.md`** - Wizard component architecture
+- **`guides/Next.js-Architecture-Guide.md`** - Next.js component patterns
+- **`guides/API-Design-Guide.md`** - Component/API interaction
+
+### Tools (Future)
+📅 **Planned Tools:**
+- `.cursor/tools/lint-components.sh` (planned) - Component structure validation
+- `.cursor/tools/check-accessibility.sh` (planned) - A11y validation
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @030-visual-design-system.mdc - Visual design
+- @040-ux-stability.mdc - UX stability
+- @050-css-architecture.mdc - CSS organization
+- @054-accessibility-requirements.mdc - Accessibility
+- @071-state-management.mdc - State management in components
+- @310-component-visual-testing.mdc - Component testing
+- @360-wizard-architecture-standards.mdc - Wizard components
+
+### Quick Start
+1. **Guide:** Read `guides/Component-Library-Guide.md` FIRST
+2. **Architecture:** Follow component patterns in this rule
+3. **Test:** See @310-component-visual-testing.mdc

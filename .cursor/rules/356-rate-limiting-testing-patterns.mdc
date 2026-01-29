@@ -1,0 +1,250 @@
+# Rate Limiting Middleware Testing Patterns
+
+## Context
+
+- Rate limiting middleware tests fail when only the library function is mocked
+- Middleware integration requires both library AND middleware function mocking
+- Mock configuration must respect different rate limit types (api, ai, payment, admin)
+- Test isolation requires proper mock reset between tests to prevent bleeding
+- Production-grade testing requires realistic failure scenarios
+
+## Requirements
+
+### The Critical Dual Mock Pattern
+
+**NEVER mock only the library function - this causes middleware integration failures**
+
+```typescript
+// ❌ WRONG: Only mocking the library (causes middleware failures)
+jest.mock("../../src/lib/database-rate-limit", () => ({
+  checkRateLimit: jest.fn(),
+}));
+
+// ✅ CORRECT: Mock BOTH library AND middleware
+jest.mock("../../src/lib/database-rate-limit", () => {
+  const original = jest.requireActual("../../src/lib/database-rate-limit");
+  return {
+    ...original,
+    checkRateLimit: jest.fn(),
+    getRateLimitStatus: jest.fn(),
+    RATE_LIMIT_CONFIGS: original.RATE_LIMIT_CONFIGS,
+  };
+});
+
+// 🎯 CRITICAL: Also mock the middleware that calls the library
+jest.mock("../../src/middleware/database-rate-limit", () => {
+  const original = jest.requireActual(
+    "../../src/middleware/database-rate-limit"
+  );
+  return {
+    ...original,
+    applyRateLimit: jest.fn(),
+  };
+});
+```
+
+### Smart Mock Factory for Config-Specific Testing
+
+Create dynamic mocks that respect different rate limit configurations:
+
+```typescript
+// Smart mock factory that handles different rate limit types
+const createRateLimitMock = (
+  shouldExceedLimit: boolean,
+  limitType: string = "api"
+) => {
+  const config = RATE_LIMIT_CONFIGS[limitType] || RATE_LIMIT_CONFIGS.api;
+
+  if (shouldExceedLimit) {
+    mockCheckRateLimit.mockResolvedValue({
+      success: false,
+      total: config.requests + 1,
+      remaining: 0,
+      limit: config.requests,
+      reset: Date.now() + config.windowMs,
+    });
+
+    // Mock middleware response for rate limit exceeded
+    mockApplyRateLimit.mockResolvedValue(
+      new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
+        status: 429,
+      })
+    );
+  } else {
+    mockCheckRateLimit.mockResolvedValue({
+      success: true,
+      total: 1,
+      remaining: config.requests - 1,
+      limit: config.requests,
+      reset: Date.now() + config.windowMs,
+    });
+
+    // Mock middleware response for allowed requests
+    mockApplyRateLimit.mockResolvedValue(null);
+  }
+};
+```
+
+### Test Isolation Requirements
+
+Prevent mock bleeding between tests with comprehensive reset:
+
+```typescript
+beforeEach(() => {
+  jest.clearAllMocks();
+
+  // Enhanced mock reset for rate limiting
+  mockSql.mockReset();
+  mockCheckRateLimit.mockReset();
+  mockApplyRateLimit.mockReset();
+
+  // Clear any persistent state
+  process.env.RATE_LIMITING_ENABLED = "true";
+
+  // Default to allowing requests (override per test)
+  createRateLimitMock(false);
+});
+```
+
+### Configuration Testing Requirements
+
+Test all rate limit configurations with their correct limits:
+
+```typescript
+// Test with correct rate limit configurations
+const EXPECTED_CONFIGS = {
+  api: { requests: 100, windowMs: 60000 },
+  "high-freq": { requests: 300, windowMs: 60000 },
+  "low-freq": { requests: 20, windowMs: 60000 },
+  ai: { requests: 5, windowMs: 3600000 },
+  payment: { requests: 3, windowMs: 3600000 },
+  admin: { requests: 50, windowMs: 60000 },
+};
+
+// Use the mock factory with the correct config type
+test("should prevent excessive AI API usage", async () => {
+  createRateLimitMock(true, "ai"); // Use AI-specific limits
+
+  const result = await checkRateLimit(userId, endpoint, "ai");
+  expect(result.success).toBe(false);
+  expect(result.limit).toBe(5); // AI-specific limit
+});
+```
+
+### Security Test Requirements
+
+Test realistic attack scenarios with proper blocking:
+
+```typescript
+// Test DDoS protection with sequential request simulation
+test("should block rapid consecutive requests", async () => {
+  const limit = 5;
+
+  for (let i = 1; i <= 7; i++) {
+    const shouldExceedLimit = i > limit;
+    createRateLimitMock(shouldExceedLimit);
+
+    const result = await checkRateLimit(identifier, endpoint, "low-freq");
+
+    if (i <= limit) {
+      expect(result.success).toBe(true);
+    } else {
+      expect(result.success).toBe(false);
+      expect(result.total).toBeGreaterThan(result.limit);
+    }
+  }
+});
+```
+
+### Multi-tenant Isolation Testing
+
+Ensure rate limits don't bleed between organizations:
+
+```typescript
+test("should isolate rate limits between organizations", async () => {
+  const org1User = "user:org1-user-123";
+  const org2User = "user:org2-user-456";
+
+  // Each org gets isolated mock state
+  createRateLimitMock(false); // Both orgs start fresh
+
+  const result1 = await checkRateLimit(org1User, endpoint, "api");
+
+  // Reset mock state for org2 to ensure isolation
+  mockSql.mockReset();
+  createRateLimitMock(false); // Fresh state for org2
+
+  const result2 = await checkRateLimit(org2User, endpoint, "api");
+
+  expect(result1.total).toBe(1);
+  expect(result2.total).toBe(1); // Should not be affected by org1
+});
+```
+
+## Examples
+
+<example>
+// ✅ Complete dual mock setup
+jest.mock('../../src/lib/database-rate-limit', () => {
+  const original = jest.requireActual('../../src/lib/database-rate-limit');
+  return {
+    ...original,
+    checkRateLimit: jest.fn(),
+    RATE_LIMIT_CONFIGS: original.RATE_LIMIT_CONFIGS
+  };
+});
+
+jest.mock('../../src/middleware/database-rate-limit', () => {
+const original = jest.requireActual('../../src/middleware/database-rate-limit');
+return {
+...original,
+applyRateLimit: jest.fn(),
+};
+});
+
+const mockCheckRateLimit = checkRateLimit as jest.MockedFunction<typeof checkRateLimit>;
+const mockApplyRateLimit = applyRateLimit as jest.MockedFunction<typeof applyRateLimit>;
+</example>
+
+<example type="invalid">
+// ❌ Incomplete mock setup (causes middleware failures)
+jest.mock('../../src/lib/database-rate-limit', () => ({
+  checkRateLimit: jest.fn(),
+}));
+
+// Missing middleware mock - tests will fail when middleware calls library
+</example>
+
+## Integration with Other Rules
+
+- Combine with 350-debug-test-failures.mdc for systematic debugging
+- Use with 355-rate-limiting-implementation.mdc for architecture patterns
+- Apply 351-sql-mock-debugging.mdc for database mock issues
+- Follow 300-testing-standards.mdc for overall test quality
+  description:
+  globs:
+  alwaysApply: false
+
+---
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Rate limit testing
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check rate limit data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @300-testing-standards.mdc - General testing standards
+- @355-rate-limiting-implementation.mdc - Rate limiting implementation
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Quick Start
+1. **Follow:** This rule's dual-mock middleware patterns
+2. **Test:** Comprehensive rate limit scenarios
+3. **Framework:** Use @380-comprehensive-testing-standards.mdc

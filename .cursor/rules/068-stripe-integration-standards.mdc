@@ -1,0 +1,213 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+---
+
+description: Implement Stripe payment integration with proper webhook handling, database synchronization, and error recovery
+globs: "src/**/\*.{ts,js}", "pages/api/**/_.{ts,js}", "pages/api/webhooks/\*\*/_.{ts,js}"
+
+---
+
+# Stripe Integration Standards
+
+## Context
+
+- When implementing payment processing and subscription management
+- When setting up webhook handlers for Stripe events
+- When debugging Stripe API integration issues
+- When ensuring database synchronization with payment events
+
+## Requirements
+
+### Critical Webhook Parameter Rule
+
+- **CRITICAL**: Always verify webhook signatures before processing:
+
+  ```typescript
+  // ❌ WRONG - Processing without signature verification
+  export default async function handler(req, res) {
+    const event = req.body; // Dangerous - could be forged
+    await processEvent(event);
+  }
+
+  // ✅ CORRECT - Proper signature verification
+  export default async function handler(req, res) {
+    const buf = await buffer(req);
+    const sig = req.headers["stripe-signature"];
+
+    const event = stripe.webhooks.constructEvent(buf, sig, webhookSecret);
+    await processEvent(event);
+  }
+  ```
+
+### Stripe Environment Setup
+
+- **REQUIRED**: Use separate API keys for each environment (test/production)
+- **REQUIRED**: Configure webhook endpoints with proper secrets:
+  ```
+  STRIPE_SECRET_KEY=sk_test_... (for development)
+  STRIPE_PUBLISHABLE_KEY=pk_test_... (for client-side)
+  STRIPE_WEBHOOK_SECRET=whsec_... (for webhook verification)
+  ```
+- **REQUIRED**: Set up webhook URLs in Stripe Dashboard with correct event types
+
+### Database Synchronization Implementation
+
+- **REQUIRED**: Implement idempotent webhook processing to prevent duplicate updates
+- **REQUIRED**: Use database transactions for webhook event processing
+- **REQUIRED**: Handle webhook event ordering issues (events can arrive out of order)
+
+### Error Handling and Recovery
+
+- **REQUIRED**: Implement proper timeout handling (Stripe expects response within 5 seconds)
+- **REQUIRED**: Return 200 status even for processing errors to prevent retries
+- **REQUIRED**: Implement circuit breaker pattern for external dependencies
+
+## Common Issues and Solutions
+
+### Issue: "Webhook signature verification failed"
+
+- **Cause**: Missing or incorrect webhook secret, or malformed request body
+- **Solution**:
+  1. Verify STRIPE_WEBHOOK_SECRET matches Stripe Dashboard
+  2. Ensure raw request body is used (disable body parsing)
+  3. Check webhook endpoint URL is correctly configured
+- **Check**: Test webhook with Stripe CLI locally
+
+### Issue: Database out of sync with Stripe
+
+- **Cause**: Webhook processing failures or missed events
+- **Solution**:
+  1. Implement idempotency keys for all webhook processing
+  2. Add manual sync endpoints for admin reconciliation
+  3. Use Stripe API to verify current state
+  4. Log all webhook events for audit trail
+
+### Issue: Payment processing timeout errors
+
+- **Cause**: Long-running operations in webhook handlers
+- **Solution**:
+  1. Keep webhook processing under 5 seconds
+  2. Queue long-running operations for background processing
+  3. Implement async processing with job queues
+  4. Return success immediately after queuing
+
+### Issue: Test vs Production configuration conflicts
+
+- **Cause**: Wrong API keys or webhook URLs for environment
+- **Solution**:
+  1. Use environment-specific Stripe keys
+  2. Configure separate webhook endpoints per environment
+  3. Implement environment validation on startup
+  4. Use different Stripe accounts for isolation
+
+## Comprehensive Guide Reference
+
+📖 **For complete implementation details, debugging steps, and troubleshooting:**
+See: `guides/stripe/Stripe-Integration-Complete-Guide.md`
+
+This guide includes:
+
+- Complete Stripe Dashboard setup steps
+- Full webhook implementation patterns
+- Step-by-step debugging process
+- The critical bugs we discovered and how to avoid them
+- Database synchronization patterns
+- Production deployment checklist
+
+## Examples
+
+<example>
+// Correct webhook endpoint implementation
+import { buffer } from 'micro';
+import Stripe from 'stripe';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+
+export const config = {
+api: { bodyParser: false }
+};
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+if (req.method !== 'POST') {
+return res.status(405).end('Method Not Allowed');
+}
+
+const buf = await buffer(req);
+const sig = req.headers['stripe-signature'] as string;
+
+let event: Stripe.Event;
+
+try {
+// ✅ Critical: Verify webhook signature
+event = stripe.webhooks.constructEvent(buf, sig, webhookSecret);
+} catch (err) {
+console.error(`Webhook signature verification failed:`, err.message);
+return res.status(400).send(`Webhook Error: ${err.message}`);
+}
+
+try {
+// ✅ Process with timeout protection
+await Promise.race([
+processWebhookEvent(event),
+new Promise((_, reject) =>
+setTimeout(() => reject(new Error('Timeout')), 4500)
+)
+]);
+
+    res.status(200).json({ received: true });
+
+} catch (error) {
+console.error('Webhook processing failed:', error);
+// ✅ Still return 200 to prevent Stripe retries
+res.status(200).json({ error: 'Processing failed' });
+}
+}
+</example>
+
+<example type="invalid">
+// Missing signature verification and error handling - DANGEROUS
+export default async function handler(req, res) {
+  // ❌ No method check
+  // ❌ No signature verification - security risk
+  const event = req.body;
+  
+  // ❌ No timeout protection
+  // ❌ No error handling
+  await updateDatabase(event.data.object);
+  
+  // ❌ No proper response
+  res.end();
+}
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Integration standards
+- **`.cursor/docs/security-checklist.md#payment-security-if-applicable`** - Deployment checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Detect exposed Stripe keys
+- **`.cursor/tools/check-env-vars.sh`** - Validate Stripe configuration
+- **`.cursor/tools/inspect-model.sh`** - Check payment data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @010-security-compliance.mdc - Core security standards
+- @020-payment-security.mdc - Payment security (critical!)
+- @020-stripe-integration.mdc - Primary Stripe patterns
+- @021-stripe-sync-implementation.mdc - Stripe sync
+- @069-stripe-webhook-debugging.mdc - Webhook debugging
+- @078-payment-testing-standards.mdc - Testing integration
+- @330-third-party-integration-testing.mdc - Integration testing
+
+### Quick Start
+1. **Scan:** `.cursor/tools/scan-secrets.sh`
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Test:** See @078-payment-testing-standards.mdc

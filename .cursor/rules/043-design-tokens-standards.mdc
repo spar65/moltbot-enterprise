@@ -1,0 +1,551 @@
+---
+description: Apply when using design tokens to ensure visual consistency, maintainability, and adherence to the design system across all components
+globs: "**/*.{tsx,jsx,css,ts,js}, **/tailwind.config.{ts,js}"
+---
+
+# Design Tokens Standards
+
+**Priority**: P0 (CRITICAL - v0.4.0 Foundation)  
+**Domain**: UI Design System (040-series)  
+**Applies To**: All components, styles, and UI code
+
+---
+
+## Context
+
+- Design tokens are the single source of truth for visual properties
+- Tokens ensure consistency across components and pages
+- Changes to tokens propagate automatically throughout the application
+- Tailwind CSS configuration defines all token values
+- Components MUST use tokens, not hard-coded values
+- Tokens enable theming, dark mode, and white-labeling
+
+---
+
+## Requirements
+
+### 1. Color Tokens
+
+**REQUIRED**: Use CSS variables defined in Tailwind config
+
+```typescript
+// tailwind.config.ts
+export default {
+  theme: {
+    extend: {
+      colors: {
+        // Primary brand colors
+        primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary))',
+          foreground: 'hsl(var(--secondary-foreground))',
+        },
+        // Semantic colors
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent))',
+          foreground: 'hsl(var(--accent-foreground))',
+        },
+        // UI element colors
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        card: {
+          DEFAULT: 'hsl(var(--card))',
+          foreground: 'hsl(var(--card-foreground))',
+        },
+        popover: {
+          DEFAULT: 'hsl(var(--popover))',
+          foreground: 'hsl(var(--popover-foreground))',
+        },
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+      },
+    },
+  },
+};
+```
+
+**CSS Variables** (`app/globals.css`):
+```css
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    
+    --radius: 0.5rem;
+  }
+}
+```
+
+**Usage in Components**:
+```tsx
+// ✅ CORRECT: Use semantic color tokens
+<button className="bg-primary text-primary-foreground hover:bg-primary/90">
+  Save
+</button>
+
+// ✅ CORRECT: Use muted for secondary elements
+<p className="text-muted-foreground">Last updated 2 hours ago</p>
+
+// ❌ WRONG: Hard-coded colors
+<button className="bg-blue-600 text-white">Save</button>
+```
+
+### 2. Typography Tokens
+
+**REQUIRED**: Use defined font sizes, weights, and line heights
+
+**Tailwind Config**:
+```typescript
+export default {
+  theme: {
+    extend: {
+      fontSize: {
+        xs: ['0.75rem', { lineHeight: '1rem' }],      // 12px
+        sm: ['0.875rem', { lineHeight: '1.25rem' }],  // 14px
+        base: ['1rem', { lineHeight: '1.5rem' }],     // 16px
+        lg: ['1.125rem', { lineHeight: '1.75rem' }],  // 18px
+        xl: ['1.25rem', { lineHeight: '1.75rem' }],   // 20px
+        '2xl': ['1.5rem', { lineHeight: '2rem' }],    // 24px
+        '3xl': ['1.875rem', { lineHeight: '2.25rem' }], // 30px
+        '4xl': ['2.25rem', { lineHeight: '2.5rem' }], // 36px
+      },
+      fontWeight: {
+        normal: '400',
+        medium: '500',
+        semibold: '600',
+        bold: '700',
+      },
+    },
+  },
+};
+```
+
+**Usage**:
+```tsx
+// ✅ CORRECT: Use defined font sizes
+<h1 className="text-4xl font-bold">Dashboard</h1>
+<h2 className="text-2xl font-semibold">Recent Tests</h2>
+<p className="text-base font-normal">Description text</p>
+<span className="text-sm text-muted-foreground">Metadata</span>
+
+// ❌ WRONG: Arbitrary font sizes
+<h1 className="text-[36px] font-[700]">Dashboard</h1>
+```
+
+### 3. Spacing Tokens
+
+**REQUIRED**: Use Tailwind's spacing scale (4px base unit)
+
+**Spacing Scale**:
+```
+0   -> 0px
+0.5 -> 2px
+1   -> 4px
+2   -> 8px
+3   -> 12px
+4   -> 16px
+5   -> 20px
+6   -> 24px
+8   -> 32px
+10  -> 40px
+12  -> 48px
+16  -> 64px
+20  -> 80px
+24  -> 96px
+```
+
+**Usage**:
+```tsx
+// ✅ CORRECT: Use spacing scale
+<div className="p-4">         {/* 16px padding */}
+<div className="mt-8">        {/* 32px top margin */}
+<div className="space-y-6">   {/* 24px gap between children */}
+<div className="gap-4">       {/* 16px flex/grid gap */}
+
+// ❌ WRONG: Arbitrary spacing
+<div className="p-[15px]">
+<div className="mt-[28px]">
+```
+
+### 4. Border Radius Tokens
+
+**REQUIRED**: Use defined border radius values
+
+**Tailwind Config**:
+```typescript
+export default {
+  theme: {
+    extend: {
+      borderRadius: {
+        lg: 'var(--radius)',           // 0.5rem (8px)
+        md: 'calc(var(--radius) - 2px)', // 0.375rem (6px)
+        sm: 'calc(var(--radius) - 4px)', // 0.25rem (4px)
+      },
+    },
+  },
+};
+```
+
+**Usage**:
+```tsx
+// ✅ CORRECT: Use defined border radius
+<div className="rounded-lg">  {/* Cards, large containers */}
+<div className="rounded-md">  {/* Buttons, inputs */}
+<div className="rounded-sm">  {/* Small elements, badges */}
+<div className="rounded-full"> {/* Avatars, pills */}
+
+// ❌ WRONG: Arbitrary border radius
+<div className="rounded-[12px]">
+```
+
+### 5. Shadow Tokens
+
+**REQUIRED**: Use defined shadow values
+
+**Tailwind Config**:
+```typescript
+export default {
+  theme: {
+    extend: {
+      boxShadow: {
+        sm: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
+        DEFAULT: '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)',
+        md: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+        lg: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
+        xl: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)',
+      },
+    },
+  },
+};
+```
+
+**Usage**:
+```tsx
+// ✅ CORRECT: Use shadow tokens
+<div className="shadow-sm">   {/* Subtle elevation */}
+<div className="shadow">      {/* Default cards */}
+<div className="shadow-md">   {/* Raised elements */}
+<div className="shadow-lg">   {/* Modals, popovers */}
+
+// ❌ WRONG: Arbitrary shadows
+<div className="shadow-[0_4px_8px_rgba(0,0,0,0.1)]">
+```
+
+### 6. Transition/Animation Tokens
+
+**REQUIRED**: Use consistent timing and easing
+
+**Tailwind Config**:
+```typescript
+export default {
+  theme: {
+    extend: {
+      transitionDuration: {
+        DEFAULT: '150ms',
+        fast: '100ms',
+        normal: '200ms',
+        slow: '300ms',
+      },
+      transitionTimingFunction: {
+        DEFAULT: 'cubic-bezier(0.4, 0, 0.2, 1)',
+        'in': 'cubic-bezier(0.4, 0, 1, 1)',
+        'out': 'cubic-bezier(0, 0, 0.2, 1)',
+        'in-out': 'cubic-bezier(0.4, 0, 0.2, 1)',
+      },
+    },
+  },
+};
+```
+
+**Usage**:
+```tsx
+// ✅ CORRECT: Use transition tokens
+<button className="transition-colors duration-200 hover:bg-primary/90">
+<div className="transition-transform duration-300 hover:scale-105">
+<div className="transition-all duration-fast">
+
+// ❌ WRONG: Arbitrary transitions
+<button className="transition-all duration-[250ms]">
+```
+
+---
+
+## Component Examples
+
+### ✅ CORRECT: Token-Based Button
+
+```tsx
+export function Button({ variant = 'default', children }: ButtonProps) {
+  return (
+    <button
+      className={cn(
+        // Base styles using tokens
+        "inline-flex items-center justify-center rounded-md",
+        "px-4 py-2",
+        "text-sm font-medium",
+        "transition-colors duration-200",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "disabled:pointer-events-none disabled:opacity-50",
+        
+        // Variant styles using color tokens
+        variant === 'default' && "bg-primary text-primary-foreground hover:bg-primary/90",
+        variant === 'secondary' && "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        variant === 'destructive' && "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        variant === 'outline' && "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+        variant === 'ghost' && "hover:bg-accent hover:text-accent-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+```
+
+### ✅ CORRECT: Token-Based Card
+
+```tsx
+export function Card({ children }: CardProps) {
+  return (
+    <div className={cn(
+      // Using design tokens
+      "rounded-lg border border-border",
+      "bg-card text-card-foreground",
+      "shadow-sm",
+      "p-6"
+    )}>
+      {children}
+    </div>
+  );
+}
+```
+
+### ❌ INCORRECT: Hard-Coded Values
+
+```tsx
+// BAD: Hard-coded colors and spacing
+export function BadButton({ children }: ButtonProps) {
+  return (
+    <button
+      className="bg-blue-600 text-white px-[16px] py-[8px] rounded-[6px]"
+      style={{ transition: 'all 0.2s ease' }}
+    >
+      {children}
+    </button>
+  );
+}
+```
+
+---
+
+## Token Validation
+
+### 1. Automated Validation Tool
+
+Create `.cursor/tools/validate-design-tokens.sh`:
+```bash
+#!/bin/bash
+# Validate design token usage
+
+# Check for hard-coded colors
+if grep -r "bg-blue-\|text-red-\|border-green-" app/components/; then
+  echo "❌ Hard-coded Tailwind colors found"
+  echo "Use semantic tokens instead: bg-primary, text-destructive, etc."
+  exit 1
+fi
+
+# Check for arbitrary values
+if grep -r "\[.*px\]\|\[.*rem\]" app/components/; then
+  echo "❌ Arbitrary values found"
+  echo "Use design tokens from Tailwind config"
+  exit 1
+fi
+
+echo "✅ Design token validation passed"
+```
+
+### 2. ESLint Rule (Optional)
+
+```javascript
+// .eslintrc.js
+module.exports = {
+  rules: {
+    // Warn on hard-coded colors in className
+    'no-restricted-syntax': [
+      'warn',
+      {
+        selector: 'Literal[value=/bg-blue-|text-red-|border-green-/]',
+        message: 'Use semantic color tokens (bg-primary, text-destructive) instead of hard-coded colors',
+      },
+    ],
+  },
+};
+```
+
+---
+
+## Dark Mode Support
+
+**REQUIRED**: Define dark mode variants for all color tokens
+
+```css
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    /* ... light mode tokens ... */
+  }
+  
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    /* ... dark mode tokens ... */
+  }
+}
+```
+
+**Usage**:
+```tsx
+// ✅ CORRECT: Tokens automatically switch in dark mode
+<div className="bg-background text-foreground">
+  <p className="text-muted-foreground">Automatically adapts to dark mode</p>
+</div>
+
+// No need for dark: prefix when using tokens!
+```
+
+---
+
+## White-Labeling Support
+
+**REQUIRED**: Override tokens via CSS variables for white-label deployments
+
+```css
+/* client-theme.css (loaded dynamically) */
+:root {
+  --primary: 280 100% 50%;  /* Purple instead of blue */
+  --primary-foreground: 0 0% 100%;
+  /* ... other overrides ... */
+}
+```
+
+**Implementation**:
+```tsx
+// Load client-specific theme
+export function ThemeProvider({ clientId, children }: ThemeProviderProps) {
+  useEffect(() => {
+    if (clientId) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = `/themes/${clientId}.css`;
+      document.head.appendChild(link);
+    }
+  }, [clientId]);
+  
+  return <>{children}</>;
+}
+```
+
+---
+
+## Token Documentation
+
+### 1. Generate Token Reference
+
+```bash
+# Extract all CSS variables
+grep -E "^\s*--[a-z-]+:" app/globals.css > docs/design-tokens-reference.md
+```
+
+### 2. Visual Token Guide
+
+Create `docs/design-tokens-visual-guide.md`:
+```markdown
+# Design Tokens Visual Guide
+
+## Colors
+
+### Primary
+- **Token**: `bg-primary`
+- **Value**: `hsl(222.2 47.4% 11.2%)`
+- **Usage**: Primary actions, branding
+- **Example**: [Blue rectangle preview]
+
+### Secondary
+- **Token**: `bg-secondary`
+- **Value**: `hsl(210 40% 96.1%)`
+- **Usage**: Secondary actions, backgrounds
+- **Example**: [Gray rectangle preview]
+```
+
+---
+
+## See Also
+
+### Related Rules
+- @041-app-shell-layout-standards.mdc - Layout components
+- @042-ui-component-architecture.mdc - Component patterns
+- @044-responsive-design-patterns.mdc - Responsive design
+- @050-css-architecture.mdc - CSS organization
+- @200-shadcn-ui-strictness.mdc - shadcn/ui usage
+- @030-visual-design-system.mdc - Design system
+
+### Tools & Documentation
+- **`.cursor/tools/validate-design-tokens.sh`** - Validate token usage
+- **`tailwind.config.ts`** - Token definitions
+
+### Comprehensive Guides
+- **`guides/ui/Design-Tokens-Usage-Guide.md`** ⭐ **Essential** - Complete token guide
+- **`docs/SPEC-v0.4.0-03-Component-Library.md`** - Component library spec
+
+### Quick Start
+
+```bash
+# 1. Review token definitions
+cat app/globals.css
+
+# 2. Review Tailwind config
+cat tailwind.config.ts
+
+# 3. Validate token usage
+./.cursor/tools/validate-design-tokens.sh
+
+# 4. Generate token reference
+grep -E "^\s*--[a-z-]+:" app/globals.css > docs/tokens.md
+```
+
+---
+
+**Status**: ✅ Production Ready (v0.4.0)  
+**Last Updated**: 2024-12-07  
+**Priority**: P0 (CRITICAL)

@@ -1,0 +1,199 @@
+---
+description: 
+globs: ""
+alwaysApply: false
+---
+___
+description: Use when implementing tests for UI components to ensure visual stability and layout consistency
+globs: "**/__tests__/**/*.tsx, **/components/**/*.test.tsx"
+___
+
+# Visual Component Testing
+
+## Context
+- Visual regressions are common and difficult to detect with traditional logic-based tests
+- Different user roles and device sizes require comprehensive visual testing
+- Layout issues may only appear in specific states or configurations
+- White-labeled components need testing with different branding parameters
+- Tests should be resilient to implementation changes that preserve functionality
+
+## Requirements
+
+### Required Visual States
+- Test all component visual states (default, hover, active, disabled)
+- Verify layout at minimum, medium, and maximum breakpoints
+- Include separate tests for loading, error, and empty states
+- Test overflow behavior with long content
+- Validate behavior when parent containers have constraints
+
+### Layout Regression Testing
+- Add screenshot comparison tests for critical layout components
+- Test all role-based UI variations
+- Verify white-labeled elements with different branding parameters
+- Test with both light and dark mode if supported
+- Validate positioning of fixed and absolute elements
+
+### Accessibility Visual Testing
+- Test focus states and tab order visibility
+- Verify contrast ratios meet WCAG standards
+- Test screen reader announcements for dynamic content
+- Validate that hover/focus states are distinct and visible
+
+### Responsive Testing
+- Mock different viewport sizes to test responsive layouts
+- Verify content reflow at breakpoints
+- Test touch targets on mobile sizes
+- Validate that critical content is visible without scrolling on mobile
+- Test overflow and scroll behaviors on small screens
+
+### State-Based Visual Tests
+- Test loading states to ensure spinners/skeletons appear correctly
+- Verify error states display messages in appropriate locations
+- Test empty states for collections and data displays
+- Validate transitions between states
+
+### Test Resiliency Guidelines
+- Prefer testing for semantic HTML roles over specific CSS classes
+- Use data-testid attributes for elements that don't have semantic roles
+- Test for content/text rather than specific DOM structure when possible
+- Use container queries for loading states and animations rather than looking for specific text
+- When testing presence of elements, use document.querySelector within the test container rather than global document
+- For elements that appear multiple times, use getAllByText and verify at least one exists
+- Avoid testing specific positioning values that may change with design updates
+- Test for functionality outcomes rather than implementation details 
+
+## Examples
+
+<example>
+// Good - Testing sidebar visibility and positioning
+test('sidebar is visible and positioned correctly', () => {
+  render(<Sidebar />);
+  const sidebar = screen.getByRole('complementary');
+  
+  // Test visibility
+  expect(sidebar).toBeVisible();
+  
+  // Test positioning
+  const styles = window.getComputedStyle(sidebar);
+  expect(styles.position).toBe('fixed');
+  expect(styles.top).toBe('0px');
+  expect(styles.left).toBe('0px');
+  expect(styles.height).toBe('100vh');
+});
+</example>
+
+<example type="invalid">
+// Bad - Only testing logical rendering without visual verification
+test('sidebar renders', () => {
+  render(<Sidebar />);
+  expect(screen.getByRole('complementary')).toBeInTheDocument();
+});
+</example>
+
+<example>
+// Good - Testing responsive behavior
+test('header adapts to mobile viewport', () => {
+  // Mock mobile viewport
+  Object.defineProperty(window, 'innerWidth', {
+    writable: true,
+    configurable: true,
+    value: 390,
+  });
+  Object.defineProperty(window, 'innerHeight', {
+    writable: true,
+    configurable: true,
+    value: 844,
+  });
+  window.dispatchEvent(new Event('resize'));
+  
+  render(<Header />);
+  
+  // Mobile version should hide full name
+  expect(screen.queryByText('John Doe')).not.toBeInTheDocument();
+  
+  // But should still have user profile button
+  expect(screen.getByLabelText('User profile')).toBeInTheDocument();
+});
+</example>
+
+<example>
+// Good - Resilient test for loading state
+test('renders loading state correctly', () => {
+  (useOrganization as jest.Mock).mockReturnValue({
+    organization: null,
+    loading: true,
+    error: null,
+  });
+  const { container } = render(<Sidebar />);
+  
+  // Get loading element by container query
+  const loadingElement = container.querySelector('.dashboard-sidebar');
+  expect(loadingElement).toBeInTheDocument();
+  
+  // Verify loading animation exists without relying on text
+  const pulseElement = container.querySelector('.animate-pulse');
+  expect(pulseElement).toBeInTheDocument();
+});
+</example>
+
+<example>
+// Good - Handling multiple identical text elements
+test('user profile dropdown shows user info', () => {
+  render(<Header />);
+  
+  // Handle multiple elements with same text using getAllByText
+  const profileNames = screen.getAllByText('John Doe');
+  expect(profileNames.length).toBeGreaterThan(0);
+  
+  // Verify at least one visible instance
+  expect(profileNames[0]).toBeVisible();
+});
+</example>
+
+<example>
+// Good - Testing with different branding parameters
+test('component applies organization branding correctly', () => {
+  // Mock organization with custom branding
+  const customOrg = {
+    id: '123',
+    name: 'Custom Org',
+    logoUrl: '/custom-logo.png',
+    primaryColor: '#ff0000',
+    secondaryColor: '#f5f5f5',
+  };
+  
+  render(
+    <OrganizationProvider initialOrg={customOrg}>
+      <BrandedButton>Click Me</BrandedButton>
+    </OrganizationProvider>
+  );
+  
+  const button = screen.getByRole('button');
+  const styles = window.getComputedStyle(button);
+  
+  expect(styles.backgroundColor).toBe('rgb(255, 0, 0)'); // #ff0000
+});
+</example> 
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Component testing workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools
+- **`.cursor/tools/check-env-vars.sh`** - Test environment setup
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @030-visual-design-system.mdc - Design system to test
+- @042-ui-component-architecture.mdc - Component patterns
+- @054-accessibility-requirements.mdc - A11y testing requirements
+- @300-testing-standards.mdc - General testing standards
+- @320-test-resilience.mdc - Resilient component tests
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @390-systematic-frontend-testing.mdc - Frontend testing patterns
+
+### Quick Start
+1. **Review:** Component patterns in @042-ui-component-architecture.mdc
+2. **Test:** Visual appearance + accessibility
+3. **Follow:** @380-comprehensive-testing-standards.mdc

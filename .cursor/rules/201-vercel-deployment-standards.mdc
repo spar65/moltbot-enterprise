@@ -1,0 +1,383 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply consistent Vercel deployment standards when deploying to Vercel to ensure security, reliability, and performance
+globs: "**/*.{js,ts,jsx,tsx,json,md}"
+___
+
+# Vercel Deployment Standards
+
+## Context
+- VibeCoder is deployed to Vercel for production environments
+- Vercel provides specific features and configurations that must be properly utilized
+- Auth0 and Stripe integrations require special handling in Vercel environments
+- Environment variables must be correctly configured for proper operation
+- Security features in Vercel need specific configuration
+
+## Requirements
+
+### Environment Variable Configuration
+
+- **REQUIRED**: Set AUTH0_BASE_URL to match production domain exactly
+  ```
+  AUTH0_BASE_URL=https://your-exact-production-domain.us
+  ```
+  
+- **REQUIRED**: Never use VERCEL_URL for AUTH0_BASE_URL in production
+  ```typescript
+  // Bad: Using dynamic URL that changes between deployments
+  const baseUrl = process.env.VERCEL_URL || 'localhost:3000';
+  
+  // Good: Using explicit environment variable
+  const baseUrl = process.env.AUTH0_BASE_URL;
+  ```
+
+- **REQUIRED**: Use separate environment variables for different environments (Development, Preview, Production)
+  ```
+  # Development
+  AUTH0_CLIENT_ID=dev-client-id
+  
+  # Preview
+  AUTH0_CLIENT_ID=preview-client-id
+  
+  # Production
+  AUTH0_CLIENT_ID=prod-client-id
+  ```
+
+- **REQUIRED**: Use live Stripe keys for production, test keys for development/preview
+  ```
+  # Production
+  STRIPE_SECRET_KEY=sk_live_...
+  STRIPE_PUBLISHABLE_KEY=pk_live_...
+  
+  # Development/Preview
+  STRIPE_SECRET_KEY=sk_test_...
+  STRIPE_PUBLISHABLE_KEY=pk_test_...
+  ```
+
+### Build Configuration
+
+- **REQUIRED**: Include Auth0 configuration validation in build process
+  ```json
+  // package.json
+  {
+    "scripts": {
+      "build:vercel": "npm run auth0:check && next build",
+      "auth0:check": "node scripts/validate-auth0-config.js"
+    }
+  }
+  ```
+
+- **REQUIRED**: Configure proper Next.js build settings in Vercel dashboard
+  - Build Command: `npm run build:vercel`
+  - Output Directory: `.next`
+  - Install Command: `npm ci`
+
+- Use Node.js 18.x or later for all deployments
+  ```json
+  // package.json
+  {
+    "engines": {
+      "node": ">=18.0.0"
+    }
+  }
+  ```
+
+### Security Configuration
+
+- **REQUIRED**: Enable Vercel Advanced Protection for production deployments
+  1. Go to Vercel dashboard > Project Settings > Security
+  2. Enable "Advanced Protection"
+  3. Configure appropriate rate limiting rules
+
+- **REQUIRED**: Configure security headers in next.config.js
+  ```javascript
+  // next.config.js
+  module.exports = {
+    async headers() {
+      return [
+        {
+          source: '/(.*)',
+          headers: [
+            {
+              key: 'X-Content-Type-Options',
+              value: 'nosniff',
+            },
+            {
+              key: 'X-Frame-Options',
+              value: 'DENY',
+            },
+            {
+              key: 'X-XSS-Protection',
+              value: '1; mode=block',
+            },
+            {
+              key: 'Referrer-Policy',
+              value: 'strict-origin-when-cross-origin',
+            },
+            {
+              key: 'Content-Security-Policy',
+              value: `
+                default-src 'self';
+                script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://*.auth0.com;
+                style-src 'self' 'unsafe-inline';
+                img-src 'self' data: https://*.auth0.com https://*.stripe.com;
+                connect-src 'self' https://*.auth0.com https://api.stripe.com;
+                frame-src 'self' https://js.stripe.com https://*.auth0.com;
+                object-src 'none';
+              `.replace(/\s+/g, ' ').trim(),
+            },
+            {
+              key: 'Permissions-Policy',
+              value: 'camera=(), microphone=(), geolocation=()',
+            },
+          ],
+        },
+      ];
+    },
+  };
+  ```
+
+- Enable Bot Protection for production deployments
+  1. Go to Vercel dashboard > Project Settings > Security > Bot Protection
+  2. Enable "Bot Protection"
+  3. Configure appropriate challenge modes
+
+### Auth0 Integration
+
+- **REQUIRED**: Update Auth0 application settings with production URLs
+  - Allowed Callback URLs: `https://your-production-domain.us/api/auth/callback`
+  - Allowed Logout URLs: `https://your-production-domain.us`
+  - Allowed Web Origins: `https://your-production-domain.us`
+
+- **REQUIRED**: For preview environments, include wildcard URLs in Auth0 settings
+  ```
+  https://*.vercel.app/api/auth/callback
+  https://*.vercel.app
+  ```
+
+- **REQUIRED**: Set AUTH0_SECRET to a secure random value at least 32 characters long
+  ```
+  AUTH0_SECRET=at_least_32_chars_long_random_string
+  ```
+
+### Stripe Integration
+
+- **REQUIRED**: Update Stripe webhook endpoint URL for production
+  ```
+  https://your-production-domain.us/api/webhooks/stripe
+  ```
+
+- **REQUIRED**: Configure the following webhook events:
+  - `checkout.session.completed`
+  - `customer.subscription.created`
+  - `customer.subscription.updated`
+  - `customer.subscription.deleted`
+  - `invoice.payment_succeeded`
+  - `invoice.payment_failed`
+
+- **REQUIRED**: Use different webhook signing secrets for different environments
+  ```
+  # Production
+  STRIPE_WEBHOOK_SECRET=whsec_prod_...
+  
+  # Development/Preview
+  STRIPE_WEBHOOK_SECRET=whsec_test_...
+  ```
+
+### Database Configuration
+
+- **REQUIRED**: Use connection pooling for database connections
+  ```
+  # Without connection pooling
+  DATABASE_URL=postgresql://username:password@host:port/database
+  
+  # With connection pooling
+  DATABASE_URL=postgresql://username:password@pooler.host:port/database?sslmode=require
+  ```
+
+- **REQUIRED**: Configure proper database connection limits for serverless functions
+  ```javascript
+  // lib/db.js
+  import { Pool } from 'pg';
+
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    max: 10, // Adjust based on Vercel's serverless function limits
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+  });
+  ```
+
+### Monitoring and Logging
+
+- **REQUIRED**: Enable Vercel Analytics for production deployments
+  1. Go to Vercel dashboard > Project Settings > Analytics
+  2. Enable "Web Vitals"
+
+- Implement structured logging for serverless functions
+  ```javascript
+  // lib/logger.js
+  export function logEvent(type, data) {
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      type,
+      environment: process.env.VERCEL_ENV || 'development',
+      deploymentId: process.env.VERCEL_GITHUB_DEPLOYMENT_SHA || 'local',
+      ...data
+    }));
+  }
+  ```
+
+### Rollback Procedures
+
+- **REQUIRED**: Document rollback procedure using Vercel dashboard
+  1. Go to Vercel dashboard > Deployments
+  2. Find the last working deployment
+  3. Click the three dots menu and select "Promote to Production"
+
+- **REQUIRED**: Test rollback procedure after major deployments
+  1. Deploy a test change
+  2. Verify the rollback procedure works
+  3. Document any issues encountered
+
+## Examples
+
+<example>
+// Good: Auth0 configuration with proper environment-specific URLs
+// .env.production
+AUTH0_BASE_URL=https://vibecoder.com
+AUTH0_ISSUER_BASE_URL=https://your-tenant.auth0.com
+AUTH0_CLIENT_ID=production-client-id
+AUTH0_CLIENT_SECRET=production-client-secret
+
+// .env.preview
+AUTH0_BASE_URL=https://${VERCEL_URL}
+AUTH0_ISSUER_BASE_URL=https://your-tenant.auth0.com
+AUTH0_CLIENT_ID=preview-client-id
+AUTH0_CLIENT_SECRET=preview-client-secret
+</example>
+
+<example type="invalid">
+// Bad: Using VERCEL_URL for production Auth0 base URL
+// .env.production
+AUTH0_BASE_URL=https://${VERCEL_URL}  // This will break in production!
+AUTH0_ISSUER_BASE_URL=https://your-tenant.auth0.com
+AUTH0_CLIENT_ID=production-client-id
+AUTH0_CLIENT_SECRET=production-client-secret
+</example>
+
+<example>
+// Good: Next.js API route with proper error handling and logging
+// pages/api/webhooks/stripe.js
+import Stripe from 'stripe';
+import { buffer } from 'micro';
+import { logEvent } from '../../../lib/logger';
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+export default async function handler(req, res) {
+  try {
+    const rawBody = await buffer(req);
+    const signature = req.headers['stripe-signature'];
+    
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    
+    const event = stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+    
+    logEvent('stripe_webhook_received', { 
+      type: event.type,
+      id: event.id
+    });
+    
+    // Process event...
+    
+    res.status(200).json({ received: true });
+  } catch (error) {
+    logEvent('stripe_webhook_error', { 
+      error: error.message
+    });
+    
+    res.status(400).json({ error: error.message });
+  }
+}
+</example>
+
+<example type="invalid">
+// Bad: Hardcoded URLs that don't respect environment
+// lib/config.js
+export const config = {
+  apiUrl: 'https://vibecoder.com/api',  // Hardcoded production URL
+  authCallbackUrl: 'https://vibecoder.com/api/auth/callback',
+};
+</example>
+
+## Implementation Checklist
+
+- [ ] Configure environment variables for all environments (Development, Preview, Production)
+- [ ] Set up proper Auth0 configuration with environment-specific URLs
+- [ ] Configure Stripe webhooks for production environment
+- [ ] Enable Vercel Advanced Protection and Bot Protection
+- [ ] Configure security headers in next.config.js
+- [ ] Set up database connection pooling
+- [ ] Enable Vercel Analytics
+- [ ] Implement structured logging
+- [ ] Document and test rollback procedures
+- [ ] Set up post-deployment verification tests
+
+## Tools & Documentation
+
+### Related Tools
+- `.cursor/tools/check-infrastructure.sh` - Verify Vercel infrastructure health
+- `.cursor/tools/check-env-vars.sh` - Validate environment variable security
+- `.cursor/tools/check-backups.sh` - Verify database backup configuration
+- `.cursor/tools/analyze-costs.sh` - Monitor Vercel deployment costs
+
+### Related Guides
+- `guides/Monitoring-Complete-Guide.md` - Set up Vercel monitoring and alerting
+- `guides/Incident-Response-Complete-Guide.md` - Handle Vercel deployment incidents
+- `guides/Secrets-Management-Complete-Guide.md` - Manage Vercel environment variables
+- `guides/Cost-Optimization-Complete-Guide.md` - Optimize Vercel deployment costs
+
+### Related Rules
+- @200-deployment-infrastructure.mdc - General deployment standards
+- @202-rollback-procedures.mdc - Emergency rollback for Vercel
+- @203-ci-cd-pipeline-standards.mdc - Vercel CI/CD integration
+- @204-vercel-build-environment-variables.mdc - Build environment safety
+- @208-database-operations.mdc - Database connection management
+- @221-application-monitoring.mdc - Vercel monitoring setup
+- @224-secrets-management.mdc - Environment variable security
+- @226-cost-optimization.mdc - Vercel cost optimization
+
+## Quick Start
+
+1. **Verify Vercel infrastructure**
+   ```bash
+   ./.cursor/tools/check-infrastructure.sh production
+   ```
+
+2. **Validate environment variables**
+   ```bash
+   ./.cursor/tools/check-env-vars.sh
+   ```
+
+3. **Monitor deployment costs**
+   ```bash
+   ./.cursor/tools/analyze-costs.sh --period month
+   ```
+
+4. **Set up monitoring**
+   - Enable Vercel Analytics
+   - Configure alerts per @221-application-monitoring.mdc
+   - Follow `guides/Monitoring-Complete-Guide.md`

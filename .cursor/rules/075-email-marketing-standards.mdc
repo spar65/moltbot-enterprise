@@ -1,0 +1,93 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply email marketing standards when implementing any email communications to ensure compliance, effectiveness, and consistent user experience
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Email Marketing Standards
+
+## Compliance Requirements
+- Implement explicit consent collection for marketing emails
+- Store consent records with timestamp and source
+- Apply regional compliance variations (GDPR, CAN-SPAM, CASL, etc.)
+- Maintain audit trails of consent changes
+- Implement preference and subscription management
+- Honor unsubscribe requests within timeframes required by law
+
+## Content Guidelines
+- Apply consistent branding across all email communications
+- Implement mobile-responsive design for all templates
+- Use accessible design and content practices
+- Follow subject line best practices for deliverability
+- Include required legal footers and disclosures
+- Maintain proper text-to-image ratios
+
+## Email List Management
+- Implement proper list segmentation strategies
+- Apply regular list cleaning procedures
+- Use double opt-in for new subscriptions
+- Document list growth and management practices
+- Implement proper handling of bounces and complaints
+- Apply engagement-based sending frequency
+
+## See Also
+
+### Related Rules
+- @076-mailchimp-integration-standards.mdc - MailChimp integration and API
+- @077-user-communication-standards.mdc - User communication best practices
+- @078-email-deliverability-standards.mdc - Deliverability and sender reputation
+- @079-email-accessibility-standards.mdc - Accessible email design
+- @080-email-effectiveness-tracking.mdc - Email metrics and ROI tracking
+- @081-cross-platform-integration.mdc - Cross-platform customer data integration
+- @082-email-automation-optimization.mdc - Email automation workflows
+- @083-lifecycle-marketing-automation.mdc - Lifecycle marketing strategies
+- @010-security-compliance.mdc - Data privacy and security compliance
+- @011-env-var-security.mdc - Secure credential management
+- @025-multi-tenancy.mdc - Multi-tenant data isolation
+
+### Tools & Documentation
+- **`.cursor/tools/check-email-compliance.sh`** - Email compliance checker
+  ```bash
+  ./.cursor/tools/check-email-compliance.sh
+  # Validates: GDPR, CAN-SPAM, CASL compliance, consent tracking
+  ```
+- **`.cursor/tools/audit-email-lists.sh`** - Email list health audit
+  ```bash
+  ./.cursor/tools/audit-email-lists.sh
+  # Checks: Bounces, complaints, engagement, list hygiene
+  ```
+
+### Comprehensive Guides
+- **`guides/Email-Compliance-Guide.md`** ⭐ **ESSENTIAL** - Complete compliance guide
+- **`guides/Email-MailChimp-Integration-Guide.md`** - MailChimp setup and list management
+- **`guides/Email-Analytics-Guide.md`** - Email analytics and segmentation
+- **`guides/Email-Template-Development-Guide.md`** - Template development standards
+
+### Quick Start - Email Marketing Setup
+
+```bash
+# 1. Implement consent collection
+# Add double opt-in, store consent timestamps, provide preference center
+
+# 2. Set up compliance tracking
+./.cursor/tools/check-email-compliance.sh
+
+# 3. Configure list management
+# Set up segmentation, implement list cleaning procedures
+
+# 4. Audit list health
+./.cursor/tools/audit-email-lists.sh
+
+# 5. Monitor compliance
+# Regular audits, honor unsubscribes within legal timeframes
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P0 (Required)  
+**Last Updated**: November 20, 2025

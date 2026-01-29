@@ -1,0 +1,488 @@
+---
+description: 
+globs: ""
+alwaysApply: false
+---
+description: Use when analyzing code patterns, suggesting improvements, or generating code that aligns with project standards
+globs: "**/*.{js,ts,jsx,tsx,py,java,c,cpp,go,rb,php,swift,rs}"
+
+# Cursor Coding Pattern & Guidelines
+
+These guidelines instruct Cursor how to analyze, suggest, and generate code when operating independently from human guidance.
+
+---
+
+## Core Principles
+
+### Always prefer simple solutions
+- Recommend clarity and minimal complexity in code suggestions.
+- Recommend straightforward implementations over clever or complex solutions.
+- When multiple implementation options exist, recommend the most readable option first.
+
+### Avoid duplication of code
+- Identify duplicated code patterns and recommend refactoring opportunities.
+- Before recommending new implementations, scan for similar functionality in the codebase.
+- Recommend appropriate abstractions for repeated code (functions, classes, mixins).
+- Always check for other areas of the codebase that might already have similar code and functionality.
+
+### Account for different environments
+- Detect environment-specific code and recommend proper configuration methods.
+- Warn about hardcoded environment values and recommend environment variable usage.
+- Recommend environment-specific configurations in appropriate files.
+- Write code that takes into account the different environments: dev, test, and prod.
+
+### Make only requested or clearly understood changes
+- Limit code recommendations to the specific task at hand.
+- Avoid recommending unrelated changes or improvements during focused tasks.
+- Flag potential scope creep in recommended implementations.
+- You are careful to only make changes that are requested or you are confident are well understood and related to the change being requested.
+- Focus on the areas of code relevant to the task.
+- Do not touch code that is unrelated to the task.
+
+### Use existing patterns before introducing new ones
+- Analyze codebase for established patterns before recommending alternatives.
+- When recommending fixes, prioritize approaches consistent with existing code.
+- If recommending a new pattern, provide clear rationale and implementation details.
+- Always look for existing code to iterate on instead of creating new code.
+- Do not drastically change the patterns before trying to iterate on existing patterns.
+- When fixing an issue or bug, do not introduce a new pattern or technology without first exhausting all options for the existing implementation. And if you finally do this, make sure to remove the old implementation afterwards so we don't have duplicate logic.
+- Avoid making major changes to the patterns and architecture of how a feature works, after it has shown to work well, unless explicitly instructed.
+
+### Keep the codebase very clean and organized
+- Recommend proper file organization when detecting structural issues.
+- Recommend cleaning unused imports, variables, and functions.
+- Enforce consistent naming conventions within language contexts.
+- Keep the codebase very clean and organized.
+- Avoid having files over 200-300 lines of code. Refactor at that point.
+
+### Avoid writing scripts in files if they're only run once
+- Identify one-off script code and recommend moving to separate utility files.
+- Recommend script extraction for code that isn't part of core application logic.
+- Recommend appropriate locations for utility scripts within project structure.
+- Avoid writing scripts in files if possible, especially if the script is likely only to be run once.
+
+### Avoid having files over 200–300 lines of code
+- Alert when files exceed 300 lines and recommend refactoring opportunities.
+- Identify logical boundaries for splitting large files.
+- Provide specific recommendations for extracting components, classes, or modules.
+
+### Mocking data is only needed for tests
+- Flag mock data implementations in non-test code.
+- Recommend moving mock data to appropriate test directories.
+- Provide guidance on implementing proper test fixtures.
+- Mocking data is only needed for tests, never mock data for dev or prod.
+- Never add stubbing or fake data patterns to code that affects the dev or prod environments.
+
+### Never overwrite the `.env` file without first asking
+- Alert when operations would modify `.env` files.
+- Recommend using `.env.example` for demonstrating required variables.
+- Recommend proper environment variable management patterns.
+- Never overwrite .env file without first asking and confirming.
+
+### Write self-documenting code where possible
+- Recommend using meaningful variable and function names that convey intent.
+- Recommend minimizing comments by making code naturally readable.
+- Example: Prefer `calculateTotalPrice(items)` over `calc(items)` with a comment explaining it.
+
+### Server Management Best Practices
+- After making changes, ALWAYS make sure to start up a new server so I can test it.
+- Always kill all existing related servers that may have been created in previous testing before trying to start a new server.
+
+### Comprehensive Testing
+- Write thorough tests for all major functionality.
+- Ensure test coverage for new features and bug fixes.
+- Test edge cases and error conditions.
+
+### Impact Analysis
+- Always think about what other methods and areas of code might be affected by code changes.
+- Consider side effects of code changes on other parts of the application.
+
+---
+
+## AI-Assisted Coding Guidelines
+
+### 1. Code Style & Consistency
+
+**Style Enforcement:**
+- Recommend fixes for style violations using detected standards.
+- Enforce PEP 8 for Python, ESLint for JavaScript, etc.
+- Python - https: //peps.python.org/pep-0008/
+- JavaScript - https://google.github.io/styleguide/jsguide.html
+- HTML - https://html.spec.whatwg.org/
+- Flutter - https://github.com/flutter/flutter/wiki/Style-guide-for-Flutter-repo
+- TypeScript - https://mkosir.github.io/typescript-style-guide/
+- SQL - https://www.sqlstyle.guide
+- Swift - https://swift.org/documentation/api-design-guidelines/
+- Smalltalk GemStone/S - https://downloads.gemtalksystems.com/docs/GemStone64/3.4.x/GS64-ProgGuide-3.4/GS64-ProgGuide-3.4.htm?https://downloads.gemtalksystems.com/docs/GemStone64/3.4.x/GS64-ProgGuide-3.4/1-IntroToGemStone.htm
+- Default to community standards if no rules are detected.
+
+**Naming Recommendations:**
+- Recommend descriptive, consistent names (variables, functions, classes).
+- Match naming style to project conventions.
+- Flag inconsistent patterns.
+
+**Formatting Assistance:**
+- Recommend proper indentation, spacing, and bracket usage.
+- Fix inconsistent formatting.
+- Recommend line breaks for readability.
+
+**Linting Integration:**
+- Parse `.editorconfig`, `.eslintrc`, `pyproject.toml`, etc.
+- Respect project-specific linting rules.
+
+---
+
+### 2. Documentation Generation
+
+**Docstring Assistance:**
+- Recommend docstrings for functions and classes using appropriate format.
+- Include parameters, returns, and summaries.
+
+**Comment Recommendations:**
+- Recommend comments for complex logic or edge cases.
+- Focus on "why" instead of "what".
+
+**README Generation:**
+- Generate README templates with structure, setup, and usage.
+- Include CLI or API documentation when appropriate.
+
+**API Documentation:**
+- Detect endpoints, recommend OpenAPI/Swagger.
+- Generate sample requests/responses.
+
+---
+
+### 3. Testing Suggestions
+
+**Test Coverage:**
+- Recommend tests for new code and untested paths.
+- Generate test templates.
+
+**Framework Detection:**
+- Use appropriate frameworks (pytest, Jest, etc.).
+
+**Test Organization:**
+- Recommend correct file locations and naming.
+- Mirror implementation structure.
+
+**Mock Generation:**
+- Generate mocks for dependencies.
+- Keep mocks in test files.
+
+---
+
+### 4. Error Handling & Logging
+
+**Error Detection:**
+- Flag inadequate error handling.
+- Recommend specific exception types.
+
+**Logging Recommendations:**
+- Recommend consistent log patterns.
+- Use appropriate log levels.
+
+**Fallback Recommendations:**
+- Recommend graceful failures and default values.
+
+---
+
+### 5. Performance Optimization
+
+**Complexity Analysis:**
+- Flag inefficient patterns.
+- Recommend better algorithms.
+
+**Optimization Recommendations:**
+- Recommend caching, query optimization.
+- Identify performance bottlenecks.
+- Recommend optimizations only when profiling data indicates a performance bottleneck.
+
+**Premature Optimization Warning:**
+- Warn against optimizing without profiling.
+- Prioritize readability.
+
+---
+
+### 6. Security Enhancement
+
+**Vulnerability Detection:**
+- Flag security issues like SQL injection or XSS.
+
+**Secrets Management:**
+- Detect hardcoded secrets, recommend env vars.
+- Avoid logging sensitive data.
+
+**Input Validation:**
+- Recommend sanitization and validation.
+
+**Language-Specific Security Tips:**
+- For Python, recommend using the `secrets` module instead of `random` for secure tokens.
+- For JavaScript, recommend parameterized queries (e.g., `db.query("SELECT * FROM users WHERE id = ?", [userId])`) over string concatenation.
+
+---
+
+### 7. Context-Aware Assistance
+
+**Project Pattern Learning:**
+- Learn from codebase patterns and style.
+
+**Adaptive Recommendations:**
+- Tailor recommendations to complexity and skill level.
+
+**Framework-Specific Knowledge:**
+- Recommend best practices for detected frameworks.
+
+**Learning Mode:**
+- Adapt recommendations based on feedback.
+
+---
+
+### 8. Refactoring Intelligence
+
+**Technical Debt Identification:**
+- Flag code smells, recommend refactoring.
+
+**Incremental Improvement:**
+- Recommend small improvements that preserve behavior.
+
+**Comprehensive Refactoring:**
+- Offer large-scale changes with plans and examples.
+
+---
+
+### 9. Implementation Guidance
+
+**Solution Discovery:**
+- Scan for similar implementations.
+
+**Code Generation:**
+- Provide full code, handle edge cases.
+
+**Interactive Refinement:**
+- Ask for clarification, iterate as needed.
+
+---
+
+### 10. Automation Rules
+
+**Automatic Enforcement:**
+- Enforce file size, function size, style, and secret rules.
+
+**Warning Thresholds:**
+- Warn for near-limit files and complexity issues.
+
+**Recommendation Levels:**
+- Categorize as:
+  - **Critical:** Security vulnerabilities (e.g., SQL injection), error-prone patterns (e.g., unhandled exceptions).
+  - **Recommended:** Style improvements (e.g., consistent naming), performance optimizations (e.g., caching).
+  - **Optional:** Alternative implementations (e.g., using a different algorithm), subjective preferences (e.g., single vs. double quotes).
+
+---
+
+### 11. Code Review Assistance
+- Recommend checks for common review tasks, such as ensuring all changes are covered by tests.
+- Recommend verifying that documentation is updated for modified code.
+- Flag missing edge case handling or incomplete error management.
+- Example: "Recommend adding a test for the null input case in this function."
+
+---
+
+### 12. Internationalization and Localization
+- Recommend using translation keys instead of hardcoded strings in user-facing code.
+- Recommend frameworks like `i18n` for detected languages (e.g., Python, JavaScript).
+- Example: Replace "Hello, user!" with translate("greeting.user").
+
+---
+
+## Implementation Examples
+
+### Identifying Duplicated Code
+
+```python
+# Original code with duplication
+def process_user_data(user_data):
+    # Extract user information
+    name = user_data.get('name', 'Unknown')
+    email = user_data.get('email', 'no-email@example.com')
+    
+    # Validate email format
+    if '@' not in email or '.' not in email:
+        return {"error": "Invalid email format"}
+    
+    # Process user data
+    return {"status": "success", "user": {"name": name, "email": email}}
+
+def process_admin_data(admin_data):
+    # Extract admin information
+    name = admin_data.get('name', 'Unknown')
+    email = admin_data.get('email', 'no-email@example.com')
+    
+    # Validate email format
+    if '@' not in email or '.' not in email:
+        return {"error": "Invalid email format"}
+    
+    # Process admin data
+    return {"status": "success", "admin": {"name": name, "email": email}}
+
+Cursor recommendation:
+python
+
+# Extract common validation function
+def validate_email(email):
+    """Validate email format.
+    
+    Args:
+        email: Email string to validate
+        
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    return '@' in email and '.' in email
+
+def process_user_data(user_data):
+    # Extract user information
+    name = user_data.get('name', 'Unknown')
+    email = user_data.get('email', 'no-email@example.com')
+    
+    # Validate email format
+    if not validate_email(email):
+        return {"error": "Invalid email format"}
+    
+    # Process user data
+    return {"status": "success", "user": {"name": name, "email": email}}
+
+def process_admin_data(admin_data):
+    # Extract admin information
+    name = admin_data.get('name', 'Unknown')
+    email = admin_data.get('email', 'no-email@example.com')
+    
+    # Validate email format
+    if not validate_email(email):
+        return {"error": "Invalid email format"}
+    
+    # Process admin data
+    return {"status": "success", "admin": {"name": name, "email": email}}
+
+Refactoring Large Files
+When a file exceeds 300 lines, Cursor will recommend splitting it based on logical boundaries:
+Cursor recommendation:
+
+This file has grown to 347 lines and should be refactored into smaller modules.
+Suggested split:
+
+1. Move UserAuthentication class (lines 120-210) to auth/user_authentication.py
+2. Move AdminAuthentication class (lines 211-290) to auth/admin_authentication.py
+3. Keep base Authentication class in the current file
+4. Update imports in affected files
+
+Security Enhancement (Python Example)
+python
+
+# Original code with hardcoded secret
+API_KEY = "xyz123"
+
+Cursor recommendation:
+python
+
+# Security issue: Hardcoded secret detected
+# Use environment variables instead
+import os
+API_KEY = os.getenv("API_KEY", "default-key")
+
+Security Enhancement (JavaScript Example)
+javascript
+
+// Original code with security issue
+app.get('/api/user/:id', (req, res) => {
+  const userId = req.params.id;
+  const query = `SELECT * FROM users WHERE id = ${userId}`;
+  
+  db.query(query, (err, result) => {
+    if (err) {
+      res.status(500).send("Error retrieving user");
+    } else {
+      res.json(result);
+    }
+  });
+});
+
+Cursor recommendation:
+javascript
+
+// Security issue detected: SQL injection vulnerability
+// Using parameterized queries instead
+app.get('/api/user/:id', (req, res) => {
+  const userId = req.params.id;
+  const query = "SELECT * FROM users WHERE id = ?";
+  
+  db.query(query, [userId], (err, result) => {
+    if (err) {
+      res.status(500).send("Error retrieving user");
+    } else {
+      res.json(result);
+    }
+  });
+});
+
+Refactoring Example (JavaScript)
+javascript
+
+// Original large function (300+ lines)
+function handleUserRequest(req) {
+  const user = authenticateUser(req);
+  // ... rest of the logic ...
+}
+
+Cursor recommendation:
+javascript
+
+// Refactor into smaller modules
+// Move to auth.js
+function authenticateUser(req) {
+  // ... authentication logic ...
+}
+
+// Keep in original file
+function handleUserRequest(req) {
+  const user = authenticateUser(req);
+  // ... rest of the logic ...
+}
+
+## Implementation Checklist
+
+- [ ] Keep code simple and avoid unnecessary complexity
+- [ ] Avoid code duplication by checking for existing similar functionality first
+- [ ] Break down files over 200-300 lines into smaller, focused modules
+- [ ] Use descriptive variable and function names that convey intent
+- [ ] Follow established patterns in the codebase before introducing new ones
+- [ ] Add appropriate error handling with specific error types
+- [ ] Write comprehensive tests for all major functionality
+- [ ] Implement proper input validation and sanitization
+- [ ] Keep mocks and test data in test files only, not in production code
+- [ ] Document complex logic or non-obvious design decisions
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - AI-assisted development workflows
+- **`.cursor/docs/rules-guide.md`** - How to use the rules system
+- **`003-cursor-system-overview.mdc`** ⭐ - System overview (READ THIS FIRST)
+
+### Complete Guides
+- **`guides/Code-Review-Complete-Guide.md`** ⭐ - Code review best practices
+- **`guides/Git-Workflow-Complete-Guide.md`** ⭐ - Git workflow and commits
+
+### Related Rules
+- @101-code-review-standards.mdc - Code review checklist
+- @802-git-workflow-standards.mdc - Git branching and commits
+- @105-typescript-linter-standards.mdc - TypeScript standards
+- @130-logging-standards.mdc - Logging patterns
+- @131-error-handling.mdc - Error handling standards
+- @150-technical-debt-prevention.mdc - Technical debt prevention
+
+### Quick Start
+1. **Follow patterns:** Look for existing code patterns first
+2. **Keep it simple:** Prefer clarity over cleverness
+3. **Be consistent:** Match the style of surrounding code
+4. **Test your code:** Add tests for new functionality
+

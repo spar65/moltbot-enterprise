@@ -1,0 +1,550 @@
+---
+description:
+globs: ""
+alwaysApply: false
+---
+
+description: Use ALWAYS as the primary source of development guidelines for all projects
+globs: "\*_/_"
+
+# Comprehensive Development Guidelines
+
+This file serves as the **primary entry point** for all development guidelines. It is **always applied** to every AI session and provides the foundation for all development work.
+
+## 🚀 Critical System Resources (START HERE!)
+
+Before using any rule, familiarize yourself with these essential resources:
+
+### 📚 **Essential Documentation (READ FIRST!)**
+
+- **@003-cursor-system-overview.mdc** ⭐ **MUST READ** - Complete system overview
+
+  - Full documentation guide (`.cursor/docs/`)
+  - Automation tools reference (`.cursor/tools/`)
+  - Battle-tested workflows (95%+ success rate)
+  - Quick start for new sessions
+
+- **@002-rule-application.mdc** ⭐ **CRITICAL** - Rule priority system and Source of Truth Hierarchy
+
+  - P0 (Required) vs P1 (Important) vs P2 (Nice to Have)
+  - Schema-First development (Prisma schema is the source of truth)
+  - When to apply which rules
+
+- **@000-cursor-rules-registry2.mdc** ⭐ **REFERENCE** - Complete catalog of all 152 rules
+  - Organized by domain (Security, Testing, Deployment, etc.)
+  - Quick reference sections for common scenarios
+  - Cross-referenced tools and guides
+
+### 🛠️ **Automation Tools** (`.cursor/tools/`)
+
+Essential tools for validation and automation:
+
+**Schema & Database**:
+
+- `.cursor/tools/inspect-model.sh` - **ALWAYS use before database work!**
+- `.cursor/tools/check-schema-changes.sh` - Validate schema before committing
+- `.cursor/tools/check-backups.sh` - Verify database backups
+
+**Security**:
+
+- `.cursor/tools/check-env-vars.sh` - Validate environment variable security
+- `.cursor/tools/check-auth-config.sh` - Validate Auth0 configuration
+- `.cursor/tools/scan-secrets.sh` - Detect hardcoded secrets
+- `.cursor/tools/audit-dependencies.sh` - Security vulnerability scanning
+
+**Deployment**:
+
+- `.cursor/tools/pre-deployment-check.sh` - **REQUIRED before production deploy!**
+- `.cursor/tools/validate-deployment.sh` - Post-deployment health check
+
+**Performance**:
+
+- `.cursor/tools/run-lighthouse.sh` - Lighthouse performance audit
+- `.cursor/tools/check-bundle-size.sh` - Bundle size analysis
+- `.cursor/tools/analyze-performance.sh` - Comprehensive performance analysis
+
+**Infrastructure**:
+
+- `.cursor/tools/check-infrastructure.sh` - Verify infrastructure health
+- `.cursor/tools/verify-infrastructure-reality.sh` - **NEW** Verify actual config matches documentation
+- `.cursor/tools/test-recovery.sh` - Test disaster recovery procedures
+
+### 📖 **Comprehensive Guides** (`guides/`)
+
+Complete implementation guides for major domains:
+
+- `guides/API-Database-Testing-Complete-Guide.md` - API & database testing patterns
+- `guides/Multi-Tenant-Architecture-Complete-Guide.md` - Multi-tenancy patterns
+- `guides/Deployment-Workflow-Complete-Guide.md` - Complete deployment workflow
+- `guides/Frontend-Performance-Complete-Guide.md` - **MASTER** performance guide
+- `guides/Monitoring-Complete-Guide.md` - Application & infrastructure monitoring
+- `guides/Incident-Response-Complete-Guide.md` - Emergency response procedures
+- `guides/Code-Review-Complete-Guide.md` - Code review standards
+- `guides/Git-Workflow-Complete-Guide.md` - Git branching and collaboration
+
+### 🎯 **Quick Start for AI Sessions**
+
+**Every New Session Should**:
+
+1. Read @003-cursor-system-overview.mdc for context
+2. Check @000-cursor-rules-registry2.mdc for relevant rules
+3. Use `.cursor/tools/inspect-model.sh` before database work
+4. Reference specific domain rules as needed
+5. Use automation tools for validation
+
+**Time Savings**: These resources save 2-4 hours per feature, 70-90% reduction in debugging time
+
+---
+
+## Table of Contents
+
+- [Coding Patterns](mdc:#coding-patterns)
+- [Testing Framework](mdc:#testing-framework)
+- [Workflow Guidelines](mdc:#workflow-guidelines)
+- [Deployment & Infrastructure](mdc:#deployment-and-infrastructure)
+- [Integration & Third-Party Dependencies](mdc:#integration-and-third-party-dependencies)
+- [Operations & Incident Management](mdc:#operations-and-incident-management)
+- [Security & Compliance](mdc:#security-and-compliance)
+- [Technical Stack](mdc:#technical-stack)
+- [UX & Design Standards](mdc:#ux-and-design-standards)
+- [Frontend Development](mdc:#frontend-development)
+- [Performance & Optimization](mdc:#performance-and-optimization)
+- [Logging Standards](mdc:#logging-standards)
+- [Troubleshooting Standards](mdc:#troubleshooting-standards)
+- [Multi-tenancy & Platform Structure](mdc:#multi-tenancy-and-platform-structure)
+- [Rules Management](mdc:#rules-management)
+- [Key Development Principles](mdc:#key-development-principles)
+
+## Included Guidelines
+
+```mdc
+@include(./001-cursor-rules.mdc)
+@include(./010-security-compliance.mdc)
+@include(./011-env-var-security.mdc)
+@include(./012-api-security.mdc)
+@include(./013-dependency-auditing.mdc)
+@include(./014-third-party-auth.mdc)
+@include(./015-white-labeling.mdc)
+@include(./016-platform-hierarchy.mdc)
+@include(./020-payment-security.mdc)
+@include(./025-multi-tenancy.mdc)
+@include(./030-visual-style-consolidated.mdc)
+@include(./040-ux-stability.mdc)
+@include(./045-ux-enhancements.mdc)
+@include(./045-browser-history-management.mdc)
+@include(./046-session-validation.mdc)
+@include(./047-security-design-system.mdc)
+@include(./048-cross-tab-coordination.mdc)
+@include(./050-css-architecture.mdc)
+@include(./060-api-standards.mdc)
+@include(./100-coding-patterns.mdc)
+@include(./110-integration-dependencies.mdc)
+@include(./120-technical-stack.mdc)
+@include(./130-logging-standards.mdc)
+@include(./130-error-handling.mdc)
+@include(./140-troubleshooting-standards.mdc)
+@include(./200-deployment-infrastructure.mdc)
+@include(./210-operations-incidents.mdc)
+@include(./220-security-monitoring.mdc)
+@include(./300-testing-standards.mdc)
+@include(./310-component-visual-testing.mdc)
+@include(./320-test-resilience.mdc)
+@include(./330-third-party-integration-testing.mdc)
+@include(./331-high-risk-feature-testing.mdc)
+@include(./800-workflow-guidelines.mdc)
+```
+
+## Key Development Principles
+
+The following critical principles have been incorporated across our development guidelines:
+
+### Code Quality & Maintenance
+
+- Always prefer simple solutions
+- Always look for existing code to iterate on instead of creating new code
+- Do not drastically change the patterns before trying to iterate on existing patterns
+- Avoid duplication of code whenever possible, checking for other areas with similar code
+- Keep the codebase very clean and organized
+- Avoid having files over 200-300 lines of code
+- Focus on the areas of code relevant to the task
+- Do not touch code that is unrelated to the task
+- When fixing an issue, exhaust all options before introducing new patterns
+
+### Environment Management
+
+- Write code that takes into account different environments: dev, test, and prod
+- After making changes, ALWAYS start up a new server to test
+- Always kill existing related servers before starting a new server
+- Never overwrite .env files without first asking and confirming
+- **NEVER expose sensitive environment variables in client-side code**
+- **NEVER share screenshots or recordings showing environment variables**
+- Clearly distinguish between client-side and server-side environment variables
+- Mocking data is only needed for tests, never mock data for dev or prod
+- Never add stubbing or fake data patterns to code affecting dev/prod environments
+
+### Testing & Quality Assurance
+
+- Write thorough tests for all major functionality
+- Ensure proper test coverage for new features and changes
+- **REQUIRED**: Test critical high-risk features extensively (payments, subscriptions, etc.)
+- **REQUIRED**: Always reference official documentation when testing third-party integrations
+- Always think about what other methods and areas might be affected by code changes
+- Be careful to only make changes that are requested or well understood
+- Run `npm audit` before deployments and resolve high/critical vulnerabilities
+
+### Security Requirements
+
+- Rate limit all API endpoints to prevent abuse
+- Use row-level security (RLS) for all data access in multi-tenant systems
+- Implement CAPTCHA on all authentication routes and signup pages
+- Enable WAF attack challenge modes on hosting platforms like Vercel
+- Follow proper API security protocols for all endpoints
+- Never expose sensitive data in responses or logs
+- **REQUIRED**: Use established authentication providers instead of custom solutions
+- **REQUIRED**: Run dependency security audits before deployments
+
+## Coding Patterns
+
+Standards for code structure, organization, and implementation:
+
+```mdc
+@include(./100-coding-patterns.mdc)
+```
+
+## Testing Framework
+
+Our testing approach emphasizes visual consistency, test resilience, and comprehensive coverage:
+
+```mdc
+@include(./300-testing-standards.mdc)
+@include(./310-component-visual-testing.mdc)
+@include(./320-test-resilience.mdc)
+@include(./043-test-organization.mdc)
+@include(./044-integration-testing.mdc)
+@include(./330-third-party-integration-testing.mdc)
+@include(./331-high-risk-feature-testing.mdc)
+```
+
+## Security & Compliance
+
+Guidelines for maintaining security and compliance standards:
+
+```mdc
+@include(./010-security-compliance.mdc)
+@include(./011-env-var-security.mdc)
+@include(./012-api-security.mdc)
+@include(./013-dependency-auditing.mdc)
+@include(./014-third-party-auth.mdc)
+@include(./020-payment-security.mdc)
+@include(./046-session-validation.mdc)
+@include(./047-security-design-system.mdc)
+@include(./220-security-monitoring.mdc)
+```
+
+## UX & Design Standards
+
+Standards for user experience and visual design:
+
+```mdc
+@include(./030-visual-style-consolidated.mdc)
+@include(./040-ux-stability.mdc)
+@include(./045-ux-enhancements.mdc)
+@include(./047-security-design-system.mdc)
+@include(./050-css-architecture.mdc)
+```
+
+## Frontend Development
+
+Guidelines for frontend implementation, including CSS and component structure:
+
+```mdc
+@include(./042-ui-component-architecture.mdc)
+@include(./050-css-architecture.mdc)
+@include(./051-interaction-patterns.mdc)
+@include(./052-responsive-design.mdc)
+@include(./053-animation-standards.mdc)
+@include(./054-accessibility-requirements.mdc)
+@include(./055-form-validation.mdc)
+```
+
+## Performance & Optimization
+
+Standards for application performance and optimization:
+
+```mdc
+@include(./060-performance-metrics.mdc)
+@include(./061-code-splitting.mdc)
+@include(./062-optimization.mdc)
+```
+
+## Multi-tenancy & Platform Structure
+
+Guidelines for multi-tenancy, white-labeling, and platform organization:
+
+```mdc
+@include(./015-white-labeling.mdc)
+@include(./016-platform-hierarchy.mdc)
+@include(./025-multi-tenancy.mdc)
+```
+
+## Browser & Session Management
+
+Standards for managing browser history, sessions, and cross-tab coordination:
+
+```mdc
+@include(./045-browser-history-management.mdc)
+@include(./046-session-validation.mdc)
+@include(./048-cross-tab-coordination.mdc)
+```
+
+## Deployment & Infrastructure
+
+Guidelines for deployment processes and infrastructure management:
+
+```mdc
+@include(./200-deployment-infrastructure.mdc)
+@include(./220-security-monitoring.mdc)
+```
+
+## Operations & Incident Management
+
+Standards for operational procedures and incident handling:
+
+```mdc
+@include(./210-operations-incidents.mdc)
+```
+
+## Integration & Third-Party Dependencies
+
+Guidelines for integrating with external systems and managing dependencies:
+
+```mdc
+@include(./110-integration-dependencies.mdc)
+@include(./013-dependency-auditing.mdc)
+@include(./014-third-party-auth.mdc)
+@include(./330-third-party-integration-testing.mdc)
+```
+
+## Technical Stack
+
+Standards for technology selection and usage:
+
+```mdc
+@include(./120-technical-stack.mdc)
+```
+
+## Logging & Troubleshooting
+
+Guidelines for logging and troubleshooting:
+
+```mdc
+@include(./130-logging-standards.mdc)
+@include(./140-troubleshooting-standards.mdc)
+```
+
+## Workflow Guidelines
+
+Standards for development workflows:
+
+```mdc
+@include(./800-workflow-guidelines.mdc)
+```
+
+## Rules Management
+
+For managing Cursor rules themselves, refer to:
+
+```mdc
+@include(./001-cursor-rules.mdc)
+```
+
+The rule system works as follows:
+
+- Use this file (000-core-guidelines.mdc) as the primary source for development guidelines in all projects
+- **For a complete registry of all rules, refer to @000-cursor-rules-registry2.mdc** ⭐
+- For the Cursor system overview, refer to @003-cursor-system-overview.mdc
+- For new repositories, apply these guidelines by default
+- For existing repositories, check for project-specific rules in the repository's `.cursor/rules/` directory
+- When creating or updating Cursor rules, follow the conventions in @001-cursor-rules.mdc
+
+## Usage
+
+These guidelines apply to all projects and should be followed by all team members. Use these guidelines as a reference when:
+
+1. Developing new features
+2. Fixing bugs
+3. Creating tests
+4. Reviewing code
+5. Setting up infrastructure
+6. Handling incidents
+7. Selecting technologies
+8. Implementing UI layouts or CSS
+
+The AI assistant has been trained to understand and follow these guidelines when providing assistance.
+
+---
+
+## See Also
+
+### Essential Resources (ALWAYS Check These First!)
+
+**System Documentation**:
+
+- **@003-cursor-system-overview.mdc** ⭐ **START HERE** - Complete system overview
+
+  - Documentation guide
+  - Automation tools
+  - Proven workflows
+  - Quick start for new sessions
+
+- **@002-rule-application.mdc** ⭐ **CRITICAL** - Rule priority system
+
+  - P0 (Required) vs P1 (Important) vs P2 (Nice to Have)
+  - Schema-First development principles
+  - Source of Truth Hierarchy
+
+- **@000-cursor-rules-registry2.mdc** ⭐ **REFERENCE** - Complete rule catalog
+  - 152 rules organized by domain
+  - Quick reference sections
+  - Cross-referenced tools and guides
+
+**Rule Creation & Management**:
+
+- **@001-cursor-rules.mdc** - Rule template and standards
+  - Enhanced pattern with "See Also" sections
+  - Cross-reference guidelines
+  - Complete examples
+
+### Domain-Specific Quick References
+
+**For Database Work**:
+
+1. Use `.cursor/tools/inspect-model.sh YourModel` **BEFORE** writing any code
+2. Follow @375-api-test-first-time-right.mdc for API tests
+3. Follow @376-database-test-isolation.mdc for database tests
+4. Reference `guides/API-Database-Testing-Complete-Guide.md`
+
+**For Deployment**:
+
+1. Run `.cursor/tools/pre-deployment-check.sh` **BEFORE** deploying
+2. Follow @203-production-deployment-safety.mdc
+3. Check @202-vercel-production-gotchas.mdc for Vercel-specific issues
+4. Reference `guides/Deployment-Workflow-Complete-Guide.md`
+
+**For Security**:
+
+1. Run `.cursor/tools/check-env-vars.sh` to validate environment variables
+2. Run `.cursor/tools/check-auth-config.sh` to validate Auth0
+3. Follow @012-api-security.mdc for API endpoints
+4. Follow @224-secrets-management.mdc for credentials
+
+**For Performance**:
+
+1. Run `.cursor/tools/analyze-performance.sh` for baseline
+2. Follow @062-core-web-vitals.mdc for Core Web Vitals
+3. Run `.cursor/tools/check-bundle-size.sh` for bundle analysis
+4. Reference `guides/Frontend-Performance-Complete-Guide.md` **MASTER**
+
+**For Testing**:
+
+1. Follow @380-comprehensive-testing-standards.mdc **UNIVERSAL FRAMEWORK**
+2. Follow @300-testing-standards.mdc for general testing
+3. Use @350-debug-test-failures.mdc for systematic debugging
+4. Reference `guides/API-Database-Testing-Complete-Guide.md`
+
+**For Multi-Tenancy**:
+
+1. Follow @025-multi-tenancy.mdc for isolation patterns
+2. Follow @016-platform-hierarchy.mdc for hierarchy
+3. Reference `guides/Multi-Tenant-Architecture-Complete-Guide.md`
+
+### Critical Workflows
+
+**Schema-First Development** (ALWAYS Follow):
+
+```bash
+# 1. Check schema before ANY database work
+./.cursor/tools/inspect-model.sh YourModel
+
+# 2. Make schema changes
+# Edit prisma/schema.prisma
+
+# 3. Create migration
+npx prisma migrate dev --name your-change
+
+# 4. Validate schema changes
+./.cursor/tools/check-schema-changes.sh
+
+# 5. Write tests using actual schema fields
+```
+
+**Pre-Deployment Workflow** (REQUIRED):
+
+```bash
+# 1. Run all safety checks
+./.cursor/tools/pre-deployment-check.sh
+
+# 2. Deploy to staging
+# Create PR and test preview
+
+# 3. Validate staging
+# Manual testing + automated checks
+
+# 4. Deploy to production
+# Merge PR to main
+
+# 5. Validate production
+./.cursor/tools/validate-deployment.sh https://yourdomain.com
+```
+
+### Common Scenarios
+
+| Scenario                    | What to Use                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| **Starting new feature**    | @003-cursor-system-overview.mdc + @000-cursor-rules-registry2.mdc               |
+| **Writing API test**        | `.cursor/tools/inspect-model.sh` + @375-api-test-first-time-right.mdc           |
+| **Database test**           | `.cursor/tools/inspect-model.sh` + @376-database-test-isolation.mdc             |
+| **Deploying to production** | `.cursor/tools/pre-deployment-check.sh` + @203-production-deployment-safety.mdc |
+| **Performance issue**       | `.cursor/tools/analyze-performance.sh` + @062-core-web-vitals.mdc               |
+| **Security audit**          | `.cursor/tools/check-env-vars.sh` + @012-api-security.mdc                       |
+| **Test failures**           | @350-debug-test-failures.mdc + @380-comprehensive-testing-standards.mdc         |
+| **Multi-tenant feature**    | @025-multi-tenancy.mdc + `guides/Multi-Tenant-Architecture-Complete-Guide.md`   |
+
+### Resource Hierarchy
+
+**When looking for information, check in this order**:
+
+1. **Prisma Schema** (`prisma/schema.prisma`) - **SOURCE OF TRUTH** for data models
+2. **Generated Types** (`@prisma/client`) - Type definitions from schema
+3. **Specific Rules** (`@rule-name.mdc`) - Domain-specific standards
+4. **Comprehensive Guides** (`guides/*.md`) - Detailed implementation guidance
+5. **Tools** (`.cursor/tools/*.sh`) - Automated validation
+6. **Documentation** (`.cursor/docs/*.md`) - Workflow patterns
+7. **This File** (`000-core-guidelines.mdc`) - High-level principles
+
+**Never guess or assume** - always check the actual schema and generated types!
+
+### Getting Help
+
+**For AI Sessions**:
+
+- Start with @003-cursor-system-overview.mdc
+- Check @000-cursor-rules-registry2.mdc for relevant domain
+- Use `.cursor/tools/inspect-model.sh` for database structure
+- Reference comprehensive guides for detailed patterns
+
+**For Developers**:
+
+- Review `.cursor/docs/rules-guide.md` (3,500 words)
+- Review `.cursor/docs/tools-guide.md` (2,500 words)
+- Review `.cursor/docs/ai-workflows.md` (3,000 words)
+- Check domain-specific comprehensive guides
+
+---
+
+**Last Updated**: November 20, 2025  
+**Status**: Production-Ready  
+**Total Rules**: 152  
+**Total Tools**: 15+  
+**Total Guides**: 12+  
+**Coverage**: Complete development lifecycle

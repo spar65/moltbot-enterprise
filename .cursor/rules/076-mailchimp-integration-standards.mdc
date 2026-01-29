@@ -1,0 +1,101 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply MailChimp integration standards when implementing email marketing features to ensure reliable, maintainable, and effective email operations
+globs: "src/{lib,pages/api}/**/*.{js,jsx,ts,tsx}"
+___
+
+# MailChimp Integration Standards
+
+## API Implementation
+- Use official MailChimp API client libraries
+- Implement proper API key management and security
+- Apply rate limiting and quota management
+- Handle API errors with appropriate retry logic
+- Log API interactions for troubleshooting
+- Document API version dependencies
+
+## Data Synchronization
+- Implement reliable user data synchronization
+- Apply proper field mapping for user attributes
+- Handle merges and updates consistently
+- Implement batch operations for efficiency
+- Create audit logs for synchronization activities
+- Validate data integrity after synchronization
+
+## Behavioral Trigger Automation
+- Implement onboarding email sequences for new users
+- Create re-engagement campaigns for inactive subscribers
+- Apply cart abandonment and feature usage triggers
+- Implement lifecycle-based communication flows
+- Create win-back campaigns for churned users
+- Document automation trigger logic and timing
+
+## Template Management
+- Implement version control for email templates
+- Apply testing procedures for template updates
+- Create reusable template components
+- Document template structure and variables
+- Implement preview and testing workflows
+- Apply proper template deployment processes
+
+## See Also
+
+### Related Rules
+- @075-email-marketing-standards.mdc - Email marketing standards and compliance
+- @077-user-communication-standards.mdc - User communication strategy
+- @078-email-deliverability-standards.mdc - Email deliverability optimization
+- @079-email-accessibility-standards.mdc - Accessible email design
+- @080-email-effectiveness-tracking.mdc - Email effectiveness metrics
+- @081-cross-platform-integration.mdc - Cross-platform customer data integration
+- @082-email-automation-optimization.mdc - Automation workflow optimization
+- @083-lifecycle-marketing-automation.mdc - Lifecycle marketing automation
+- @011-env-var-security.mdc - API key security and management
+- @012-api-security.mdc - API security best practices
+- @224-secrets-management.mdc - Secrets management standards
+
+### Tools & Documentation
+- **`.cursor/tools/test-mailchimp-connection.sh`** - MailChimp API connection tester
+  ```bash
+  ./.cursor/tools/test-mailchimp-connection.sh
+  # Tests: API connectivity, authentication, list access, quota status
+  ```
+- **`.cursor/tools/sync-mailchimp-data.sh`** - MailChimp data synchronization tool
+  ```bash
+  ./.cursor/tools/sync-mailchimp-data.sh --mode full
+  # Syncs: User data, tags, segments, custom fields
+  ```
+
+### Comprehensive Guides
+- **`guides/Email-MailChimp-Integration-Guide.md`** ⭐ **ESSENTIAL** - Complete MailChimp integration
+- **`guides/Email-Template-Development-Guide.md`** - Email template best practices
+- **`guides/Email-Automation-Guide.md`** - Automation workflow setup
+- **`guides/Email-Analytics-Guide.md`** - MailChimp analytics integration
+
+### Quick Start - MailChimp Integration
+
+```bash
+# 1. Set up API credentials
+# Add MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX to .env
+
+# 2. Test API connection
+./.cursor/tools/test-mailchimp-connection.sh
+
+# 3. Configure data synchronization
+# Map user fields, set up sync schedules
+
+# 4. Test data sync
+./.cursor/tools/sync-mailchimp-data.sh --mode test
+
+# 5. Set up automation workflows
+# Create triggers, sequences, templates in MailChimp
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important)  
+**Last Updated**: November 20, 2025

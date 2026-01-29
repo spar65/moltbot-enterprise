@@ -1,0 +1,697 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply webhook processing standards when implementing event handlers to ensure reliable asynchronous operations
+globs: "src/pages/api/webhooks/**/*.{js,jsx,ts,tsx}"
+___
+
+# Webhook Processing Standards
+
+## Endpoint Implementation
+- Create dedicated API routes for webhook handling with appropriate middleware setup
+- Implement proper HTTP response codes (200 for success, 4xx for client errors, 5xx for server errors)
+- Return early success response before extensive processing to prevent timeouts
+- Apply proper middleware exclusions for webhook routes (e.g., disable body parsing)
+- Document all supported webhook event types with expected payloads
+- Implement proper rate limiting and DDoS protection for webhook endpoints
+
+## Event Verification
+- Validate webhook signatures using Stripe SDK's constructEvent method
+- Implement timestamp tolerance checking to prevent replay attacks
+- Apply proper error handling for invalid signatures with detailed logging
+- Store webhook secrets securely in environment variables
+- Implement testing with Stripe CLI in development environments
+- Create robust error messages for signature verification failures
+
+## Event Processing
+- Implement idempotent event handling to prevent duplicate processing
+- Store event IDs in database to track processed events
+- Create dedicated handlers for each event type with proper error boundaries
+- Apply proper database transaction handling to ensure data consistency
+- Implement circuit breaker pattern for downstream service dependencies
+- Use proper queuing for long-running webhook processing tasks
+
+## Error Handling
+- Log detailed error information for failed processing with appropriate context
+- Implement dead-letter queue for failed events that require manual intervention
+- Create automated retry mechanism for recoverable errors with exponential backoff
+- Set up alerts for critical webhook failures that require immediate attention
+- Document recovery procedures for common failure scenarios
+- Implement proper monitoring for webhook processing success rates
+- Capture enhanced error context to facilitate HitList analysis and debugging
+
+## Advanced Event Handling
+- Handle out-of-order event delivery with proper state reconciliation
+- Implement event replay capabilities for debugging and recovery
+- Create comprehensive metrics dashboard for webhook processing
+- Apply proper webhook version handling for API compatibility
+- Document webhook event dependencies and processing order requirements
+- Implement proper handling for webhook delivery delays
+
+## Circuit Breaker Implementation
+- Add circuit breaker pattern to prevent cascading failures
+- Implement proper failure counting and threshold configuration
+- Create half-open state for recovery after timeout period
+- Apply proper logging for circuit state changes
+- Implement fallback mechanisms when circuit is open
+- Monitor circuit breaker status as part of system health
+
+## Integration Health Checks
+- Implement continuous validation to catch integration issues early
+- Create health check endpoints that verify webhook configuration
+- Monitor webhook processing success rates and backlogs
+- Validate database schema consistency with webhook event models
+- Implement alerting for degraded webhook health status
+- Provide detailed diagnostics for webhook processing issues
+
+## Examples
+
+<example>
+// Good: Proper webhook endpoint with signature verification and early response
+import { buffer } from 'micro';
+import { NextApiRequest, NextApiResponse } from 'next';
+import Stripe from 'stripe';
+import { stripe } from '@/lib/stripe';
+import { processWebhookEvent } from '@/services/webhook-service';
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const signature = req.headers['stripe-signature'] as string;
+  if (!signature) {
+    return res.status(400).json({ error: 'Missing signature header' });
+  }
+
+  try {
+    // Get raw body for signature verification
+    const rawBody = await buffer(req);
+    
+    // Verify the signature
+    const event = stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET!
+    );
+    
+    // Process asynchronously after returning response
+    res.status(200).json({ received: true });
+    
+    // Process the event after response is sent
+    await processWebhookEvent(event).catch(error => {
+      console.error(`Error processing webhook ${event.id}:`, error);
+    });
+  } catch (error) {
+    console.error('Webhook error:', error);
+    return res.status(400).json({ error: `Webhook Error: ${error.message}` });
+  }
+}
+</example>
+
+<example type="invalid">
+// Bad: No signature verification and blocks response on processing
+export default async function handler(req, res) {
+  // No signature verification
+  const event = req.body;
+  
+  // Blocks response until processing completes
+  try {
+    await processStripeEvent(event);
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.log('Error:', error);
+    res.status(500).json({ error: 'Failed' });
+  }
+}
+</example>
+
+<example>
+// Good: Idempotent event processing with transaction handling
+import { prisma } from '@/lib/prisma';
+
+async function processStripeEvent(event) {
+  // Check if we've already processed this event
+  const existingEvent = await prisma.stripeEvent.findUnique({
+    where: { id: event.id },
+  });
+  
+  if (existingEvent?.processed) {
+    console.log(`Event ${event.id} already processed, skipping`);
+    return;
+  }
+  
+  // Process in a transaction
+  await prisma.$transaction(async (tx) => {
+    // Create or update event record
+    await tx.stripeEvent.upsert({
+      where: { id: event.id },
+      update: { 
+        processed: false,
+        processingAttempts: { increment: 1 },
+      },
+      create: {
+        id: event.id,
+        type: event.type,
+        processed: false,
+        processingAttempts: 1,
+        data: event.data.object,
+      },
+    });
+    
+    // Process based on event type
+    switch (event.type) {
+      case 'payment_intent.succeeded':
+        await handlePaymentSuccess(tx, event.data.object);
+        break;
+      // Other event types...
+    }
+    
+    // Mark as processed
+    await tx.stripeEvent.update({
+      where: { id: event.id },
+      data: { processed: true },
+    });
+  });
+}
+</example>
+
+<example type="invalid">
+// Bad: Non-idempotent event handling without transaction
+async function handleStripeWebhook(event) {
+  // No check for duplicate events
+  
+  // No transaction for consistency
+  if (event.type === 'payment_intent.succeeded') {
+    await markOrderPaid(event.data.object.metadata.orderId);
+    await createSubscription(event.data.object.customer);
+    // If second operation fails, first is still committed
+  }
+}
+</example>
+
+<example>
+// Good: Circuit breaker implementation for webhook processing
+class WebhookCircuitBreaker {
+  private failureCount = 0;
+  private lastFailureTime = 0;
+  private readonly threshold = 5;
+  private readonly timeout = 30000; // 30 seconds
+
+  private isOpen(): boolean {
+    if (this.failureCount < this.threshold) {
+      return false;
+    }
+    
+    const now = Date.now();
+    if (now - this.lastFailureTime > this.timeout) {
+      this.failureCount = 0;
+      return false;
+    }
+    
+    return true;
+  }
+  
+  private onSuccess(): void {
+    this.failureCount = 0;
+  }
+  
+  private onFailure(): void {
+    this.failureCount++;
+    this.lastFailureTime = Date.now();
+  }
+
+  async execute(webhookFn: () => Promise<void>): Promise<void> {
+    if (this.isOpen()) {
+      throw new Error('Circuit breaker is open');
+    }
+
+    try {
+      await webhookFn();
+      this.onSuccess();
+    } catch (error) {
+      this.onFailure();
+      throw error;
+    }
+  }
+}
+</example>
+
+<example type="invalid">
+// Bad: No resilience patterns for webhook processing
+async function processWebhook(event) {
+  // Direct calls to external services without circuit breaker
+  await stripeApi.retrieveCustomer(event.data.object.customer);
+  await databaseService.updateSubscription(event.data.object.id);
+  await emailService.sendConfirmation(event.data.object.email);
+  // If any service fails, the webhook processing fails entirely
+}
+</example>
+
+<example>
+// Good: Enhanced error context for HitList analysis
+// src/lib/webhook-logger.ts
+import { logger } from '@/lib/logger';
+import Stripe from 'stripe';
+
+interface WebhookContext {
+  // Event-specific context
+  eventId: string;
+  eventType: string;
+  eventApiVersion?: string;
+  accountId?: string;
+  
+  // Processing context
+  processingAttempt: number;
+  processingDuration?: number;
+  
+  // Service context
+  stripeSDKVersion?: string;
+  authVersion?: string;
+  middlewareConfig?: any;
+  databaseSchema?: any;
+  
+  // Environment context
+  environment: string;
+  nodeVersion: string;
+  timestamp: string;
+  
+  // Request context
+  requestId: string;
+  userAgent?: string;
+  ipAddress?: string;
+}
+
+export function logWebhookError(error: any, context: WebhookContext) {
+  // Capture detailed context for debugging and HitList analysis
+  logger.error("Webhook processing failed", {
+    error: {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      type: error.type,
+      statusCode: error.statusCode,
+    },
+    
+    // Event context
+    event: {
+      id: context.eventId,
+      type: context.eventType,
+      apiVersion: context.eventApiVersion,
+      accountId: context.accountId,
+    },
+    
+    // Processing metadata
+    processing: {
+      attempt: context.processingAttempt,
+      duration: context.processingDuration,
+    },
+    
+    // HitList-friendly context
+    versions: {
+      stripeSDK: context.stripeSDKVersion || Stripe.VERSION,
+      auth: context.authVersion || process.env.AUTH0_VERSION,
+      node: context.nodeVersion || process.version,
+    },
+    
+    // Configuration context
+    config: {
+      middleware: context.middlewareConfig,
+      databaseSchema: context.databaseSchema,
+      environment: context.environment || process.env.NODE_ENV,
+    },
+    
+    // Request context
+    request: {
+      id: context.requestId,
+      userAgent: context.userAgent,
+      ipAddress: context.ipAddress,
+    },
+    
+    // Timestamp
+    timestamp: context.timestamp || new Date().toISOString(),
+  });
+}
+
+// Helper to collect middleware configuration for diagnostics
+export function getMiddlewareConfig() {
+  try {
+    // This would typically load middleware configuration from the project
+    const fs = require('fs');
+    const path = require('path');
+    
+    const middlewarePath = path.join(process.cwd(), 'src', 'middleware.ts');
+    if (fs.existsSync(middlewarePath)) {
+      const content = fs.readFileSync(middlewarePath, 'utf8');
+      
+      // Extract matcher patterns
+      const matcherPattern = /matcher:\s*\[([\s\S]*?)\]/;
+      const match = content.match(matcherPattern);
+      
+      if (match && match[1]) {
+        return {
+          hasMiddleware: true,
+          matcherPatterns: match[1].split(',').map(s => s.trim()),
+          excludesWebhooks: !match[1].includes('/api/webhooks'),
+        };
+      }
+    }
+    
+    return { hasMiddleware: false };
+  } catch (error) {
+    return { 
+      hasMiddleware: null, 
+      error: error.message
+    };
+  }
+}
+
+// Usage example in webhook handler
+async function processWebhookWithDetailedLogging(event: Stripe.Event, req: any) {
+  const startTime = Date.now();
+  let processingAttempt = 1;
+  
+  try {
+    // Get existing event to check if this is a retry
+    const existingEvent = await prisma.webhookEvent.findUnique({
+      where: { stripeEventId: event.id },
+    });
+    
+    if (existingEvent) {
+      processingAttempt = existingEvent.processingAttempts + 1;
+    }
+    
+    // Process the event
+    await processWebhookEvent(event);
+    
+    // Log success with metrics
+    const duration = Date.now() - startTime;
+    logger.info('Webhook processed successfully', {
+      eventId: event.id,
+      eventType: event.type,
+      duration,
+      attempt: processingAttempt,
+    });
+  } catch (error) {
+    // Log error with enhanced context
+    const context: WebhookContext = {
+      eventId: event.id,
+      eventType: event.type,
+      eventApiVersion: event.api_version,
+      accountId: event.account,
+      processingAttempt,
+      processingDuration: Date.now() - startTime,
+      stripeSDKVersion: Stripe.VERSION,
+      authVersion: process.env.AUTH0_VERSION,
+      middlewareConfig: getMiddlewareConfig(),
+      environment: process.env.NODE_ENV || 'development',
+      nodeVersion: process.version,
+      timestamp: new Date().toISOString(),
+      requestId: req.headers['x-request-id'] || `webhook_${event.id}`,
+      userAgent: req.headers['user-agent'],
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+    };
+    
+    logWebhookError(error, context);
+    
+    // Re-throw for retry handling
+    throw error;
+  }
+}
+</example>
+
+<example>
+// Good: Integration health checks for webhook processing
+// src/utils/health/webhook-health.ts
+import { prisma } from '@/lib/prisma';
+import { stripe } from '@/lib/stripe';
+
+interface HealthCheckResult {
+  name: string;
+  status: 'healthy' | 'unhealthy' | 'error';
+  details: any;
+  timestamp: string;
+}
+
+export class WebhookHealthCheck {
+  async runHealthChecks(): Promise<HealthCheckResult[]> {
+    return Promise.all([
+      this.checkWebhookEndpointConfiguration(),
+      this.checkWebhookProcessingHealth(),
+      this.checkDatabaseConsistency(),
+      this.checkCircuitBreakerStatus(),
+    ]);
+  }
+  
+  private async checkWebhookEndpointConfiguration(): Promise<HealthCheckResult> {
+    try {
+      // Check if webhooks are properly configured in Stripe dashboard
+      const webhookEndpoints = await stripe.webhookEndpoints.list({
+        limit: 100,
+      });
+      
+      // Check if we have a webhook for this environment
+      const currentHost = process.env.APP_URL || '';
+      const hasMatchingEndpoint = webhookEndpoints.data.some(endpoint => 
+        endpoint.url.includes(currentHost) || 
+        (process.env.NODE_ENV !== 'production' && endpoint.url.includes('localhost'))
+      );
+      
+      // Check webhook events configuration
+      const hasRequiredEvents = webhookEndpoints.data.some(endpoint => {
+        const events = endpoint.enabled_events;
+        return (
+          events.includes('customer.subscription.created') &&
+          events.includes('customer.subscription.updated') &&
+          events.includes('customer.subscription.deleted') &&
+          events.includes('invoice.payment_succeeded') &&
+          events.includes('payment_intent.succeeded')
+        );
+      });
+      
+      const isHealthy = hasMatchingEndpoint && hasRequiredEvents;
+      
+      return {
+        name: 'Webhook Endpoint Configuration',
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        details: {
+          hasMatchingEndpoint,
+          hasRequiredEvents,
+          endpointCount: webhookEndpoints.data.length,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        name: 'Webhook Endpoint Configuration',
+        status: 'error',
+        details: {
+          error: error.message,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+  
+  private async checkWebhookProcessingHealth(): Promise<HealthCheckResult> {
+    try {
+      // Check recent webhook processing success rate
+      const recentEvents = await prisma.webhookEvent.findMany({
+        where: {
+          createdAt: {
+            gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: 100,
+      });
+      
+      // Calculate success rate
+      const totalEvents = recentEvents.length;
+      const successfulEvents = recentEvents.filter(event => event.processed).length;
+      const successRate = totalEvents > 0 ? successfulEvents / totalEvents : 1;
+      
+      // Check for processing backlog
+      const backlogEvents = await prisma.webhookEvent.count({
+        where: {
+          processed: false,
+          createdAt: {
+            lte: new Date(Date.now() - 15 * 60 * 1000), // Older than 15 minutes
+          },
+        },
+      });
+      
+      // Check for repeated failures
+      const repeatedFailures = await prisma.webhookEvent.count({
+        where: {
+          processed: false,
+          processingAttempts: {
+            gte: 3, // 3 or more attempts
+          },
+        },
+      });
+      
+      const isHealthy = successRate >= 0.95 && backlogEvents === 0 && repeatedFailures === 0;
+      
+      return {
+        name: 'Webhook Processing Health',
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        details: {
+          successRate,
+          backlogEvents,
+          repeatedFailures,
+          recentEventCount: totalEvents,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        name: 'Webhook Processing Health',
+        status: 'error',
+        details: {
+          error: error.message,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+  
+  private async checkDatabaseConsistency(): Promise<HealthCheckResult> {
+    try {
+      // Check for subscription consistency
+      const subscriptionsCount = await prisma.subscription.count();
+      
+      // Check for orphaned subscriptions (without users)
+      const orphanedSubscriptions = await prisma.$queryRaw`
+        SELECT COUNT(*) as count 
+        FROM "Subscription" s 
+        LEFT JOIN "User" u ON s.user_id = u.id 
+        WHERE u.id IS NULL
+      `;
+      
+      // Check for subscriptions with invalid status
+      const invalidStatusSubscriptions = await prisma.subscription.count({
+        where: {
+          status: {
+            notIn: ['active', 'past_due', 'unpaid', 'canceled', 'incomplete', 'incomplete_expired', 'trialing'],
+          },
+        },
+      });
+      
+      const isHealthy = 
+        orphanedSubscriptions[0].count === 0 && 
+        invalidStatusSubscriptions === 0;
+      
+      return {
+        name: 'Database Consistency',
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        details: {
+          subscriptionsCount,
+          orphanedSubscriptions: orphanedSubscriptions[0].count,
+          invalidStatusSubscriptions,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        name: 'Database Consistency',
+        status: 'error',
+        details: {
+          error: error.message,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+  
+  private async checkCircuitBreakerStatus(): Promise<HealthCheckResult> {
+    try {
+      // This would typically check a stored circuit breaker state
+      // For example, it might query a cache or database record
+      
+      // Simplified example:
+      const circuitBreakerStatus = {
+        isOpen: false,
+        failureCount: 0,
+        lastFailureTime: null,
+      };
+      
+      return {
+        name: 'Circuit Breaker Status',
+        status: circuitBreakerStatus.isOpen ? 'unhealthy' : 'healthy',
+        details: circuitBreakerStatus,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        name: 'Circuit Breaker Status',
+        status: 'error',
+        details: {
+          error: error.message,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+}
+
+// API endpoint to run health checks
+export async function webhookHealthCheckHandler(req, res) {
+  const healthChecker = new WebhookHealthCheck();
+  
+  try {
+    const results = await healthChecker.runHealthChecks();
+    
+    // Calculate overall health
+    const isHealthy = results.every(r => r.status === 'healthy');
+    
+    res.status(isHealthy ? 200 : 500).json({
+      status: isHealthy ? 'healthy' : 'unhealthy',
+      checks: results,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Webhook security
+- **`.cursor/docs/security-checklist.md#payment-security-if-applicable`** - Webhook validation
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Check webhook secret exposure
+- **`.cursor/tools/check-env-vars.sh`** - Validate webhook configuration
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @020-payment-security.mdc - Payment security (critical!)
+- @020-stripe-integration.mdc - Stripe patterns
+- @021-stripe-sync-implementation.mdc - Stripe sync via webhooks
+- @069-stripe-webhook-debugging.mdc - Webhook debugging
+- @078-payment-testing-standards.mdc - Testing webhooks
+- @331-high-risk-feature-testing.mdc - Critical testing
+
+### Quick Start
+1. **Security:** `.cursor/tools/scan-secrets.sh` (webhook secrets)
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Test:** See @078-payment-testing-standards.mdc

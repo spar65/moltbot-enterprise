@@ -1,0 +1,789 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply payment testing standards when testing payment integrations to ensure reliable test coverage without tight coupling to implementation details
+globs: "tests/**/*.{js,jsx,ts,tsx}"
+___
+
+# Payment Testing Standards
+
+## Test Environment Configuration
+- Use payment provider test mode and test keys for all test environments
+- Configure separate test API keys for different test environments
+- Never use production API keys in tests, even for reading operations
+- Document required environment variables for payment tests
+- Implement proper mocking of payment provider APIs
+- Create dedicated test environments that don't affect production data
+
+## Mock Implementation
+- Create mock factory functions for payment provider objects and responses
+- Implement consistent mocking strategy for payment provider API calls
+- Use type-safe mock implementations that match production interfaces
+- Define reusable fixtures for common payment scenarios
+- Document expected behavior of mocked payment functions
+- Implement proper error simulation for payment failure scenarios
+
+## Authentication Handling
+- Define clear strategies for handling test authentication sessions
+- Create mock authentication utilities for payment tests
+- Implement proper session simulation for authenticated payment flows
+- Document authentication requirements for payment tests
+- Ensure mocked sessions match the structure expected by payment code
+- Test both authenticated and unauthenticated scenarios
+
+## Webhook Testing
+- Create test utilities for simulating webhook events
+- Implement comprehensive test cases for webhook processing
+- Test idempotency of webhook handlers with duplicate events
+- Verify proper database updates from webhook processing
+- Document expected database state after webhook events
+- Test error handling and recovery in webhook processing
+
+## Test Assertions
+- Use flexible test assertions that aren't tightly coupled to implementation details
+- Implement assertion helpers for common payment validation patterns
+- Verify business outcomes rather than implementation details
+- Document expected behavior for payment operations
+- Add appropriate timeout configuration for payment operation tests
+- Implement proper cleanup of test data after payment tests
+
+## Test Isolation
+- Add explicit test skip options for payment tests that can't be automated
+- Implement proper isolation between payment tests
+- Use transaction rollback for database operations in tests
+- Reset mocks between test cases to prevent test pollution
+- Document test dependencies and prerequisites
+- Ensure payment tests can run independently of each other
+
+## Implementation-Agnostic Testing
+- Focus on testing behaviors and outcomes rather than specific implementations
+- Design tests that can survive code refactoring and dependency updates
+- Avoid testing specific file paths or directory structures that might change
+- Use flexible patterns to locate and validate code functionality
+- Create tests that verify integration existence without hardcoded paths
+- Implement behavior-based validation that survives implementation changes
+
+## Examples
+
+<example>
+// Good: Flexible test assertion for Stripe API response
+import { describe, it, expect, beforeEach } from 'vitest';
+import { createMockUser } from '../factories/user';
+import { createMockPriceId } from '../factories/stripe';
+import { createSubscription } from '../../src/lib/stripe/subscription';
+
+// Mock the Stripe client
+vi.mock('../../src/lib/stripe/client', () => ({
+  stripe: {
+    subscriptions: {
+      create: vi.fn().mockResolvedValue({
+        id: 'sub_123',
+        status: 'active',
+        current_period_end: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+        items: {
+          data: [{ price: { id: 'price_123' } }]
+        }
+      })
+    }
+  }
+}));
+
+describe('Subscription Service', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should properly handle subscription creation', async () => {
+    // Arrange
+    const mockUser = createMockUser();
+    const mockPriceId = createMockPriceId();
+    
+    // Act
+    const result = await createSubscription(mockUser, mockPriceId);
+    
+    // Assert
+    expect(result).toHaveProperty('id');
+    expect(result).toHaveProperty('status');
+    
+    // Flexible assertion that won't break with implementation changes
+    expect(stripe.subscriptions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customer: expect.any(String),
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            price: mockPriceId
+          })
+        ])
+      })
+    );
+  });
+});
+</example>
+
+<example type="invalid">
+// Bad: Brittle test with tight coupling to implementation details
+it('should create a subscription', async () => {
+  // Arrange
+  const user = { id: '123', email: 'user@example.com' };
+  const priceId = 'price_123';
+  
+  // Act
+  const result = await createSubscription(user, priceId);
+  
+  // Assert
+  // Brittle assertion that will break if implementation changes
+  expect(stripe.subscriptions.create).toHaveBeenCalledWith({
+    customer: 'cus_123',
+    items: [{ price: 'price_123' }],
+    payment_behavior: 'default_incomplete',
+    payment_settings: {
+      save_default_payment_method: 'on_subscription',
+    },
+    expand: ['latest_invoice.payment_intent'],
+  });
+});
+</example>
+
+<example>
+// Good: Mock factory functions for Stripe objects
+// test/factories/stripe.ts
+export function createMockStripeCustomer(overrides = {}) {
+  return {
+    id: `cus_${Math.random().toString(36).substring(2, 10)}`,
+    name: 'Test Customer',
+    email: 'test@example.com',
+    created: Math.floor(Date.now() / 1000),
+    ...overrides
+  };
+}
+
+export function createMockStripeSubscription(overrides = {}) {
+  return {
+    id: `sub_${Math.random().toString(36).substring(2, 10)}`,
+    status: 'active',
+    current_period_start: Math.floor(Date.now() / 1000),
+    current_period_end: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+    items: {
+      data: [
+        {
+          id: `si_${Math.random().toString(36).substring(2, 10)}`,
+          price: {
+            id: overrides.priceId || `price_${Math.random().toString(36).substring(2, 10)}`,
+            product: `prod_${Math.random().toString(36).substring(2, 10)}`,
+          }
+        }
+      ]
+    },
+    ...overrides
+  };
+}
+
+export function createMockStripeEvent(type, data, overrides = {}) {
+  return {
+    id: `evt_${Math.random().toString(36).substring(2, 10)}`,
+    object: 'event',
+    created: Math.floor(Date.now() / 1000),
+    type,
+    data: {
+      object: data
+    },
+    ...overrides
+  };
+}
+</example>
+
+<example type="invalid">
+// Bad: Hardcoded mock responses
+// Hardcoded values may not cover all required properties
+// No flexibility for different test cases
+const mockSubscription = {
+  id: 'sub_123',
+  status: 'active',
+  // Missing many Stripe properties that may be needed
+};
+
+// No helper for creating different event types
+const mockEvent = {
+  id: 'evt_123',
+  type: 'customer.subscription.created',
+  data: {
+    object: mockSubscription
+  }
+};
+</example>
+
+<example>
+// Good: Webhook test with proper assertions
+// tests/webhooks/stripe-webhooks.test.ts
+import { describe, it, expect, beforeEach } from 'vitest';
+import { processWebhookEvent } from '../../src/lib/webhooks';
+import { createMockStripeEvent, createMockStripeSubscription } from '../factories/stripe';
+import { prisma } from '../../src/lib/prisma';
+
+// Mock database client
+vi.mock('../../src/lib/prisma', () => ({
+  prisma: {
+    subscription: {
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    user: {
+      update: vi.fn(),
+    },
+    webhookEvent: {
+      create: vi.fn(),
+      findUnique: vi.fn(),
+    },
+    $transaction: vi.fn((callback) => callback(prisma))
+  }
+}));
+
+describe('Stripe Webhook Processing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should process subscription created event', async () => {
+    // Arrange
+    prisma.webhookEvent.findUnique.mockResolvedValue(null); // Event not processed yet
+    
+    const mockSubscription = createMockStripeSubscription({
+      customer: 'cus_123',
+      status: 'active',
+      priceId: 'price_premium'
+    });
+    
+    const mockEvent = createMockStripeEvent(
+      'customer.subscription.created',
+      mockSubscription
+    );
+    
+    // Mock finding the user
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user_123',
+      email: 'test@example.com',
+      stripeCustomerId: 'cus_123'
+    });
+    
+    // Act
+    await processWebhookEvent(mockEvent);
+    
+    // Assert
+    
+    // Check that the webhook event was recorded
+    expect(prisma.webhookEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          stripeEventId: mockEvent.id,
+          eventType: mockEvent.type,
+          processed: true,
+        }
+      })
+    );
+    
+    // Check that the subscription was created in our database
+    expect(prisma.subscription.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          stripeSubscriptionId: mockSubscription.id,
+          status: mockSubscription.status,
+          userId: 'user_123',
+        })
+      })
+    );
+  });
+
+  it('should handle idempotent webhook processing', async () => {
+    // Arrange - Event already processed
+    prisma.webhookEvent.findUnique.mockResolvedValue({
+      id: 'webhook_123',
+      stripeEventId: 'evt_123',
+      processed: true
+    });
+    
+    const mockSubscription = createMockStripeSubscription();
+    const mockEvent = createMockStripeEvent(
+      'customer.subscription.created',
+      mockSubscription
+    );
+    
+    // Act
+    await processWebhookEvent(mockEvent);
+    
+    // Assert - No database operations should occur
+    expect(prisma.subscription.create).not.toHaveBeenCalled();
+    expect(prisma.subscription.update).not.toHaveBeenCalled();
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+});
+</example>
+
+<example type="invalid">
+// Bad: Testing specific implementation details
+it('tests payment webhook implementation details', async () => {
+  // Create mock event
+  const event = {
+    id: 'evt_123',
+    type: 'customer.subscription.created',
+    data: { 
+      object: { id: 'sub_123', customer: 'cus_123', status: 'active' } 
+    }
+  };
+  
+  // Process the event
+  await processWebhookEvent(event);
+  
+  // Brittle assertions that will break with implementation changes
+  expect(dbClient.query).toHaveBeenCalledWith(
+    'INSERT INTO webhook_events (stripe_event_id, event_type, event_data) VALUES ($1, $2, $3)',
+    ['evt_123', 'customer.subscription.created', expect.any(String)]
+  );
+  
+  // Too specific SQL query assertion - will break if query changes
+  expect(dbClient.query).toHaveBeenCalledWith(
+    'UPDATE users SET subscription_status = $1 WHERE stripe_customer_id = $2',
+    ['active', 'cus_123']
+  );
+});
+</example>
+
+<example>
+// Good: Handling test file structure detection with flexibility
+// tests/config/stripe-config.test.ts
+import { describe, it, expect } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import glob from 'glob';
+
+describe('Stripe Configuration', () => {
+  it('should properly separate client and server Stripe code', () => {
+    // Search for Stripe-related files
+    const stripeFiles = glob.sync('src/**/*.{ts,js}').filter(file => {
+      // Check if file content includes Stripe references
+      const content = fs.readFileSync(file, 'utf8');
+      return content.includes('stripe') || content.includes('Stripe');
+    });
+    
+    // Verify we have some integration files
+    expect(stripeFiles.length).toBeGreaterThan(0);
+    
+    // Check for separation of server-side and client-side Stripe code
+    let hasClientSideCode = false;
+    let hasServerSideCode = false;
+    
+    for (const file of stripeFiles) {
+      const content = fs.readFileSync(file, 'utf8');
+      
+      if (content.includes('STRIPE_SECRET_KEY') || content.includes('stripe.customers') || 
+          content.includes('stripe.subscriptions') || content.includes('stripe.webhooks')) {
+        hasServerSideCode = true;
+      }
+      
+      if (content.includes('STRIPE_PUBLISHABLE_KEY') || content.includes('loadStripe')) {
+        hasClientSideCode = true;
+      }
+    }
+    
+    // Expect to find both client and server code
+    expect(hasClientSideCode || hasServerSideCode).toBeTruthy();
+  });
+});
+</example>
+
+<example type="invalid">
+// Bad: Testing specific file structure that may change
+it('should have specific file structure', () => {
+  // Hard-coded file paths that may change
+  const clientPath = path.join(process.cwd(), 'src', 'lib', 'stripe', 'client.ts');
+  const serverPath = path.join(process.cwd(), 'src', 'lib', 'stripe', 'server.ts');
+  
+  // Brittle tests that will break if structure changes
+  expect(fs.existsSync(clientPath)).toBe(true);
+  expect(fs.existsSync(serverPath)).toBe(true);
+  
+  // Checking for specific implementation details
+  const clientContent = fs.readFileSync(clientPath, 'utf8');
+  expect(clientContent).toContain('const stripe = loadStripe');
+});
+</example>
+
+<example>
+// Good: Implementation-agnostic Auth0-Stripe integration tests
+// tests/integration/auth-payment-integration.test.ts
+import { describe, it, expect, beforeEach } from 'vitest';
+import { createMockUser } from '../factories/user';
+import { createMockStripeCustomer } from '../factories/stripe';
+import { getServerSession } from 'next-auth/next';
+import { createOrRetrieveCustomer } from '../../src/lib/stripe/customer';
+
+// Mock the auth and Stripe modules
+vi.mock('next-auth/next');
+vi.mock('../../src/lib/stripe/client');
+vi.mock('../../src/lib/database');
+
+describe('Auth0-Stripe Integration', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('should create a Stripe customer from auth session', async () => {
+    // Arrange
+    const mockUser = createMockUser();
+    const mockStripeCustomer = createMockStripeCustomer();
+    
+    // Mock auth session
+    getServerSession.mockResolvedValue({
+      user: {
+        id: mockUser.id,
+        sub: `auth0|${mockUser.id}`,
+        email: mockUser.email,
+      },
+    });
+    
+    // Mock Stripe customer creation
+    const stripe = require('../../src/lib/stripe/client').stripe;
+    stripe.customers.create.mockResolvedValue(mockStripeCustomer);
+    
+    // Mock database calls
+    const { getUserById, updateUser } = require('../../src/lib/database');
+    getUserById.mockResolvedValue(mockUser);
+    updateUser.mockResolvedValue({ ...mockUser, stripeCustomerId: mockStripeCustomer.id });
+    
+    // Act
+    const result = await createOrRetrieveCustomer({ headers: {} });
+    
+    // Assert
+    
+    // Check that the auth session was retrieved
+    expect(getServerSession).toHaveBeenCalled();
+    
+    // Check that the user was retrieved using the auth ID
+    expect(getUserById).toHaveBeenCalledWith(expect.any(String));
+    
+    // Check that Stripe customer was created with proper metadata
+    expect(stripe.customers.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: mockUser.email,
+        metadata: expect.objectContaining({
+          userId: mockUser.id,
+        }),
+      })
+    );
+    
+    // Check that the Stripe customer ID was saved to the user record
+    expect(updateUser).toHaveBeenCalledWith(
+      mockUser.id,
+      expect.objectContaining({
+        stripeCustomerId: mockStripeCustomer.id,
+      })
+    );
+    
+    // Verify the result
+    expect(result).toEqual(mockStripeCustomer);
+  });
+
+  it('should retrieve existing customer if user has stripeCustomerId', async () => {
+    // Arrange
+    const mockUser = {
+      ...createMockUser(),
+      stripeCustomerId: 'cus_existing123',
+    };
+    const mockStripeCustomer = createMockStripeCustomer({ id: mockUser.stripeCustomerId });
+    
+    // Mock auth session
+    getServerSession.mockResolvedValue({
+      user: {
+        id: mockUser.id,
+        sub: `auth0|${mockUser.id}`,
+        email: mockUser.email,
+      },
+    });
+    
+    // Mock Stripe customer retrieval
+    const stripe = require('../../src/lib/stripe/client').stripe;
+    stripe.customers.retrieve.mockResolvedValue(mockStripeCustomer);
+    
+    // Mock database calls
+    const { getUserById } = require('../../src/lib/database');
+    getUserById.mockResolvedValue(mockUser);
+    
+    // Act
+    const result = await createOrRetrieveCustomer({ headers: {} });
+    
+    // Assert
+    
+    // Check that Stripe customer was retrieved with the existing ID
+    expect(stripe.customers.retrieve).toHaveBeenCalledWith(mockUser.stripeCustomerId);
+    
+    // Check that a new customer was NOT created
+    expect(stripe.customers.create).not.toHaveBeenCalled();
+    
+    // Verify the result
+    expect(result).toEqual(mockStripeCustomer);
+  });
+});
+</example>
+
+<example>
+// Good: Validating payment flows without implementation details
+// tests/integration/checkout-flow.test.ts
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { setupServer } from 'msw/node';
+import { rest } from 'msw';
+import { createCheckoutSession } from '../../src/app/api/checkout/route';
+
+// Set up mock server for Stripe API
+const server = setupServer(
+  // Mock Stripe checkout session creation
+  rest.post('https://api.stripe.com/v1/checkout/sessions', (req, res, ctx) => {
+    return res(
+      ctx.status(200),
+      ctx.json({
+        id: 'cs_test_123',
+        url: 'https://checkout.stripe.com/pay/cs_test_123',
+        status: 'open',
+      })
+    );
+  }),
+  // Mock Stripe customer creation/retrieval
+  rest.post('https://api.stripe.com/v1/customers', (req, res, ctx) => {
+    return res(
+      ctx.status(200),
+      ctx.json({
+        id: 'cus_test_123',
+        email: req.body.email,
+        metadata: req.body.metadata,
+      })
+    );
+  }),
+  rest.get('https://api.stripe.com/v1/customers/:id', (req, res, ctx) => {
+    return res(
+      ctx.status(200),
+      ctx.json({
+        id: req.params.id,
+        email: 'test@example.com',
+      })
+    );
+  })
+);
+
+// Mock Auth0 session
+vi.mock('../../src/lib/auth', () => ({
+  getSession: vi.fn().mockImplementation(() => ({
+    user: {
+      sub: 'auth0|user123',
+      email: 'test@example.com',
+    },
+  })),
+}));
+
+describe('Checkout Flow', () => {
+  beforeAll(() => server.listen());
+  afterAll(() => server.close());
+
+  it('should create a checkout session for authenticated users', async () => {
+    // Arrange
+    const req = {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        priceId: 'price_test_123',
+      }),
+    };
+    
+    const mockResponse = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    };
+    
+    // Act
+    await createCheckoutSession(req, mockResponse);
+    
+    // Assert
+    
+    // Verify response status is 200
+    expect(mockResponse.status).toHaveBeenCalledWith(200);
+    
+    // Check that the response contains a session ID
+    expect(mockResponse.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: expect.any(String),
+      })
+    );
+  });
+
+  it('should return 401 for unauthenticated requests', async () => {
+    // Arrange - Override the mock to return no session
+    require('../../src/lib/auth').getSession.mockImplementationOnce(() => null);
+    
+    const req = {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        priceId: 'price_test_123',
+      }),
+    };
+    
+    const mockResponse = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    };
+    
+    // Act
+    await createCheckoutSession(req, mockResponse);
+    
+    // Assert
+    
+    // Verify response status is 401
+    expect(mockResponse.status).toHaveBeenCalledWith(401);
+    
+    // Check that the response contains an error message
+    expect(mockResponse.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.stringContaining('Authentication required'),
+      })
+    );
+  });
+});
+</example>
+
+<example>
+// Good: Testing auth-payment alignment
+// tests/validation/auth-payment-validator.test.ts
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { validateAuthPaymentIntegration } from '../../src/utils/validators/auth-payment-validator';
+import fs from 'fs';
+import path from 'path';
+
+// Mock file system and database
+vi.mock('fs');
+vi.mock('path');
+vi.mock('@/lib/prisma');
+
+describe('Auth-Payment Integration Validator', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    
+    // Mock path.join to return predictable paths
+    path.join.mockImplementation((...args) => args.join('/'));
+    
+    // Mock file existence check
+    fs.existsSync.mockImplementation((filePath) => {
+      return filePath.includes('middleware.ts');
+    });
+    
+    // Mock file reading
+    fs.readFileSync.mockImplementation((filePath) => {
+      if (filePath.includes('middleware.ts')) {
+        return `
+        export async function middleware(request) {
+          // Handle auth routes
+          const authResponse = await auth.handleAuth(request);
+          if (authResponse) return authResponse;
+          
+          // Skip auth for webhook routes
+          if (request.nextUrl.pathname.startsWith('/api/webhooks')) {
+            return NextResponse.next();
+          }
+        }
+        
+        export const config = {
+          matcher: [
+            '/((?!_next/static|_next/image|favicon.ico|api/webhooks).*)',
+          ],
+        };
+        `;
+      }
+      return '';
+    });
+    
+    // Mock database query for user schema
+    const { prisma } = require('@/lib/prisma');
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'user123',
+      stripeCustomerId: 'cus_123',
+    });
+  });
+
+  it('should validate that webhook endpoints are excluded from auth middleware', async () => {
+    // Act
+    const results = await validateAuthPaymentIntegration();
+    
+    // Assert
+    const webhookCheck = results.find(r => r.name.includes('webhook'));
+    expect(webhookCheck).toBeDefined();
+    expect(webhookCheck.passed).toBe(true);
+  });
+
+  it('should validate user ID mapping consistency', async () => {
+    // Arrange
+    // Mock finding files with Stripe customer creation
+    const mockStripeFiles = [
+      'src/lib/stripe/customer.ts',
+    ];
+    
+    // Mock the findFilesWithStripeCustomerCreation function
+    const originalModule = jest.requireActual('../../src/utils/validators/auth-payment-validator');
+    jest.spyOn(originalModule, 'findFilesWithStripeCustomerCreation').mockReturnValue(mockStripeFiles);
+    
+    // Mock reading a file with proper ID mapping
+    fs.readFileSync.mockImplementation((filePath) => {
+      if (filePath.includes('customer.ts')) {
+        return `
+        async function createStripeCustomer(user) {
+          const customer = await stripe.customers.create({
+            email: user.email,
+            metadata: {
+              userId: user.id,
+              auth0Id: user.sub,
+            },
+          });
+        }
+        `;
+      }
+      return '';
+    });
+    
+    // Act
+    const results = await validateAuthPaymentIntegration();
+    
+    // Assert
+    const idMappingCheck = results.find(r => r.name.includes('User ID mapping'));
+    expect(idMappingCheck).toBeDefined();
+    expect(idMappingCheck.passed).toBe(true);
+  });
+});
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Payment patterns to test
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Testing workflows
+- **`.cursor/docs/security-checklist.md#payment-security-if-applicable`** - What to validate
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Verify no test keys in code
+- **`.cursor/tools/check-env-vars.sh`** - Test environment setup
+- **`.cursor/tools/inspect-model.sh`** - Check payment data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @020-payment-security.mdc - Payment security (what to test!)
+- @300-testing-standards.mdc - General testing standards
+- @330-third-party-integration-testing.mdc - Third-party testing patterns (critical!)
+- @331-high-risk-feature-testing.mdc - High-risk testing (critical!)
+- @375-api-test-first-time-right.mdc - API testing patterns (schema-first)
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (payment models)
+2. **Follow:** @331-high-risk-feature-testing.mdc (payment is high-risk!)
+3. **Test:** Use @375-api-test-first-time-right.mdc patterns
+4. **Validate:** See @330-third-party-integration-testing.mdc for Stripe mocking

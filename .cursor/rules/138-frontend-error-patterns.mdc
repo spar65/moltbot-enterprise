@@ -1,0 +1,713 @@
+---
+description: Implement frontend error handling patterns when building React/Next.js applications to ensure graceful error handling, excellent UX, and comprehensive error tracking
+globs: ["**/*.{tsx,jsx}", "**/components/**/*", "**/app/**/*", "**/pages/**/*"]
+---
+
+# Frontend Error Handling Patterns
+
+## Context
+
+Frontend errors are the most visible to users and directly impact user experience. This rule establishes comprehensive patterns for handling errors in React/Next.js applications, from form validation to runtime errors to offline handling.
+
+**Frontend Error Categories**:
+1. **Runtime Errors** - JavaScript errors, React errors
+2. **API Errors** - Network failures, server errors
+3. **Validation Errors** - Form inputs, data validation
+4. **Resource Errors** - Images, scripts, fonts failing to load
+5. **State Errors** - Invalid state transitions
+6. **Offline Errors** - Network connectivity issues
+
+## Requirements
+
+### 1. React Error Boundaries
+
+**Global Error Boundary**:
+
+```typescript
+// components/errors/GlobalErrorBoundary.tsx
+import React from "react";
+import * as Sentry from "@sentry/nextjs";
+import { Button } from "@/components/ui/button";
+
+interface Props {
+  children: React.ReactNode;
+  fallback?: (error: Error, reset: () => void) => React.ReactNode;
+}
+
+interface State {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class GlobalErrorBoundary extends React.Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    // Log to Sentry
+    Sentry.captureException(error, {
+      contexts: {
+        react: {
+          componentStack: errorInfo.componentStack,
+        },
+      },
+    });
+    
+    console.error("GlobalErrorBoundary caught error:", error, errorInfo);
+  }
+
+  reset = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError && this.state.error) {
+      if (this.props.fallback) {
+        return this.props.fallback(this.state.error, this.reset);
+      }
+
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <div className="max-w-md w-full">
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                Something went wrong
+              </h1>
+              <p className="text-gray-600">
+                We're sorry, but something unexpected happened.
+              </p>
+            </div>
+
+            {process.env.NODE_ENV === "development" && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm font-mono text-red-800">
+                  {this.state.error.message}
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <Button onClick={this.reset} className="flex-1">
+                Try Again
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => (window.location.href = "/")}
+                className="flex-1"
+              >
+                Go Home
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+```
+
+**Feature-Specific Error Boundaries**:
+
+```typescript
+// components/errors/FeatureErrorBoundary.tsx
+export function FeatureErrorBoundary({
+  children,
+  featureName,
+  fallback,
+}: {
+  children: React.ReactNode;
+  featureName: string;
+  fallback?: React.ReactNode;
+}) {
+  return (
+    <GlobalErrorBoundary
+      fallback={(error, reset) => {
+        // Log feature-specific error
+        Sentry.captureException(error, {
+          tags: {
+            feature: featureName,
+            errorBoundary: "feature",
+          },
+        });
+
+        return (
+          fallback || (
+            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800">
+                <strong>{featureName}</strong> encountered an error.
+              </p>
+              <Button size="sm" onClick={reset} className="mt-2">
+                Retry
+              </Button>
+            </div>
+          )
+        );
+      }}
+    >
+      {children}
+    </GlobalErrorBoundary>
+  );
+}
+
+// Usage
+export function PaymentForm() {
+  return (
+    <FeatureErrorBoundary featureName="Payment Processing">
+      <PaymentFormContent />
+    </FeatureErrorBoundary>
+  );
+}
+```
+
+**Next.js 14 Error Boundaries**:
+
+```typescript
+// app/error.tsx
+"use client";
+
+import { useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
+import { Button } from "@/components/ui/button";
+
+export default function Error({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  useEffect(() => {
+    Sentry.captureException(error);
+  }, [error]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="text-center">
+        <h2 className="text-2xl font-bold mb-4">Something went wrong!</h2>
+        <Button onClick={reset}>Try again</Button>
+      </div>
+    </div>
+  );
+}
+
+// app/dashboard/error.tsx (nested error boundary)
+export default function DashboardError({ error, reset }) {
+  return (
+    <div className="p-6">
+      <h3>Dashboard Error</h3>
+      <Button onClick={reset}>Retry Dashboard</Button>
+    </div>
+  );
+}
+```
+
+### 2. Form Validation with React Hook Form + Zod
+
+**Form Validation Pattern**:
+
+```typescript
+// lib/validation/schemas.ts
+import { z } from "zod";
+
+export const loginSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+export const userProfileSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Please enter a valid email address"),
+  age: z.number().min(18, "Must be at least 18 years old").optional(),
+  website: z.string().url("Please enter a valid URL").optional(),
+});
+
+export type LoginForm = z.infer<typeof loginSchema>;
+export type UserProfileForm = z.infer<typeof userProfileSchema>;
+```
+
+**Form Component with Error Handling**:
+
+```typescript
+// components/forms/LoginForm.tsx
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { loginSchema, type LoginForm } from "@/lib/validation/schemas";
+import { useToast } from "@/components/ui/use-toast";
+import { useState } from "react";
+
+export function LoginForm() {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toast } = useToast();
+  
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    setError,
+  } = useForm<LoginForm>({
+    resolver: zodResolver(loginSchema),
+  });
+
+  const onSubmit = async (data: LoginForm) => {
+    setIsSubmitting(true);
+    
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        
+        // Handle field-specific errors
+        if (error.fieldErrors) {
+          Object.entries(error.fieldErrors).forEach(([field, message]) => {
+            setError(field as keyof LoginForm, {
+              message: message as string,
+            });
+          });
+          return;
+        }
+        
+        // Handle general errors
+        throw new Error(error.message || "Login failed");
+      }
+
+      toast({
+        title: "Success",
+        description: "You've been logged in successfully",
+      });
+
+      // Redirect or handle success
+      window.location.href = "/dashboard";
+      
+    } catch (error) {
+      const err = error as Error;
+      
+      // Capture error for monitoring
+      Sentry.captureException(error, {
+        tags: { feature: "auth", form: "login" },
+      });
+      
+      toast({
+        title: "Error",
+        description: err.message || "Failed to log in. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      <div>
+        <label htmlFor="email">Email</label>
+        <input
+          {...register("email")}
+          type="email"
+          id="email"
+          className="w-full px-3 py-2 border rounded"
+          disabled={isSubmitting}
+        />
+        {errors.email && (
+          <p className="text-sm text-red-600 mt-1">{errors.email.message}</p>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="password">Password</label>
+        <input
+          {...register("password")}
+          type="password"
+          id="password"
+          className="w-full px-3 py-2 border rounded"
+          disabled={isSubmitting}
+        />
+        {errors.password && (
+          <p className="text-sm text-red-600 mt-1">{errors.password.message}</p>
+        )}
+      </div>
+
+      <Button type="submit" disabled={isSubmitting} className="w-full">
+        {isSubmitting ? "Logging in..." : "Log In"}
+      </Button>
+    </form>
+  );
+}
+```
+
+### 3. React Query Error Handling
+
+**Global React Query Configuration**:
+
+```typescript
+// lib/react-query/client.ts
+import { QueryClient } from "@tanstack/react-query";
+import * as Sentry from "@sentry/nextjs";
+import { toast } from "sonner";
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (failureCount, error) => {
+        // Don't retry on 4xx errors
+        if (error instanceof Error && error.message.includes("40")) {
+          return false;
+        }
+        return failureCount < 3;
+      },
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      
+      onError: (error) => {
+        // Log to Sentry
+        Sentry.captureException(error, {
+          tags: { source: "react-query" },
+        });
+      },
+    },
+    mutations: {
+      retry: false, // Don't retry mutations by default
+      
+      onError: (error, variables, context) => {
+        // Log to Sentry with context
+        Sentry.captureException(error, {
+          tags: { source: "react-query-mutation" },
+          extra: { variables, context },
+        });
+        
+        // Show error toast
+        toast.error("Something went wrong", {
+          description: error instanceof Error ? error.message : "Unknown error",
+        });
+      },
+    },
+  },
+});
+```
+
+**Query Hook with Error Handling**:
+
+```typescript
+// hooks/useUser.ts
+import { useQuery } from "@tanstack/react-query";
+
+export function useUser(userId: string) {
+  return useQuery({
+    queryKey: ["user", userId],
+    queryFn: async () => {
+      const response = await fetch(`/api/users/${userId}`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("User not found");
+        }
+        if (response.status === 403) {
+          throw new Error("You don't have permission to view this user");
+        }
+        throw new Error(`Failed to fetch user: ${response.status}`);
+      }
+      
+      return response.json();
+    },
+    // Query-specific error handling
+    onError: (error) => {
+      console.error("Failed to load user:", error);
+    },
+  });
+}
+
+// Usage in component
+export function UserProfile({ userId }: { userId: string }) {
+  const { data, error, isLoading, refetch } = useUser(userId);
+
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 bg-red-50 border border-red-200 rounded">
+        <p className="text-red-800">{error.message}</p>
+        <Button onClick={() => refetch()} size="sm" className="mt-2">
+          Try Again
+        </Button>
+      </div>
+    );
+  }
+
+  return <div>{/* User data */}</div>;
+}
+```
+
+### 4. Offline Detection & Handling
+
+**Offline Provider**:
+
+```typescript
+// components/providers/OfflineProvider.tsx
+import { createContext, useContext, useEffect, useState } from "react";
+import { toast } from "sonner";
+
+interface OfflineContextType {
+  isOnline: boolean;
+}
+
+const OfflineContext = createContext<OfflineContextType>({ isOnline: true });
+
+export function OfflineProvider({ children }: { children: React.ReactNode }) {
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine : true
+  );
+
+  useEffect(() => {
+    function handleOnline() {
+      setIsOnline(true);
+      toast.success("Back online", {
+        description: "Your connection has been restored",
+      });
+    }
+
+    function handleOffline() {
+      setIsOnline(false);
+      toast.error("You're offline", {
+        description: "Some features may not work",
+        duration: Infinity,
+      });
+    }
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  return (
+    <OfflineContext.Provider value={{ isOnline }}>
+      {children}
+    </OfflineContext.Provider>
+  );
+}
+
+export function useOnlineStatus() {
+  return useContext(OfflineContext);
+}
+```
+
+**Offline-Aware Component**:
+
+```typescript
+// components/OfflineAwareButton.tsx
+export function OfflineAwareButton({
+  onClick,
+  children,
+  ...props
+}: ButtonProps) {
+  const { isOnline } = useOnlineStatus();
+
+  return (
+    <Button
+      onClick={isOnline ? onClick : undefined}
+      disabled={!isOnline}
+      {...props}
+    >
+      {isOnline ? children : "Offline"}
+    </Button>
+  );
+}
+```
+
+### 5. Image Error Handling
+
+**Image with Fallback**:
+
+```typescript
+// components/ImageWithFallback.tsx
+import Image from "next/image";
+import { useState } from "react";
+
+export function ImageWithFallback({
+  src,
+  fallbackSrc = "/images/placeholder.png",
+  alt,
+  ...props
+}: ImageProps & { fallbackSrc?: string }) {
+  const [imgSrc, setImgSrc] = useState(src);
+  const [hasError, setHasError] = useState(false);
+
+  return (
+    <div className="relative">
+      <Image
+        {...props}
+        src={imgSrc}
+        alt={alt}
+        onError={() => {
+          if (!hasError) {
+            setImgSrc(fallbackSrc);
+            setHasError(true);
+            
+            // Log error
+            console.warn(`Failed to load image: ${src}`);
+            Sentry.captureMessage(`Image load failed: ${src}`, "warning");
+          }
+        }}
+      />
+      {hasError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+          <span className="text-xs text-gray-500">Image unavailable</span>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### 6. Third-Party Script Error Handling
+
+**Safe Script Loader**:
+
+```typescript
+// components/SafeScriptLoader.tsx
+import Script from "next/script";
+import { useState } from "react";
+
+export function SafeScriptLoader({
+  src,
+  onLoad,
+  fallback,
+}: {
+  src: string;
+  onLoad?: () => void;
+  fallback?: React.ReactNode;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed && fallback) {
+    return <>{fallback}</>;
+  }
+
+  return (
+    <Script
+      src={src}
+      onLoad={onLoad}
+      onError={(e) => {
+        console.error(`Failed to load script: ${src}`, e);
+        Sentry.captureMessage(`Script load failed: ${src}`, "warning");
+        setFailed(true);
+      }}
+      strategy="lazyOnload"
+    />
+  );
+}
+```
+
+### 7. Suspense Error Handling
+
+**Suspense with Error Boundary**:
+
+```typescript
+// components/SuspenseWithError.tsx
+import { Suspense } from "react";
+import { GlobalErrorBoundary } from "./GlobalErrorBoundary";
+
+export function SuspenseWithError({
+  children,
+  fallback,
+  errorFallback,
+}: {
+  children: React.ReactNode;
+  fallback: React.ReactNode;
+  errorFallback?: React.ReactNode;
+}) {
+  return (
+    <GlobalErrorBoundary
+      fallback={(error, reset) =>
+        errorFallback || (
+          <div className="p-4 bg-red-50 rounded">
+            <p>Error: {error.message}</p>
+            <button onClick={reset}>Retry</button>
+          </div>
+        )
+      }
+    >
+      <Suspense fallback={fallback}>{children}</Suspense>
+    </GlobalErrorBoundary>
+  );
+}
+```
+
+## See Also
+
+### Related Rules
+
+**Error Handling**:
+- @090-error-handling.mdc - General error patterns
+- @130-error-handling.mdc - User-facing errors
+- @135-error-monitoring-observability.mdc - Error monitoring with Sentry
+- @136-error-recovery-resilience.mdc - Recovery patterns
+- @139-error-context-debugging.mdc - Error context
+- @141-error-testing-strategies.mdc - Testing errors
+
+**Frontend**:
+- @042-ui-component-architecture.mdc - Component architecture
+- @045-browser-state-management.mdc - State management
+- @054-accessibility-requirements.mdc - Accessible errors
+- @071-state-management.mdc - State patterns
+
+**Testing**:
+- @310-component-visual-testing.mdc - Testing components
+- @320-test-resilience.mdc - Test reliability
+
+### Tools & Documentation
+
+**Testing Tools**:
+- **`.cursor/tools/test-error-scenarios.sh`** - Test error scenarios
+  ```bash
+  ./.cursor/tools/test-error-scenarios.sh --component LoginForm
+  ```
+
+### Comprehensive Guides
+
+**Essential Guides**:
+- **`guides/Error-Handling-Complete-Guide.md`** ⭐ - Complete error handling
+
+### Quick Start
+
+```typescript
+// 1. Add global error boundary
+<GlobalErrorBoundary>
+  <App />
+</GlobalErrorBoundary>
+
+// 2. Add form validation
+const form = useForm({ resolver: zodResolver(schema) });
+
+// 3. Configure React Query
+<QueryClientProvider client={queryClient}>
+
+// 4. Add offline detection
+<OfflineProvider>
+
+// 5. Monitor with Sentry
+Sentry.init({ dsn: process.env.NEXT_PUBLIC_SENTRY_DSN });
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important)  
+**Generated**: November 20, 2025

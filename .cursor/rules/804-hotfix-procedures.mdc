@@ -1,0 +1,631 @@
+---
+description: Apply hotfix procedures when responding to production emergencies to ensure fast, safe resolution while maintaining code quality
+globs: "**/*"
+---
+
+# Hotfix Procedures
+
+## Context
+Production emergencies require immediate action while maintaining safety and quality standards. A clear hotfix procedure ensures rapid response, minimal downtime, and proper documentation while preventing rushed mistakes that could make situations worse.
+
+**Critical Principles:**
+- Speed matters, but safety first
+- Document everything
+- Communicate constantly
+- Learn from incidents
+
+## Requirements
+
+### Hotfix Classification
+
+**Severity Levels:**
+
+| Level | Impact | Response Time | Examples |
+|-------|--------|---------------|----------|
+| **P0 - Critical** | Site down, data loss, security breach | < 30 min | Database corruption, XSS vulnerability |
+| **P1 - High** | Major feature broken, revenue impact | < 2 hours | Payment processing down, critical bug |
+| **P2 - Medium** | Feature degraded, workaround available | < 4 hours | Non-critical feature bug, performance issue |
+| **P3 - Low** | Minor issue, minimal impact | Next release | UI glitch, minor text error |
+
+<example>
+// ✅ GOOD: Proper severity classification
+
+P0 - Critical
+- Production database down
+- Security vulnerability being exploited
+- Payment processing completely broken
+- Data breach in progress
+→ Response: Immediate (< 30 min)
+
+P1 - High  
+- User registration broken
+- Email sending failing
+- Major feature unusable
+→ Response: Fast (< 2 hours)
+
+P2 - Medium
+- Search results slow
+- Some users experiencing intermittent errors
+- Non-critical feature degraded
+→ Response: Same day (< 4 hours)
+
+P3 - Low
+- Typo in UI text
+- Minor styling issue
+- Non-blocking UX improvement
+→ Response: Next release
+</example>
+
+## Hotfix Workflow
+
+### Phase 1: Detection & Assessment (5-10 min)
+
+**1. Incident Detected:**
+```markdown
+## Incident Report
+
+**When:** 2025-11-19 14:32 UTC
+**Reported by:** @user / monitoring alert
+**Severity:** P0 / P1 / P2 / P3
+**Impact:** 
+- Number of users affected
+- Services impacted
+- Revenue impact (if applicable)
+
+**Symptoms:**
+- What users are experiencing
+- Error messages
+- Monitoring alerts
+```
+
+**2. Initial Triage:**
+```bash
+# Questions to answer quickly:
+✅ Is production down? (Yes/No)
+✅ How many users affected? (All/Some/Few)
+✅ Is data at risk? (Yes/No)
+✅ Security issue? (Yes/No)
+✅ Revenue impact? (Yes/No)
+✅ Workaround available? (Yes/No)
+```
+
+**3. Declare Incident:**
+```markdown
+# Post in #incidents channel
+
+🚨 INCIDENT DECLARED - P0
+
+**Issue:** User authentication failing - all users unable to login
+**Impact:** ALL users affected
+**Started:** ~14:30 UTC (2 min ago)
+**Incident Lead:** @engineer-name
+**Status:** Investigating
+
+**Updates:** Will post every 15 minutes
+```
+
+### Phase 2: Investigation (10-20 min)
+
+**Quick Diagnostics:**
+```bash
+# Check recent deployments
+git log --oneline -10
+
+# Check error logs
+tail -f /var/log/app/error.log
+
+# Check monitoring dashboards
+# - Error rates
+# - Response times
+# - Database connections
+
+# Check external services
+# - Are third-party APIs down?
+# - Check status pages
+
+# Reproduce issue
+# - Test locally if possible
+# - Test in staging
+```
+
+**Identify Root Cause:**
+```markdown
+## Root Cause Identified
+
+**Issue:** Database connection pool exhausted
+**Cause:** Recent deployment introduced N+1 query in user dashboard
+**Evidence:**
+- Error logs showing "too many connections"
+- Dashboard queries increased from 5 to 500+ per request
+- Started immediately after deploy at 14:28 UTC
+
+**Solution:** Revert deployment OR apply hotfix
+```
+
+### Phase 3: Fix (20-40 min)
+
+**Option A: Rollback (Fastest - Recommended if Safe)**
+
+```bash
+# 1. Identify last good deployment
+git log --oneline
+
+# 2. Rollback on Vercel/hosting platform
+vercel rollback production
+
+# 3. Verify rollback works
+curl https://app.example.com/health
+
+# 4. Announce
+# Post: "🟢 Rolled back to previous version. Monitoring..."
+```
+
+**Option B: Forward Fix (If Rollback Not Possible)**
+
+```bash
+# 1. Create hotfix branch from production
+git checkout main
+git pull origin main
+git checkout -b hotfix/fix-connection-pool
+
+# 2. Make MINIMAL fix
+# Focus ONLY on fixing the immediate issue
+# Don't refactor, don't add features
+
+# Example: Fix N+1 query
+git add src/api/dashboard.ts
+git commit -m "fix(db): add include to prevent N+1 query
+
+HOTFIX: Dashboard was making 500+ queries per request,
+exhausting connection pool. Added Prisma include to
+reduce to 5 queries.
+
+Incident: INC-2024-001"
+
+# 3. Push immediately
+git push origin hotfix/fix-connection-pool
+
+# 4. Create PR (use hotfix template)
+# 5. Request IMMEDIATE review
+# 6. Deploy as soon as approved
+```
+
+**Hotfix PR Template:**
+```markdown
+## 🚨 HOTFIX - P0: Database Connection Pool Exhausted
+
+### Incident
+- **ID:** INC-2024-001
+- **Severity:** P0 (Critical)
+- **Impact:** ALL users unable to access dashboard
+- **Duration:** 32 minutes (ongoing)
+
+### Root Cause
+Dashboard query introduced N+1 problem, making 500+ queries per request.
+Connection pool exhausted, all requests timing out.
+
+### Fix
+Add Prisma `include` to fetch related data in single query.
+Reduces queries from 500+ to 5 per request.
+
+```typescript
+// Before (N+1)
+const users = await prisma.user.findMany();
+for (const user of users) {
+  const posts = await prisma.post.findMany({ where: { userId: user.id } });
+}
+
+// After (single query)
+const users = await prisma.user.findMany({
+  include: { posts: true }
+});
+```
+
+### Testing
+- [x] Tested locally - queries reduced from 500+ to 5
+- [x] Connection pool stable
+- [x] Dashboard loads in < 200ms
+- [x] All existing tests pass
+
+### Verification Plan
+1. Deploy to production
+2. Monitor connection pool usage
+3. Monitor dashboard response times
+4. Verify user reports stop
+
+### Rollback Plan
+If this fix doesn't work:
+- Rollback to deployment `abc123` (last known good)
+- OR increase connection pool size temporarily
+
+### Reviewers
+@tech-lead @on-call-engineer
+
+### Time Sensitivity
+**IMMEDIATE** - 32 minutes downtime, ALL users affected
+
+### Follow-up Actions
+- [ ] Comprehensive fix with proper testing
+- [ ] Add monitoring for connection pool usage
+- [ ] Add query performance tests
+- [ ] Incident retrospective
+```
+
+### Phase 4: Verification (10-15 min)
+
+**Post-Deploy Checks:**
+```bash
+# 1. Verify deployment successful
+curl https://app.example.com/health
+# Expected: 200 OK
+
+# 2. Test affected functionality
+# - Try to login
+# - Check dashboard loads
+# - Verify feature works
+
+# 3. Monitor error rates
+# Check dashboard: Should see errors drop to zero
+
+# 4. Check user reports
+# Monitor support channels
+
+# 5. Check performance
+# Response times back to normal?
+# Connection pool usage healthy?
+```
+
+**Announce Resolution:**
+```markdown
+# Post in #incidents channel
+
+🟢 INCIDENT RESOLVED - P0
+
+**Issue:** Database connection pool exhausted
+**Duration:** 45 minutes (14:32 - 15:17 UTC)
+**Resolution:** Deployed hotfix to fix N+1 query
+**Verification:** All systems operational
+
+**Metrics:**
+- Error rate: 0%
+- Response time: < 200ms (normal)
+- Connection pool: 15/100 (healthy)
+
+**Next Steps:**
+- Monitoring for 30 min to ensure stability
+- Incident retrospective scheduled for tomorrow 10am
+- Follow-up work tracked in #INC-2024-001
+```
+
+### Phase 5: Post-Incident (After Resolution)
+
+**Immediate Actions (Same Day):**
+```markdown
+## Post-Incident Tasks
+
+1. **Documentation**
+   - [ ] Complete incident report
+   - [ ] Update runbook
+   - [ ] Document fix in wiki
+
+2. **Communication**
+   - [ ] Notify all stakeholders
+   - [ ] Update status page
+   - [ ] Post customer-facing update (if needed)
+
+3. **Follow-up Work**
+   - [ ] Create issues for comprehensive fixes
+   - [ ] Schedule code review of hotfix
+   - [ ] Add monitoring/alerting
+   - [ ] Add tests to prevent regression
+```
+
+**Incident Report Template:**
+```markdown
+# Incident Report: INC-2024-001
+
+## Summary
+Database connection pool exhausted due to N+1 query in dashboard endpoint.
+All users unable to access application for 45 minutes.
+
+## Timeline (All times UTC)
+- **14:28** - Deployment with N+1 query goes live
+- **14:32** - First user reports; monitoring alerts fire
+- **14:35** - Incident declared P0, investigation begins
+- **14:42** - Root cause identified (N+1 query)
+- **14:50** - Hotfix developed and tested
+- **14:55** - PR created and reviewed
+- **15:05** - Hotfix deployed to production
+- **15:17** - Incident resolved, all systems operational
+
+## Impact
+- **Duration:** 45 minutes
+- **Users affected:** 100% (all users)
+- **Services impacted:** Web application (all features)
+- **Data loss:** None
+- **Revenue impact:** Estimated $2,000 (SaaS downtime)
+
+## Root Cause
+Dashboard endpoint making separate database queries for each user's posts
+(N+1 query pattern). With 100 users, this resulted in 500+ queries per
+request, exhausting the database connection pool (max 100 connections).
+
+## Resolution
+Applied hotfix to use Prisma `include` for eager loading, reducing queries
+from 500+ to 5 per request. Connection pool usage dropped to normal levels.
+
+## What Went Well
+- ✅ Incident detected quickly (4 min after deploy)
+- ✅ Root cause identified in 10 min
+- ✅ Clear communication throughout
+- ✅ Hotfix deployed in 33 min
+- ✅ No data loss
+
+## What Could Be Improved
+- ❌ N+1 query not caught in code review
+- ❌ No query performance tests
+- ❌ No connection pool monitoring/alerting
+- ❌ Staging environment didn't have realistic data volume
+
+## Action Items
+1. **Immediate (This Week)**
+   - [ ] Add connection pool monitoring (@engineer-1)
+   - [ ] Add query performance tests (@engineer-2)
+   - [ ] Seed staging with realistic data (@engineer-3)
+
+2. **Short-term (Next Sprint)**
+   - [ ] Automated N+1 query detection in CI/CD
+   - [ ] Database query best practices doc
+   - [ ] Code review checklist update
+
+3. **Long-term (Next Quarter)**
+   - [ ] Query performance budgets
+   - [ ] Comprehensive database monitoring
+   - [ ] Load testing in CI/CD
+
+## Lessons Learned
+- Query performance issues don't always show in dev/small datasets
+- Need automated detection for N+1 queries
+- Connection pool monitoring is critical
+- Hotfix process worked well (deployed in 33 min)
+```
+
+**Retrospective (Within 48 Hours):**
+```markdown
+## Incident Retrospective: INC-2024-001
+
+**Attendees:** Team members involved, stakeholders
+
+**Agenda:**
+1. Review timeline (no blame)
+2. Discuss what went well
+3. Discuss what could be improved
+4. Identify action items
+5. Assign owners and deadlines
+
+**Retrospective Format:**
+- Start/Stop/Continue
+- 5 Whys analysis
+- Blameless postmortem
+
+**Goal:** Learn and improve, not assign blame
+```
+
+## Communication Guidelines
+
+### Internal Communication
+
+**Update Frequency:**
+- **P0:** Every 15 minutes minimum
+- **P1:** Every 30 minutes
+- **P2:** Every hour
+
+**Status Update Template:**
+```markdown
+## Update #3 - 15:00 UTC
+
+**Status:** Investigating / Fixing / Deploying / Resolved
+**Progress:** Hotfix developed, testing in progress
+**ETA:** 15 minutes
+**Next update:** 15:15 UTC
+
+**Details:**
+- Root cause: N+1 query
+- Fix: Add Prisma include
+- Testing: Verified locally, queries reduced 500→5
+- Next: Deploy to production
+```
+
+### External Communication (Customers)
+
+**Status Page Updates:**
+```markdown
+## Investigating - 14:35 UTC
+We're investigating reports of users unable to access the application.
+Our team is actively working on this.
+
+## Identified - 14:42 UTC
+We've identified the issue as a database connection problem. 
+Working on a fix now. ETA: 20 minutes.
+
+## Monitoring - 15:17 UTC
+The issue has been resolved. All systems are operational.
+We're monitoring to ensure stability.
+
+## Resolved - 15:45 UTC
+Confirmed resolved. Root cause was a database query issue.
+We've implemented a fix and added monitoring to prevent recurrence.
+```
+
+## Hotfix Best Practices
+
+### DO:
+- ✅ Declare incidents early (better safe than sorry)
+- ✅ Communicate constantly
+- ✅ Make minimal changes (just fix the issue)
+- ✅ Test the fix before deploying
+- ✅ Have rollback plan ready
+- ✅ Document everything
+- ✅ Monitor after deploying
+- ✅ Schedule retrospective
+
+### DON'T:
+- ❌ Panic or rush without thinking
+- ❌ Make multiple changes at once
+- ❌ Refactor code during hotfix
+- ❌ Add new features
+- ❌ Skip testing entirely
+- ❌ Deploy without review (unless truly emergency)
+- ❌ Forget to communicate
+- ❌ Skip post-incident work
+
+## Hotfix Checklist
+
+```markdown
+## Hotfix Procedure Checklist
+
+### Detection & Assessment (5-10 min)
+- [ ] Incident detected and reported
+- [ ] Severity classified (P0/P1/P2/P3)
+- [ ] Impact assessed (users, services, data)
+- [ ] Incident declared in #incidents
+- [ ] Incident lead assigned
+
+### Investigation (10-20 min)
+- [ ] Symptoms documented
+- [ ] Recent changes reviewed
+- [ ] Logs checked
+- [ ] Monitoring reviewed
+- [ ] Root cause identified
+- [ ] Solution approach decided (rollback vs fix)
+
+### Fix (20-40 min)
+- [ ] Hotfix branch created (if forward fix)
+- [ ] Minimal fix implemented
+- [ ] Fix tested locally
+- [ ] PR created with hotfix template
+- [ ] Fast-track review completed
+- [ ] Rollback plan documented
+
+### Deploy (5-10 min)
+- [ ] Fix deployed to production
+- [ ] Deployment verified successful
+- [ ] Health checks passing
+
+### Verification (10-15 min)
+- [ ] Affected functionality tested
+- [ ] Error rates checked (should be zero)
+- [ ] Performance metrics normal
+- [ ] User reports stopped
+- [ ] Resolution announced
+
+### Post-Incident (Same day)
+- [ ] Incident report completed
+- [ ] Status page updated
+- [ ] Customer communication sent (if needed)
+- [ ] Follow-up issues created
+- [ ] Retrospective scheduled (within 48h)
+
+### Follow-up (Within 1 week)
+- [ ] Retrospective completed
+- [ ] Action items assigned
+- [ ] Comprehensive fix implemented
+- [ ] Tests added
+- [ ] Monitoring improved
+- [ ] Documentation updated
+```
+
+## Rollback Procedures
+
+**When to Rollback:**
+- Recent deployment is cause
+- Fix will take > 30 min
+- Unsure of root cause
+- Rollback is safe (no database migrations)
+
+**Rollback Steps:**
+```bash
+# Vercel
+vercel rollback production
+
+# Or via Git
+git revert <bad-commit-hash>
+git push origin main
+
+# Or re-deploy previous version
+vercel deploy --prod <previous-deployment-url>
+```
+
+**After Rollback:**
+- Verify issue resolved
+- Investigate root cause without time pressure
+- Fix properly with tests
+- Deploy fix normally
+
+## On-Call Guidelines
+
+**On-Call Responsibilities:**
+- Monitor alerts 24/7
+- Respond to incidents within 15 min
+- Follow hotfix procedures
+- Escalate if needed
+- Hand off to next shift properly
+
+**On-Call Handoff:**
+```markdown
+## On-Call Handoff
+
+**From:** @previous-engineer
+**To:** @next-engineer  
+**Time:** 2025-11-19 09:00 UTC
+
+**Current Status:**
+- No active incidents
+- 2 monitoring alerts (non-critical)
+  - Alert 1: Disk usage at 75% (trending up slowly)
+  - Alert 2: API response time spike (resolved)
+
+**Potential Issues:**
+- Database backup scheduled tonight at 2am UTC
+- Deployment planned for tomorrow 10am UTC
+
+**Contacts:**
+- Escalation: @tech-lead
+- Infrastructure: @devops-team
+- Security: @security-team
+
+**Resources:**
+- Runbook: link
+- Incident log: link
+- Monitoring: link
+```
+
+## See Also
+
+### Documentation
+- **`guides/Git-Workflow-Complete-Guide.md`** ⭐ - Hotfix Git workflow
+- **`guides/Code-Review-Complete-Guide.md`** - Fast-track review process
+- **`.cursor/docs/ai-workflows.md`** - Emergency procedures
+
+### Related Rules
+- @101-code-review-standards.mdc - Fast-track review for hotfixes
+- @802-git-workflow-standards.mdc - Hotfix branching strategy
+- @803-pull-request-workflow.mdc - Hotfix PR template
+- @130-logging-standards.mdc - Incident logging
+- @131-error-handling.mdc - Error recovery patterns
+
+### Quick Start
+1. **Detect:** Classify severity (P0-P3)
+2. **Declare:** Post in #incidents, assign lead
+3. **Investigate:** Find root cause (< 20 min)
+4. **Fix:** Rollback OR minimal forward fix
+5. **Verify:** Test, monitor, announce resolution
+6. **Learn:** Retrospective, action items
+
+## Priority
+**P0 (Required)** - Production emergencies require clear procedures to ensure fast, safe resolution while maintaining code quality.
+
+## References
+- [Atlassian Incident Management](https://www.atlassian.com/incident-management)
+- [Google SRE Book - Managing Incidents](https://sre.google/sre-book/managing-incidents/)
+- [PagerDuty Incident Response](https://response.pagerduty.com/)

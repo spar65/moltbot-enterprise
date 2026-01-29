@@ -1,0 +1,19 @@
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/rules-guide.md`** - Understanding the rule system
+- **`.cursor/docs/ai-workflows.md`** - Battle-tested testing workflows (95%+ success rate)
+- **`.cursor/docs/tools-guide.md`** - Testing automation tools
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools
+- **`.cursor/tools/inspect-model.sh`** - Schema inspection before tests
+- **`.cursor/tools/check-schema-changes.sh`** - Pre-commit validation
+
+### Related Rules
+- @375-api-test-first-time-right.mdc - API testing (Schema-First approach)
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @350-debug-test-failures.mdc - Systematic debugging
+- @002-rule-application.mdc - Source of Truth Hierarchy

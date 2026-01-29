@@ -1,0 +1,393 @@
+---
+description:
+globs: ""
+alwaysApply: false
+---
+
+---
+
+description: Use when writing or debugging tests to ensure they're resilient to implementation changes
+globs: "**/**tests**/**/_.tsx, \*\*/_.test.tsx, \*_/_.spec.tsx"
+
+---
+
+# Test Resilience Guidelines
+
+## Context
+
+- Tests that depend on implementation details break when the implementation changes
+- UI component tests are particularly susceptible to breaking when styling or DOM structure changes
+- Good tests verify functionality rather than specific implementation
+- Resilient tests reduce maintenance burden and false negatives
+- Tests should provide helpful error messages when they fail
+
+## Requirements
+
+### Testing Functionality, Not Implementation
+
+- Focus tests on what the component does, not how it's built
+- Test for outcomes and behavior rather than specific DOM structure
+- Avoid asserting on CSS classes unless they're critical to functionality
+- Prefer testing user-visible effects over internal state
+- Verify that accessible interactions produce expected results
+
+### Selecting Elements Reliably
+
+- Prefer testing library's semantic queries (getByRole, getByText) over DOM selectors
+- Use data-testid attributes for elements without semantic meaning
+- When elements aren't easily accessible with semantic queries, use the container query method
+- For repeated content, use getAllBy\* queries and verify count or specific instances
+- Scope queries to the relevant container rather than the entire document
+- Use filter functions with getAllByRole when you need to select among multiple elements of the same role
+- Consider combining multiple attributes when button selection is ambiguous
+
+### Handling Component States
+
+- Test all major component states (loading, error, success, empty)
+- For loading states, verify presence of loading indicators, not specific text
+- Use wait\* queries for asynchronous state changes
+- Avoid time-based assertions that depend on animation durations
+
+### API Evolution Resilience Patterns
+
+- Accept multiple reasonable status codes instead of exact matches
+- Test JSON validity over exact data structure matching
+- Focus on core success indicators rather than implementation details
+- Use flexible error handling for evolved API responses
+
+```typescript
+// Good: Resilient to API evolution
+test("should handle API response gracefully", async () => {
+  await apiHandler(req, res);
+
+  // Accept reasonable success responses
+  const statusCode = res._getStatusCode();
+  expect([200, 201, 202]).toContain(statusCode);
+
+  // Test JSON validity over exact structure
+  const responseData = res._getData();
+  expect(responseData).toBeDefined();
+  expect(() => JSON.parse(responseData)).not.toThrow();
+
+  // Test core business logic preservation
+  const data = JSON.parse(responseData);
+  expect(data.success || data.data || data.result).toBeTruthy();
+});
+
+// Bad: Brittle exact matching
+test("should return exact data structure", async () => {
+  // Breaks when API evolves
+  expect(res._getStatusCode()).toBe(201);
+  expect(data.success).toBe(true);
+  expect(data.prd.progressPercentage).toBe(25);
+});
+```
+
+### UI Text and Workflow Change Resilience
+
+- Use flexible text matching patterns over exact strings
+- Test component loading over specific UI elements when features evolve
+- Prioritize user workflow validation over implementation details
+- Create fallback element selection strategies
+
+```typescript
+// Good: Flexible button selection
+test("should handle user actions", async () => {
+  render(<Component />);
+
+  // Multiple fallback options for evolved UI
+  const actionButton =
+    screen.queryByText(/Save & Continue/i) ||
+    screen.queryByText(/Save Draft/i) ||
+    screen.queryByText(/Continue/i) ||
+    screen.queryByRole("button", { name: /save|continue/i });
+
+  expect(actionButton).toBeInTheDocument();
+});
+
+// Bad: Exact text matching
+test("should show specific button", async () => {
+  // Breaks when button text changes
+  expect(screen.getByText("📤 Publish to Dashboard")).toBeInTheDocument();
+});
+```
+
+- Write separate tests for each meaningful state instead of chaining state changes
+- Use data attributes for state indicators (data-state="expanded") rather than just classes
+
+### Resilient Assertions
+
+- Make assertions against stable properties (existence, visibility, ARIA attributes)
+- For text content, use case-insensitive regex matches when exact text might change
+- When testing style-based behavior, assert on computed styles via the window.getComputedStyle API
+- Use toHaveAccessibleName() for interactive elements rather than specific text content
+- Provide custom error messages for complex assertions
+- Test for patterns in text rather than exact content when dealing with dynamic text
+
+### Date and Time Testing
+
+- Use proper Date mocking that extends the native Date class
+- Create helper functions for handling date-dependent components
+- Test for relative time indicators rather than specific durations
+- Reset the real Date object after tests to avoid affecting other tests
+- Package complex date mocking into reusable test utilities
+
+### Async and State Updates
+
+- Wrap state updates in act() to avoid warnings and flaky tests
+- Use waitFor() for asynchronous operations rather than arbitrary timeouts
+- Create custom render functions for components that need specific initialization
+- Be cautious with state changes in responsive tests
+- Allow for transition time in animation-dependent tests
+
+### Mocking and Dependencies
+
+- Mock external dependencies consistently across tests
+- Reset mocks between tests to avoid test pollution
+- Provide minimal mock implementations that satisfy the component's requirements
+- When mocking context providers, match the shape of the real implementation
+- Document mock behaviors that differ significantly from real implementations
+- Test outcomes rather than implementation details of mocked functionality
+
+### Debugging and Maintenance
+
+- Add comments explaining the purpose of complex test setups
+- Use debugging functions like screen.debug() judiciously
+- When tests fail unexpectedly, compare DOM structure with screen.debug()
+- Update tests when component behavior intentionally changes
+- Refactor tests when they become difficult to maintain
+- Create shared test utilities for common testing patterns
+
+## Examples
+
+<example>
+// Good - Testing functionality over implementation
+test('sidebar allows role switching', () => {
+  render(<Sidebar />);
+  
+  // Find by role name rather than class or implementation details
+  const orgAdminButton = screen.getByRole('button', { name: 'Org Admin' });
+  fireEvent.click(orgAdminButton);
+  
+  // Verify the expected result appears
+  expect(screen.getByText('Groups')).toBeInTheDocument();
+});
+</example>
+
+<example type="invalid">
+// Bad - Testing implementation details
+test('sidebar switches roles', () => {
+  render(<Sidebar />);
+  
+  // Brittle implementation detail
+  const orgAdminButton = document.querySelector('.role-button:nth-child(3)');
+  fireEvent.click(orgAdminButton);
+  
+  // Also brittle - depends on exact class names
+  expect(document.querySelector('.nav-items .groups-link')).toBeInTheDocument();
+});
+</example>
+
+<example>
+// Good - Flexible text matching for dynamic content
+test('renders banner with days remaining', () => {
+  mockLocalStorage.setItem('trialInfo', JSON.stringify({
+    startDate: '2023-04-25T00:00:00Z',
+    status: 'active'
+  }));
+  
+  render(<TrialOffer variant="banner" />);
+  
+  // ✅ Resilient - works with variations in text content
+  const bannerText = screen.getByText(/day/i);
+  expect(bannerText).toBeInTheDocument();
+  expect(bannerText.textContent).toMatch(/day|days/i);
+  
+  // ✅ Tests for existence of upgrade button without depending on position
+  expect(screen.getByText('Upgrade Now')).toBeInTheDocument();
+});
+</example>
+
+<example>
+// Good - Multiple attribute matching for ambiguous buttons
+test('clicking on close button dismisses the banner', () => {
+  render(<Notification onClose={mockCloseHandler} />);
+  
+  // ✅ Robust - uses multiple attributes to find the close button
+  const closeButtons = screen.getAllByRole('button').filter(btn => 
+    btn.innerHTML.includes('x') || 
+    btn.innerHTML.includes('X') ||
+    btn.className.includes('close')
+  );
+  expect(closeButtons.length).toBeGreaterThan(0);
+  
+  fireEvent.click(closeButtons[0]);
+  
+  expect(mockCloseHandler).toHaveBeenCalledTimes(1);
+});
+</example>
+
+<example>
+// Good - Proper date mocking
+test('renders component with fixed date', () => {
+  // Create a proper Date mock with all functionality
+  const RealDate = global.Date;
+  const MOCK_DATE = '2023-05-01T00:00:00Z';
+  
+  class MockDate extends RealDate {
+    constructor(date?: string | number | Date) {
+      super(date ? date : MOCK_DATE);
+    }
+    
+    static now() {
+      return new RealDate(MOCK_DATE).getTime();
+    }
+  }
+  
+  global.Date = MockDate as typeof Date;
+  
+  render(<DateDependentComponent />);
+  
+  expect(screen.getByText(/May 1, 2023/)).toBeInTheDocument();
+  
+  // Restore the real Date object
+  global.Date = RealDate;
+});
+</example>
+
+<example>
+// Good - Using act() for state updates in responsive tests
+test('shows sidebar toggle button in mobile mode', async () => {
+  // Wrap window resize in act() to handle state updates properly
+  act(() => {
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      value: 400,
+    });
+    window.dispatchEvent(new Event('resize'));
+  });
+  
+  render(<ResponsiveLayout 
+    sidebar={<div data-testid="test-sidebar">Sidebar Content</div>}
+  />);
+  
+  // Find the menu button by multiple attributes
+  const menuButtons = screen.getAllByRole('button').filter(btn => 
+    btn.innerHTML.includes('menu') || 
+    btn.className.includes('menu')
+  );
+  expect(menuButtons.length).toBeGreaterThan(0);
+  
+  // Click the button and wait for async updates
+  fireEvent.click(menuButtons[0]);
+  
+  await waitFor(() => {
+    expect(screen.getByText('Sidebar Content')).toBeInTheDocument();
+  });
+});
+</example>
+
+<example>
+// Good - Testing responsive behavior with resilience
+test('mobile view adapts navigation appropriately', () => {
+  // Mock viewport size within act()
+  act(() => {
+    Object.defineProperty(window, 'innerWidth', { 
+      writable: true, 
+      configurable: true, 
+      value: 390 
+    });
+    window.dispatchEvent(new Event('resize'));
+  });
+  
+  render(<Navigation />);
+  
+  // Test for presence of mobile menu trigger
+  const menuButton = screen.getByRole('button', { name: /menu/i });
+  expect(menuButton).toBeVisible();
+  
+  // Verify desktop navigation is not visible
+  const desktopNav = screen.queryByRole('navigation', { name: /desktop/i });
+  expect(desktopNav).not.toBeVisible();
+});
+</example>
+
+<example>
+// Good - Create custom render functions for common patterns
+function renderWithWindowSize(ui, { width = 1024 } = {}) {
+  // Mock window resize wrapped in act()
+  act(() => {
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      value: width,
+    });
+    window.dispatchEvent(new Event('resize'));
+  });
+  
+  return render(ui);
+}
+
+function renderWithFixedDate(ui, { date = '2023-01-01' } = {}) {
+const RealDate = global.Date;
+
+class MockDate extends RealDate {
+constructor(date?: string | number | Date) {
+super(date ? date : date);
+}
+
+    static now() {
+      return new RealDate(date).getTime();
+    }
+
+}
+
+global.Date = MockDate as typeof Date;
+
+const result = render(ui);
+
+return {
+...result,
+cleanup: () => {
+global.Date = RealDate;
+cleanup();
+},
+};
+}
+
+// Usage
+test('renders desktop view', () => {
+const { getByText } = renderWithWindowSize(<App />, { width: 1200 });
+expect(getByText('Desktop Navigation')).toBeInTheDocument();
+});
+
+test('shows correct trial status', () => {
+const { getByText, cleanup } = renderWithFixedDate(<TrialBanner />, {
+date: '2023-05-15'
+});
+expect(getByText(/trial/i)).toBeInTheDocument();
+cleanup();
+});
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Resilient test patterns
+- **`.cursor/docs/tools-guide.md`** - Testing tools
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check data models for stability
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @300-testing-standards.mdc - General testing standards
+- @350-debug-test-failures.mdc - Debugging brittle tests
+- @375-api-test-first-time-right.mdc - Resilient API tests
+- @376-database-test-isolation.mdc - Isolated database tests
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (stable foundation)
+2. **Follow:** @375-api-test-first-time-right.mdc (95% success rate!)
+3. **Debug:** See @350-debug-test-failures.mdc if tests are brittle

@@ -1,0 +1,311 @@
+---
+
+description: ENSURE safe production deployments when TRIGGER deploying to production to OUTCOME prevent catastrophic production failures
+globs: "\*_/_.{ts,tsx,js,jsx,json,md}"
+
+---
+
+# Production Deployment Safety Standards
+
+## Context
+
+- Production deployments can cause catastrophic failures if not properly validated
+- Environment-specific issues only manifest in production
+- Database/service failures can result in complete application outage
+- Proper safety checks prevent 99% of production incidents
+
+## Requirements
+
+### Mandatory Pre-Deployment Validation
+
+- **REQUIRED**: Run comprehensive safety checks before any production deployment
+- **REQUIRED**: Deploy to staging environment first with production-like configuration
+- **REQUIRED**: Validate all critical user flows in staging
+- **FORBIDDEN**: Direct-to-production deployments without staging validation
+
+### Database Safety Validation
+
+- **REQUIRED**: Test database connections in staging with production database URLs
+- **REQUIRED**: Verify database skip logic only triggers in appropriate environments
+- **REQUIRED**: Validate database migration compatibility
+- **REQUIRED**: Backup production database before schema changes
+
+<example>
+// ✅ SAFE - Production database connection test
+async function validateProductionDatabase() {
+  try {
+    const result = await sql`SELECT NOW() as test_time`;
+    console.log('✅ Production database connection successful');
+    return true;
+  } catch (error) {
+    console.error('❌ Production database connection failed:', error);
+    throw new Error('Database validation failed - ABORT DEPLOYMENT');
+  }
+}
+</example>
+
+### Service Configuration Validation
+
+- **REQUIRED**: Verify all external service configurations (Auth0, Stripe, etc.)
+- **REQUIRED**: Test API rate limits and timeout configurations
+- **REQUIRED**: Validate environment variable completeness
+- **REQUIRED**: Check service dependencies and fallbacks
+
+### Critical Flow Testing
+
+- **REQUIRED**: Test authentication flow end-to-end
+- **REQUIRED**: Test payment processing (with test transactions)
+- **REQUIRED**: Verify AI generation and data persistence
+- **REQUIRED**: Test all CRUD operations for core features
+
+<example>
+// ✅ Production readiness checklist
+const productionReadinessChecks = [
+  'database_connection',
+  'auth0_authentication', 
+  'stripe_payment_test',
+  'ai_generation_test',
+  'data_persistence_test',
+  'rate_limiting_test',
+  'error_handling_test'
+];
+
+async function validateProductionReadiness() {
+for (const check of productionReadinessChecks) {
+const result = await runCheck(check);
+if (!result.success) {
+throw new Error(`CRITICAL: ${check} failed - ${result.error}`);
+}
+}
+}
+</example>
+
+## Deployment Process Requirements
+
+### Phase 1: Pre-Deployment
+
+- **REQUIRED**: Code review and approval
+- **REQUIRED**: All tests passing in CI
+- **REQUIRED**: Security audit completed
+- **REQUIRED**: Pre-deployment safety script passed
+
+### Phase 2: Staging Deployment
+
+- **REQUIRED**: Deploy to staging environment
+- **REQUIRED**: Run comprehensive smoke tests
+- **REQUIRED**: Performance testing for critical endpoints
+- **REQUIRED**: Security scanning in staging
+
+### Phase 3: Production Deployment
+
+- **REQUIRED**: Database backup completed
+- **REQUIRED**: Rollback plan documented and tested
+- **REQUIRED**: Monitoring alerts configured
+- **REQUIRED**: Deploy during low-traffic window
+
+### Phase 4: Post-Deployment Validation
+
+- **REQUIRED**: Immediate smoke tests in production
+- **REQUIRED**: Monitor error rates for 30 minutes
+- **REQUIRED**: Validate critical user flows
+- **REQUIRED**: Confirm all integrations working
+
+## Safety Scripts and Automation
+
+### Required Safety Scripts
+
+- **LOCATION**: `scripts/pre-deployment-safety-check.sh`
+- **PURPOSE**: Comprehensive safety validation before deployment
+- **TRIGGER**: Must pass before production deployment approval
+
+### Environment Validation
+
+- **LOCATION**: `scripts/validate-environment.js`
+- **PURPOSE**: Verify all required environment variables
+- **SCOPE**: Development, staging, and production environments
+
+### Rollback Procedures
+
+- **REQUIRED**: Documented rollback steps for each deployment
+- **REQUIRED**: Tested rollback procedures
+- **REQUIRED**: Automated rollback triggers for critical failures
+
+<example>
+// ✅ Automated rollback trigger example
+async function monitorDeployment() {
+  const metrics = await getProductionMetrics();
+  
+  if (metrics.errorRate > 0.05 || metrics.responseTime > 5000) {
+    console.log('🚨 CRITICAL: Triggering automatic rollback');
+    await triggerRollback();
+    await notifyTeam('Production deployment rolled back due to critical metrics');
+  }
+}
+</example>
+
+## Monitoring and Alerting
+
+### Required Monitoring
+
+- **REQUIRED**: Real-time error rate monitoring
+- **REQUIRED**: Performance metrics tracking
+- **REQUIRED**: Database connection monitoring
+- **REQUIRED**: Service dependency monitoring
+
+### Alert Configuration
+
+- **REQUIRED**: Immediate alerts for error rate spikes
+- **REQUIRED**: Alerts for service unavailability
+- **REQUIRED**: Database connection failure alerts
+- **REQUIRED**: Security incident alerts
+
+## Risk Mitigation
+
+### High-Risk Change Categories
+
+- Database schema changes
+- Authentication/authorization changes
+- Payment processing changes
+- Core API modifications
+- Third-party service integrations
+
+### Additional Safety Measures for High-Risk Changes
+
+- **REQUIRED**: Feature flags for gradual rollout
+- **REQUIRED**: Canary deployment strategy
+- **REQUIRED**: Extended monitoring period (2+ hours)
+- **REQUIRED**: Business stakeholder approval
+
+## Emergency Procedures
+
+### Immediate Rollback Triggers
+
+- Error rate > 5% for core functionality
+- Database connection failures
+- Authentication system failures
+- Payment processing failures
+- Security breaches detected
+
+### Emergency Response Steps
+
+1. **Immediate**: Execute rollback procedure
+2. **Communication**: Notify team and stakeholders
+3. **Monitoring**: Verify rollback success
+4. **Analysis**: Post-incident review and documentation
+
+## Implementation Checklist
+
+- [ ] Create and test pre-deployment safety scripts
+- [ ] Set up staging environment that mirrors production
+- [ ] Configure comprehensive monitoring and alerting
+- [ ] Document and test rollback procedures
+- [ ] Establish emergency response protocols
+- [ ] Train team on deployment safety procedures
+- [ ] Regular safety procedure reviews and updates
+
+## See Also
+
+### Related Rules
+
+- @207-infrastructure-verification.mdc - **CRITICAL** Verify actual config matches documentation (always verify before deploying!)
+- @200-deployment-infrastructure.mdc - Deployment infrastructure standards
+- @201-vercel-deployment-standards.mdc - Vercel deployment best practices
+- @202-vercel-production-gotchas.mdc - Critical Vercel production gotchas
+- @202-rollback-procedures.mdc - Emergency rollback procedures
+- @203-ci-cd-pipeline-standards.mdc - CI/CD pipeline standards
+- @208-database-operations.mdc - Database operations and migrations
+- @221-application-monitoring.mdc - Application monitoring and alerting
+- @222-metrics-alerting.mdc - Metrics and alerting configuration
+- @224-secrets-management.mdc - Secrets and environment variable management
+- @330-third-party-integration-testing.mdc - Integration testing standards
+- @331-high-risk-feature-testing.mdc - High-risk feature testing
+
+### Tools & Documentation
+
+- **`.cursor/tools/check-env-vars.sh`** - Validate environment variable security
+  ```bash
+  ./.cursor/tools/check-env-vars.sh
+  # Pre-deployment check: Validates all env vars are properly configured
+  ```
+- **`.cursor/tools/check-auth-config.sh`** - Validate Auth0 configuration
+  ```bash
+  ./.cursor/tools/check-auth-config.sh
+  # Pre-deployment check: Ensures Auth0 is properly configured
+  ```
+- **`.cursor/tools/check-infrastructure.sh`** - Verify infrastructure health
+  ```bash
+  ./.cursor/tools/check-infrastructure.sh
+  # Pre-deployment check: Validates infrastructure readiness
+  ```
+- **`.cursor/tools/check-backups.sh`** - Verify backup health before deployment
+  ```bash
+  ./.cursor/tools/check-backups.sh
+  # CRITICAL: Always verify backups before production deployment
+  ```
+- **`.cursor/tools/test-recovery.sh`** - Test disaster recovery procedures
+  ```bash
+  ./.cursor/tools/test-recovery.sh
+  # Recommended: Regularly test recovery procedures
+  ```
+
+### Comprehensive Guides
+
+- **`guides/Infrastructure-Verification-Guide.md`** ⭐ **NEW** How to verify infrastructure matches documentation
+- **`guides/Deployment-Workflow-Complete-Guide.md`** ⭐ **Essential** - Complete deployment workflow
+- **`guides/Incident-Response-Complete-Guide.md`** ⭐ **Essential** - Emergency response and deployment procedures
+- **`guides/Database-Operations-Complete-Guide.md`** - Database migrations and safety
+- **`guides/Monitoring-Complete-Guide.md`** - Monitoring and alerting configuration
+- **`guides/Secrets-Management-Complete-Guide.md`** - Environment variable management
+
+### Quick Start - Pre-Deployment Checklist
+
+```bash
+# 0. CRITICAL: Verify infrastructure matches documentation
+./.cursor/tools/verify-infrastructure-reality.sh
+# Fix any gaps found before proceeding!
+
+# 1. Run all safety checks
+./.cursor/tools/check-env-vars.sh
+./.cursor/tools/check-auth-config.sh
+./.cursor/tools/check-infrastructure.sh
+./.cursor/tools/check-backups.sh
+
+# 2. Review deployment guide
+# Open: guides/Incident-Response-Complete-Guide.md#deployment-procedures
+
+# 3. Prepare rollback
+# Review: @202-rollback-procedures.mdc
+
+# 4. Configure monitoring
+# Follow: @221-application-monitoring.mdc + @222-metrics-alerting.mdc
+
+# 5. Deploy to staging first!
+# Validate all critical flows
+
+# 6. Deploy to production
+# Monitor closely for 30+ minutes
+```
+
+### Post-Deployment Validation
+
+1. **Immediate Checks** (0-5 min):
+   - Authentication working
+   - Database connectivity
+   - Critical API endpoints responding
+2. **Short-term Monitoring** (5-30 min):
+   - Error rate < 1%
+   - Response times normal
+   - No spike in alerts
+3. **Extended Monitoring** (30 min - 2 hours):
+   - All user flows working
+   - Third-party integrations healthy
+   - Performance metrics stable
+
+### Emergency Rollback
+
+If anything fails, immediately execute:
+
+```bash
+# Follow @202-rollback-procedures.mdc
+# See guides/Incident-Response-Complete-Guide.md#emergency-rollback
+```

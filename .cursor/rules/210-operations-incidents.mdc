@@ -1,0 +1,315 @@
+---
+description:
+globs: ""
+alwaysApply: false
+---
+
+description: Use when implementing operational procedures, incident response processes, alerting systems, or system reliability practices
+globs: "**/monitoring/**,**/alerts/**,**/dashboards/**,**/runbooks/**"
+
+# Cursor Operations & Incident Management Guidelines
+
+These guidelines outline how Cursor, as an automated assistant, should support operational procedures and incident management. The focus is on analyzing operational code, suggesting monitoring improvements, and aiding in incident management automation with precise, actionable, and context-aware recommendations.
+
+## Alerting Implementation
+
+### Alert Configuration Assistance
+
+#### Alert System Detection:
+
+Scans the codebase for monitoring systems (e.g., Prometheus, Datadog, New Relic) using configuration files or imports. Proposes tailored alert configurations, recommends standardizing alerts across components, and flags missing alerts for critical functions (e.g., payment processing failures).
+
+#### Alert Definition Generation:
+
+Creates alert rules for common issues, such as:
+
+- HTTP 5xx errors exceeding 1% of requests.
+- Database query latency exceeding 2 seconds.
+
+Suggests thresholds (e.g., CPU >80% for 5 minutes), assigns severity (e.g., P1 for user-facing issues), and provides documentation templates.
+
+#### Noise Reduction Strategies:
+
+Detects potential alert storms and suggests aggregation (e.g., group by service), correlation rules (e.g., link latency with errors), debouncing (e.g., 5-minute cooldown), and consolidation of redundant alerts.
+
+## Incident Response Automation
+
+### Response Procedure Development
+
+#### Response Plan Generation:
+
+Generates incident response templates as code comments or Markdown, including runbooks with commands (e.g., tail -f /var/log/app.log) and automation suggestions (e.g., auto-restart scripts).
+
+#### Automation Implementation:
+
+Identifies manual steps for automation (e.g., log checks), generates remediation scripts (e.g., Python log analysis), and recommends tools like PagerDuty or Opsgenie, focusing on automatable tasks.
+
+#### Severity Classification:
+
+Defines severity levels (e.g., P1: critical, P2: high) based on code impact, suggests response times (e.g., P1: 15 minutes), and outlines escalation criteria (e.g., escalate after 30 minutes).
+
+## Post-Incident Analysis
+
+### Root Cause Analysis Support
+
+#### Analysis Structure:
+
+Provides post-mortem templates with sections:
+
+- Incident Summary
+- Timeline
+- Root Cause
+- Lessons Learned
+
+Suggests data collection (e.g., logs) and analysis frameworks (e.g., Five Whys).
+
+#### Corrective Action Tracking:
+
+Proposes tracking tools (e.g., Jira), generates fix plans as comments, suggests verification steps (e.g., re-run tests), and flags similar past incidents.
+
+#### Knowledge Capture:
+
+Recommends a knowledge base structure (e.g., Markdown), generates lesson-learned documentation, and identifies incident patterns.
+
+## Operational Communication
+
+### Communication Assistance
+
+#### Channel Recommendation:
+
+Suggests tools like Slack, recommends dedicated incident channels, and defines communication procedures by severity (e.g., P1: immediate).
+
+#### Status Update Templates:
+
+Creates templates (e.g., "Investigating payment service issue"), provides external communication examples, and suggests status page tools (e.g., Statuspage.io).
+
+#### User Impact Communication:
+
+Generates user-facing templates (e.g., "Delays in payment processing"), recommends notification methods (e.g., email), and provides resolution templates.
+
+## Resilience Improvement
+
+### Continuous Enhancement
+
+#### Resilience Analysis:
+
+Identifies single points of failure (e.g., no database replication), suggests redundancy (e.g., load balancers), and recommends chaos engineering tools (e.g., Chaos Monkey).
+
+#### Operational Metrics:
+
+Suggests metrics (e.g., error rates, latency), generates monitoring configs (e.g., Prometheus rules), and defines SLOs/SLIs (e.g., 99.9% availability).
+
+#### Documentation Enhancement:
+
+Flags outdated documentation, generates updated runbooks, and suggests testing via simulations (e.g., chaos tests).
+
+## On-Call Support
+
+### On-Call Experience Enhancement
+
+#### Runbook Generation:
+
+Creates runbooks with troubleshooting steps (e.g., kubectl get pods) and resolution steps with verification.
+
+#### Alert Context Enhancement:
+
+Recommends adding context (e.g., dashboard links), linking alerts to runbooks, and grouping related alerts.
+
+#### Shift Handover Assistance:
+
+Generates handover templates with incident status and suggests tracking mechanisms (e.g., incident logs).
+
+## Implementation Examples
+
+### Example: Alert Configuration
+
+#### Original Code
+
+```python
+def process_payment(payment_data):
+    try:
+        result = payment_service.charge(payment_data)
+        return result
+    except Exception as e:
+        logger.error(f"Payment failed: {str(e)}")
+        return None
+```
+
+#### Cursor Suggestion
+
+```python
+from prometheus_client import Counter, Summary, Gauge
+
+PAYMENT_FAILURES = Counter('payment_failures_total', 'Total payment failures')
+PAYMENT_DURATION = Summary('payment_duration_seconds', 'Payment processing time')
+PAYMENT_PROCESSING = Gauge('payment_processing', 'Payment processing status')
+
+def process_payment(payment_data):
+    PAYMENT_PROCESSING.set(1)  # Processing
+    start_time = time.time()
+    try:
+        result = payment_service.charge(payment_data)
+        PAYMENT_DURATION.observe(time.time() - start_time)
+        return result
+    except Exception as e:
+        PAYMENT_FAILURES.inc()
+        PAYMENT_DURATION.observe(time.time() - start_time)
+        logger.error(f"Payment failed: {str(e)}")
+        return None
+    finally:
+        PAYMENT_PROCESSING.set(0)  # Not processing
+```
+
+#### Alert Rule Configuration (Prometheus)
+
+```yaml
+groups:
+  - name: payment_service_alerts
+    rules:
+      - alert: PaymentFailureRateHigh
+        expr: rate(payment_failures_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High payment failure rate detected"
+          description: "Payment failure rate is above 1% for the last 5 minutes."
+      - alert: PaymentProcessingTime
+        expr: payment_duration_seconds{quantile="0.95"} > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow payment processing"
+          description: "95th percentile payment processing time exceeds 2 seconds."
+```
+
+### Example: Incident Response Runbook
+
+```markdown
+## Incident: Payment Service Failure
+
+### Initial Response Steps
+
+1. **Check Alert Details**: Review the alert for error rates or latency issues.
+2. **Verify Service Status**: Run `systemctl status payment`.
+3. **Inspect Logs**: Use `tail -f /var/log/payment.log`.
+
+### Diagnostic Steps
+
+1. **Check Database Connection**: Ping the database with `ping db_host`.
+2. **Monitor Resource Usage**: Use `top` to check CPU/memory.
+
+### Resolution Steps
+
+1. **Restart Service**: Run `systemctl restart payment`.
+2. **Scale Resources**: Scale up if resource usage is high.
+
+### Communication Templates
+
+- **Internal Update**: "Investigating payment service issues; logs indicate database failures."
+- **User-Facing Update**: "We're experiencing delays in payment processing."
+```
+
+### Example: Post-Mortem Template
+
+```markdown
+## Incident Summary
+
+- **Date**: [Date]
+- **Duration**: [Start Time] to [End Time]
+- **Impact**: [e.g., 10% of users affected]
+- **Root Cause**: [e.g., Database connection pool exhaustion]
+
+## Timeline
+
+- **Detection**: [Time] - Alert triggered.
+- **Resolution**: [Time] - Service restarted.
+
+## Root Cause Analysis
+
+- **What Happened**: Connection pool exhausted due to traffic spike.
+- **How to Prevent**: Increase pool size.
+
+## Action Items
+
+1. Increase connection pool size to 100.
+2. Add alerts for pool usage.
+```
+
+This document provides a structured, actionable framework for Cursor to assist with operations and incident management, tailored for code-centric automation and clarity.
+
+## See Also
+
+### Related Rules
+
+**Error Handling & Monitoring**:
+
+- @135-error-monitoring-observability.mdc - Error monitoring with Sentry/Datadog
+- @137-error-budget-slo.mdc - Error budgets and SLO management
+- @140-troubleshooting-standards.mdc - Troubleshooting procedures
+- @090-error-handling.mdc - Error classes and patterns
+
+**Operations & Deployment**:
+
+- @221-application-monitoring.mdc - Application monitoring
+- @222-metrics-alerting.mdc - Metrics and alerting
+- @202-rollback-procedures.mdc - Emergency rollback procedures
+- @203-production-deployment-safety.mdc - Deployment safety
+
+**Resilience**:
+
+- @136-error-recovery-resilience.mdc - Circuit breakers, recovery patterns
+- @223-health-checks.mdc - Health check implementation
+
+### Tools & Documentation
+
+**Incident Response Tools**:
+
+- **`.cursor/tools/check-error-rates.sh`** - Check current error rates and anomalies
+  ```bash
+  ./.cursor/tools/check-error-rates.sh
+  # Shows: Real-time rates, alerts, incident triggers
+  ```
+- **`.cursor/tools/analyze-errors.sh`** - Analyze incident patterns
+  ```bash
+  ./.cursor/tools/analyze-errors.sh --incident-id INC-123
+  # Shows: Root cause analysis, affected users, timeline
+  ```
+
+**Documentation**:
+
+- **`.cursor/docs/ai-workflows.md`** - Incident response workflows
+
+### Comprehensive Guides
+
+**Essential Guides**:
+
+- **`guides/Incident-Response-Complete-Guide.md`** ⭐ **ESSENTIAL** - Complete incident response procedures
+- **`guides/Production-Monitoring-Complete-Guide.md`** - Monitoring and alerting setup
+- **`guides/Error-Handling-Complete-Guide.md`** - Error handling strategy
+
+### Quick Start - Incident Response
+
+```bash
+# 1. Acknowledge incident
+# Log into incident management system
+
+# 2. Assess severity
+./.cursor/tools/check-error-rates.sh
+
+# 3. Begin investigation
+./.cursor/tools/analyze-errors.sh --last 1h
+
+# 4. Apply fix or rollback
+# See @202-rollback-procedures.mdc
+
+# 5. Post-mortem
+# Use template above, document learnings
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important)  
+**Last Updated**: November 20, 2025

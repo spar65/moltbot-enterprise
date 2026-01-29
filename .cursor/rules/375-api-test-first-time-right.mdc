@@ -1,0 +1,599 @@
+---
+description: Use when creating API tests to ensure they are built correctly the first time, preventing the 5 root causes of API test failures
+globs: "**/__tests__/**/api-*.test.ts, **/__tests__/**/*-api.test.ts, **/tests/api/**/*.test.ts"
+---
+
+# API Testing - First Time Right Standards
+
+## Context
+
+- API tests have historically required 20+ hours of debugging across multiple sessions
+- 5 root causes repeatedly cause test failures: implicit mocks, schema evolution, parallel collisions, immutability triggers, mock maintenance
+- Tests built following this rule work correctly on first run and remain stable
+- This rule is based on 40+ hours of documented debugging sessions (Nov 2025)
+- See: API-TEST-ROOT-CAUSE-ANALYSIS.md for full historical context
+
+## Requirements
+
+### Schema-First Test Development
+
+**CRITICAL**: BEFORE writing ANY API test, you MUST inspect the Prisma schema to verify field names, types, and relationships.
+
+#### Step 1: Inspect Schema
+```bash
+# Always inspect schema first
+cat prisma/schema.prisma | grep -A 20 "model YourModel"
+```
+
+#### Step 2: Generate Types
+```bash
+# Ensure Prisma types are up-to-date
+npx prisma generate
+```
+
+#### Step 3: Import Generated Types
+```typescript
+// ✅ CORRECT: Use Prisma-generated types
+import { HealthCheckApiKey, HealthCheckAuditLog } from '@prisma/client';
+
+// ✅ CORRECT: Let TypeScript catch field mismatches
+const apiKey: HealthCheckApiKey = await prisma.healthCheckApiKey.create({
+  data: {
+    label: 'Test Key',  // TypeScript will error if you use 'name'
+    keyHash: hashedKey,
+    environment: 'test',
+    organizationId: testOrgId,
+    createdBy: testUserId,
+    active: true,
+    lastFourChars: key.slice(-4),
+  },
+});
+
+// ❌ WRONG: Manual object without type annotation
+const apiKey = await prisma.healthCheckApiKey.create({
+  data: {
+    name: 'Test Key',  // No error! Will fail at runtime!
+  },
+});
+```
+
+#### Step 4: Schema as Source of Truth
+```typescript
+// If design doc says "name" but schema has "label", SCHEMA WINS.
+// Update design doc, don't assume schema is wrong.
+
+// ✅ CORRECT: Use schema field
+const apiKey = await prisma.healthCheckApiKey.create({
+  data: { label: 'Test Key' },
+});
+
+// ❌ WRONG: Use design doc field
+const apiKey = await prisma.healthCheckApiKey.create({
+  data: { name: 'Test Key' }, // Runtime error!
+});
+```
+
+**Why:** Prevents field name mismatches (name vs label, metadata vs detailsJson) that cause 40+ hours of debugging
+
+### Pre-Test Schema Validation Checklist
+
+BEFORE writing ANY test file, complete this checklist:
+
+#### 1. Model Existence
+```bash
+# Verify model exists in schema
+cat prisma/schema.prisma | grep "model HealthCheckApiKey"
+```
+- [ ] Model exists in schema
+- [ ] Model name matches exactly (case-sensitive)
+
+#### 2. Field Verification
+```bash
+# List all fields for model
+cat prisma/schema.prisma | sed -n '/model HealthCheckApiKey/,/^}/p'
+```
+- [ ] All test fields exist in schema
+- [ ] Field names match exactly (label vs name, detailsJson vs metadata)
+- [ ] Field types are correct (String vs Json vs DateTime)
+
+#### 3. Relationship Verification
+```bash
+# Check foreign key relationships
+cat prisma/schema.prisma | grep -A 2 "organizationId"
+```
+- [ ] organizationId exists if needed
+- [ ] @relation attributes are present
+- [ ] onDelete cascade is configured (if needed)
+
+#### 4. Type Generation
+```bash
+# Generate fresh Prisma types
+npx prisma generate
+```
+- [ ] Prisma types generated successfully
+- [ ] No type errors in schema
+
+#### 5. Test File Header
+```typescript
+/**
+ * SCHEMA VALIDATION COMPLETED: [Date]
+ * - Model: HealthCheckApiKey ✅
+ * - Fields verified: label, keyHash, environment, organizationId ✅
+ * - Relations verified: organization ✅
+ * - Cascade deletes: N/A ✅
+ */
+```
+- [ ] Header documents schema verification
+- [ ] Date stamped for audit trail
+
+**Why:** Prevents 60+ hours of debugging schema mismatches discovered during test execution
+
+### Test File Documentation Header
+
+Every API test file MUST include this documentation header:
+
+```typescript
+/**
+ * API Test: [Endpoint Name and HTTP Method]
+ * Route: [Full route path]
+ * 
+ * MOCKED DEPENDENCIES (configured in jest.api.setup.js):
+ * - @/middleware/api-auth (validateApiKey, extractAuthInfo)
+ * - @auth0/nextjs-auth0 (getSession, withApiAuthRequired)
+ * - node-fetch (for external API calls)
+ * - [Add any other mocked modules]
+ * 
+ * DATABASE REQUIREMENTS:
+ * - Tables: Organization, User, [YourTables]
+ * - Foreign Keys: organizationId references Organization.id
+ * - Cleanup: cleanupTestData(organizationId) in afterEach
+ * 
+ * TYPE SAFETY:
+ * - Request interface: [RequestInterfaceName]
+ * - Response interface: [ResponseInterfaceName]
+ * - Route handler return type: Promise<NextResponse<ResponseInterface>>
+ * 
+ * ENVIRONMENT VARIABLES:
+ * - DATABASE_URL (test database connection)
+ * - NEXTAUTH_SECRET (session encryption)
+ * - [Add any other required env vars]
+ */
+```
+
+**Why:** Makes all dependencies explicit, preventing "Cannot find module" errors
+
+### Type-Safe API Contracts
+
+Every API route MUST have TypeScript interfaces for request and response:
+
+```typescript
+// In lib/api/types/your-feature.ts
+
+export interface YourApiRequest {
+  field1: string;
+  field2: number;
+  organizationId: string; // ✅ Always include for multi-tenancy
+}
+
+export interface YourApiResponse {
+  id: string;
+  status: 'pending' | 'completed' | 'failed';
+  field1: string;
+  field2: number;
+  createdAt: string; // ✅ ISO string format
+  // NO optional fields unless truly optional
+}
+
+// Route handler MUST declare return type
+export async function POST(
+  request: NextRequest
+): Promise<NextResponse<YourApiResponse>> {
+  // TypeScript will error if response doesn't match interface
+  return NextResponse.json({
+    id: result.id,
+    status: result.status,
+    field1: result.field1,
+    field2: result.field2,
+    createdAt: result.createdAt.toISOString(),
+  });
+}
+```
+
+**Why:** Prevents field name mismatches (runId vs testRunId), catches schema evolution at compile-time
+
+### Unique Test Data Generation
+
+ALL test data MUST use truly unique identifiers:
+
+```typescript
+// ❌ WRONG: Timestamp-based (collides in parallel tests)
+export async function createTestOrganization() {
+  const timestamp = Date.now();
+  const slug = `test-org-${timestamp}`;
+  return await prisma.organization.create({
+    data: { name: 'Test Org', slug },
+  });
+}
+
+// ✅ CORRECT: UUID-based (never collides)
+export async function createTestOrganization() {
+  const uuid = crypto.randomUUID();
+  const slug = `test-org-${uuid}`;
+  return await prisma.organization.create({
+    data: { 
+      name: `Test Organization ${uuid.slice(0, 8)}`,
+      slug,
+    },
+  });
+}
+
+// ✅ CORRECT: For email addresses
+export async function createTestUser(organizationId: string) {
+  const uuid = crypto.randomUUID();
+  return await prisma.user.create({
+    data: {
+      email: `test-user-${uuid}@example.com`,
+      name: `Test User ${uuid.slice(0, 8)}`,
+      organizationId,
+    },
+  });
+}
+```
+
+**Why:** Prevents "duplicate key value violates unique constraint" errors in parallel tests
+
+### Jest Configuration for API Tests
+
+API test configuration MUST use sequential execution:
+
+```javascript
+// jest.api.config.js
+module.exports = {
+  displayName: 'api',
+  testMatch: ['**/__tests__/**/api-*.test.ts'],
+  testEnvironment: 'node',
+  setupFilesAfterEnv: ['<rootDir>/tests/setup/jest.api.setup.ts'],
+  testTimeout: 45000, // API tests can be slower
+  
+  // ✅ CRITICAL: Sequential execution prevents database collisions
+  maxWorkers: 1,
+  
+  // ✅ CRITICAL: Verbose output for debugging
+  verbose: true,
+  
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/$1',
+  },
+};
+```
+
+**Why:** Database operations in parallel cause race conditions and data collisions
+
+### Immutability Trigger Handling
+
+Test cleanup MUST properly handle immutability triggers:
+
+```typescript
+// __tests__/helpers/database-helpers.ts
+
+export async function cleanupTestData(organizationId: string) {
+  const prisma = DatabaseTestHelpers.getPrisma();
+  
+  try {
+    // ✅ Disable triggers for test cleanup ONLY
+    await prisma.$executeRawUnsafe('SET session_replication_role = replica;');
+    
+    // ✅ Delete in correct order (respect foreign key constraints)
+    // Immutable tables first (HealthCheckResult, HealthCheckAuditLog)
+    await prisma.healthCheckResult.deleteMany({ 
+      where: { organizationId } 
+    });
+    await prisma.healthCheckAuditLog.deleteMany({ 
+      where: { organizationId } 
+    });
+    
+    // Then dependent tables
+    await prisma.healthCheckTestRun.deleteMany({ 
+      where: { organizationId } 
+    });
+    await prisma.healthCheckApiKey.deleteMany({ 
+      where: { organizationId } 
+    });
+    
+    // Finally parent tables
+    await prisma.user.deleteMany({ 
+      where: { organizationId } 
+    });
+    await prisma.organization.deleteMany({ 
+      where: { id: organizationId } 
+    });
+    
+    // ✅ CRITICAL: Re-enable triggers
+    await prisma.$executeRawUnsafe('SET session_replication_role = DEFAULT;');
+  } catch (error) {
+    // ✅ CRITICAL: Always re-enable triggers even on error
+    await prisma.$executeRawUnsafe('SET session_replication_role = DEFAULT;');
+    console.error('❌ Cleanup failed:', error);
+    throw error;
+  }
+}
+```
+
+**Why:** Immutability triggers (good for production) block test cleanup (bad for tests)
+
+### Mock Setup in Setup Files
+
+API test mocks MUST be configured in `jest.api.setup.js`, NOT in individual test files:
+
+```typescript
+// tests/setup/jest.api.setup.ts
+
+// ✅ Mock middleware BEFORE any imports
+jest.mock('@/middleware/api-auth', () => ({
+  validateApiKey: jest.fn(),
+  extractAuthInfo: jest.fn(),
+  checkRateLimit: jest.fn(),
+}));
+
+jest.mock('@auth0/nextjs-auth0', () => ({
+  getSession: jest.fn(),
+  withApiAuthRequired: jest.fn((handler) => handler),
+}));
+
+jest.mock('node-fetch', () => ({
+  __esModule: true,
+  default: jest.fn(),
+}));
+
+// ✅ Export helpers for test files
+export const mockAuth = {
+  setupSuccess(organizationId: string, userId: string) {
+    const { validateApiKey, extractAuthInfo } = jest.requireMock('@/middleware/api-auth');
+    validateApiKey.mockResolvedValue(true);
+    extractAuthInfo.mockResolvedValue({ organizationId, userId });
+  },
+  
+  setupFailure(errorMessage: string) {
+    const { validateApiKey } = jest.requireMock('@/middleware/api-auth');
+    validateApiKey.mockRejectedValue(new Error(errorMessage));
+  },
+  
+  setupRateLimit(remaining: number) {
+    const { checkRateLimit } = jest.requireMock('@/middleware/api-auth');
+    if (remaining <= 0) {
+      checkRateLimit.mockRejectedValue(new Error('Rate limit exceeded'));
+    } else {
+      checkRateLimit.mockResolvedValue({ remaining, limit: 100 });
+    }
+  },
+};
+```
+
+**Why:** Centralized mocks prevent "Cannot find module" errors and reduce boilerplate
+
+## Examples
+
+<example>
+```typescript
+/**
+ * API Test: Create Health Check Test
+ * Route: POST /api/health-check/test
+ * 
+ * MOCKED DEPENDENCIES:
+ * - @/middleware/api-auth (validateApiKey, extractAuthInfo)
+ * - node-fetch (for AI API calls)
+ * 
+ * DATABASE REQUIREMENTS:
+ * - Tables: Organization, HealthCheckApiKey, HealthCheckFramework, HealthCheckTestRun
+ * - Cleanup: cleanupTestData(organizationId)
+ * 
+ * TYPE SAFETY:
+ * - Request: CreateHealthCheckTestRequest
+ * - Response: CreateHealthCheckTestResponse
+ */
+
+import { NextRequest } from 'next/server';
+import { POST } from '@/app/api/health-check/test/route';
+import { prisma } from '@/lib/db';
+import { mockAuth } from '../../setup/jest.api.setup';
+import { 
+  cleanupTestData,
+  createTestOrganization,
+  createTestApiKey,
+} from '../../helpers/database-helpers';
+import type { CreateHealthCheckTestResponse } from '@/lib/api/types/health-check';
+
+describe('POST /api/health-check/test', () => {
+  let testOrgId: string;
+  let testApiKey: string;
+  
+  beforeAll(async () => {
+    // ✅ UUID-based unique data
+    const org = await createTestOrganization();
+    testOrgId = org.id;
+    
+    const { apiKey } = await createTestApiKey(testOrgId, 'test-user');
+    testApiKey = apiKey;
+    
+    // ✅ Setup mock authentication
+    mockAuth.setupSuccess(testOrgId, 'test-user-id');
+  });
+  
+  afterAll(async () => {
+    // ✅ Proper cleanup with trigger bypass
+    await cleanupTestData(testOrgId);
+  });
+  
+  beforeEach(() => {
+    // ✅ Reset mocks between tests
+    jest.clearAllMocks();
+    mockAuth.setupSuccess(testOrgId, 'test-user-id');
+  });
+  
+  it('✅ should create health check test successfully', async () => {
+    const request = new NextRequest('http://localhost/api/health-check/test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': testApiKey,
+      },
+      body: JSON.stringify({
+        frameworkId: 'morality',
+        targetAi: {
+          provider: 'anthropic',
+          model: 'claude-sonnet-4',
+        },
+      }),
+    });
+    
+    const response = await POST(request);
+    
+    // ✅ Type-safe response parsing
+    const data: CreateHealthCheckTestResponse = await response.json();
+    
+    expect(response.status).toBe(201);
+    expect(data.runId).toBeDefined();
+    expect(data.status).toBe('running');
+    expect(data.frameworkId).toBe('morality');
+  });
+  
+  it('❌ should reject invalid API key', async () => {
+    // ✅ Setup failure scenario
+    mockAuth.setupFailure('Invalid API key');
+    
+    const request = new NextRequest('http://localhost/api/health-check/test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': 'invalid-key',
+      },
+      body: JSON.stringify({
+        frameworkId: 'morality',
+        targetAi: { provider: 'anthropic', model: 'claude-sonnet-4' },
+      }),
+    });
+    
+    const response = await POST(request);
+    const data = await response.json();
+    
+    expect(response.status).toBe(401);
+    expect(data.error).toBeDefined();
+  });
+});
+```
+</example>
+
+<example type="invalid">
+```typescript
+// ❌ BAD: Missing documentation header
+describe('API Tests', () => {
+  // No one knows what this tests or what it depends on
+});
+
+// ❌ BAD: Timestamp-based test data
+const org = await prisma.organization.create({
+  data: {
+    slug: `test-org-${Date.now()}`, // Will collide in parallel tests!
+  },
+});
+
+// ❌ BAD: No type safety
+export async function POST(request: NextRequest) {
+  return NextResponse.json({
+    testRunId: result.id, // Test expects 'runId', will fail!
+  });
+}
+
+// ❌ BAD: Missing trigger bypass in cleanup
+afterAll(async () => {
+  // This will fail with "Cannot modify locked result" error
+  await prisma.healthCheckResult.deleteMany({ where: { organizationId } });
+});
+
+// ❌ BAD: Mock setup in test file (should be in jest.setup.js)
+jest.mock('@/middleware/api-auth', () => ({
+  validateApiKey: jest.fn().mockResolvedValue(true),
+}));
+```
+</example>
+
+## Implementation Checklist
+
+When creating a new API test, verify:
+
+### Pre-Development (Schema Validation):
+- [ ] Inspected Prisma schema for target models
+- [ ] Verified all field names match schema exactly
+- [ ] Confirmed field types (String vs Json vs DateTime vs Boolean)
+- [ ] Checked foreign key relationships and cascade behavior
+- [ ] Generated fresh Prisma types (`npx prisma generate`)
+- [ ] Schema validation header added to test file with date
+
+### Test Structure:
+- [ ] Documentation header includes all mocked dependencies
+- [ ] TypeScript interfaces defined for request/response
+- [ ] Route handler has explicit return type with interface
+- [ ] Test data uses `crypto.randomUUID()` for uniqueness
+- [ ] Jest config has `maxWorkers: 1` for API tests
+- [ ] Cleanup function uses trigger bypass pattern
+- [ ] Mocks configured in `jest.api.setup.js`, not test file
+- [ ] Test includes both success (✅) and error (❌) scenarios
+- [ ] `beforeEach` resets mocks with `jest.clearAllMocks()`
+- [ ] `afterAll` calls `cleanupTestData(organizationId)`
+
+### Type Safety:
+- [ ] Import Prisma-generated types for all models used
+- [ ] Use type annotations on database create/update operations
+- [ ] TypeScript compiles without errors before running tests
+
+## Integration with Other Rules
+
+- Implements @002-rule-application.mdc (Source of Truth Hierarchy)
+- Builds on @370-api-testing-database.mdc for database integration patterns
+- Complements @380-comprehensive-testing-standards.mdc for visual organization
+- Extends @105-typescript-linter-standards.mdc with API-specific type safety
+- Works with @371-api-test-architecture.mdc for test infrastructure decisions
+
+## Tools & Documentation
+
+### Required Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Inspect Prisma models BEFORE writing tests
+  ```bash
+  ./.cursor/tools/inspect-model.sh YourModel
+  ./.cursor/tools/inspect-model.sh YourModel --relations
+  ```
+
+- **`.cursor/tools/check-schema-changes.sh`** - Validate schema before committing
+  ```bash
+  ./.cursor/tools/check-schema-changes.sh
+  ```
+
+### Complete Workflow Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Complete 19-step process
+- **`.cursor/docs/ai-workflows.md#schema-first-development`** - Foundation pattern
+- **`.cursor/docs/tools-guide.md`** - Tool usage patterns
+
+### Quick Start
+1. **Read:** `.cursor/rules/003-cursor-system-overview.mdc` (system map)
+2. **Inspect:** `.cursor/tools/inspect-model.sh YourModel` (exact field names)
+3. **Follow:** This rule's checklist
+4. **Test:** Should pass first run (95%+ success rate)
+
+## Success Metrics
+
+Track these metrics to measure effectiveness:
+
+- **Time to Write Test**: Should be 15-20 minutes (down from 45-60 minutes)
+- **Time to Debug Failure**: Should be 5-15 minutes (down from 30-90 minutes)
+- **First-Run Success Rate**: Should be 95%+ (up from ~40%)
+- **Test Stability**: Should be 98%+ pass rate (up from ~60%)
+- **Developer Satisfaction**: "Tests work on first try!" (up from "Why is this so hard?")
+
+## Historical Context
+
+This rule is based on documented debugging sessions:
+- **Nov 16, 2025**: 8 hours debugging module resolution, parallel collisions
+- **Nov 18, 2025**: 12 hours debugging field mismatches, trigger conflicts
+- **Total**: 40+ hours of patterns extracted into this rule
+
+**These patterns prevent repeating those 40 hours on every new API endpoint.**

@@ -1,0 +1,200 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply Auth0 SDK 4.6.0 integration best practices and avoid common pitfalls that cause production deployment failures
+globs: "**/*.{ts,tsx,js,jsx}"
+___
+
+# Auth0 SDK 4.6.0 Integration Standard
+
+## Context
+- Auth0 SDK 4.6.0 has specific requirements different from earlier versions
+- Production deployments often fail due to URL path mismatches and environment variable issues
+- URL construction in Edge Runtime can cause middleware failures
+- Auth0 domain format varies by region and must be exactly correct
+
+## Requirements
+
+### Authentication Routes
+- **REQUIRED**: Use `/auth/` NOT `/api/auth/` in your Auth0 routes with SDK 4.6.0
+- **REQUIRED**: Configure Auth0 Dashboard URLs to match this new format
+- Maintain exact URL correspondence between code and Auth0 Dashboard configuration
+- Handle Auth0 route invocation in middleware not just API routes
+
+```typescript
+// CORRECT - Auth0 SDK 4.6.0 URL format
+https://yourdomain.com/auth/login
+https://yourdomain.com/auth/callback
+https://yourdomain.com/auth/logout
+
+// WRONG - Old Auth0 SDK URL format (pre-4.6.0)
+https://yourdomain.com/api/auth/login  // Will fail in production
+https://yourdomain.com/api/auth/callback  // Will fail in production
+```
+
+### Environment Variables
+- **REQUIRED**: Set all Auth0 environment variables in Vercel production scope
+- **REQUIRED**: Verify correct Auth0 tenant domain format including regional suffix (.us, .eu, etc.)
+- Test discovery endpoint before deploying: `https://your-domain/.well-known/openid-configuration`
+- Include `AUTH0_DOMAIN` explicitly alongside `AUTH0_ISSUER_BASE_URL` in v4.6.0
+
+```typescript
+// REQUIRED environment variables for Auth0 SDK 4.6.0
+AUTH0_SECRET=32-character-random-string-generated-with-openssl-rand-hex-32
+AUTH0_BASE_URL=https://your-production-domain.com
+AUTH0_ISSUER_BASE_URL=https://your-exact-tenant.us.auth0.com
+AUTH0_CLIENT_ID=your-client-id-from-auth0-dashboard
+AUTH0_CLIENT_SECRET=your-client-secret-from-auth0-dashboard
+AUTH0_DOMAIN=your-exact-tenant.us.auth0.com  // REQUIRED in v4.6.0
+APP_BASE_URL=https://your-production-domain.com  // REQUIRED in v4.6.0
+```
+
+### Auth0 Client Implementation
+- **REQUIRED**: Implement robust URL validation in Auth0 client configuration
+- Handle Auth0 environment variable fallbacks appropriately
+- Extract domain from issuer URL if needed
+- Ensure URL protocols are included (https://)
+
+```typescript
+// Robust Auth0 client configuration with proper fallbacks
+import { Auth0Client } from "@auth0/nextjs-auth0/server";
+
+// Helper function to ensure valid URLs
+const getValidUrl = (url?: string): string => {
+  if (!url) return "";
+  return url.startsWith("http") ? url : `https://${url}`;
+};
+
+// Get base URL with fallbacks
+const appBaseUrl = getValidUrl(
+  process.env.AUTH0_BASE_URL || 
+  process.env.APP_BASE_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "")
+);
+
+// Extract domain from issuer URL if needed
+const domain = process.env.AUTH0_DOMAIN || 
+  (process.env.AUTH0_ISSUER_BASE_URL?.replace("https://", "").split("/")[0]) || "";
+
+export const auth0 = new Auth0Client({
+  domain,
+  clientId: process.env.AUTH0_CLIENT_ID,
+  clientSecret: process.env.AUTH0_CLIENT_SECRET,
+  appBaseUrl,
+  secret: process.env.AUTH0_SECRET,
+});
+```
+
+### Middleware Implementation
+- **REQUIRED**: Implement error handling in middleware for Auth0 integration
+- Handle URL construction errors explicitly
+- Log detailed debugging information
+- Provide fallback behavior for common error scenarios
+
+```typescript
+// Middleware with proper Auth0 error handling
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { auth0 } from "./src/lib/auth0";
+
+export async function middleware(request: NextRequest) {
+  try {
+    return await auth0.middleware(request);
+  } catch (error) {
+    console.error("Auth0 middleware error:", error);
+    
+    // Handle URL construction errors
+    if (error.message?.includes("Invalid URL")) {
+      const origin = request.headers.get("origin");
+      const host = request.headers.get("host");
+      const protocol = request.headers.get("x-forwarded-proto") || "https";
+      const fallbackUrl = origin || `${protocol}://${host}`;
+      
+      // Redirect auth routes appropriately
+      if (request.nextUrl.pathname === "/auth/login") {
+        return NextResponse.redirect(`${fallbackUrl}/auth/login`);
+      }
+    }
+    
+    // Default fallback to prevent complete middleware failure
+    return NextResponse.next();
+  }
+}
+```
+
+### Testing & Validation
+- **REQUIRED**: Test environment variables before deploying Auth0 integration
+- Verify discovery endpoint responds with 200 status
+- Test URL construction explicitly to catch errors early
+- Use diagnostic tools to troubleshoot Auth0 issues systematically
+
+## Implementation Checklist
+
+Before deploying Auth0 authentication to production:
+
+- [ ] Verify Auth0 tenant domain is correct (including regional suffix)
+- [ ] Set all required environment variables in Vercel production scope
+- [ ] Configure Auth0 Dashboard URLs to use `/auth/` format
+- [ ] Implement robust error handling in middleware
+- [ ] Add URL validation in Auth0 client configuration
+- [ ] Test all authentication endpoints before deploying
+- [ ] Test with diagnostic tools if issues arise
+
+## Diagnostic Tools
+
+When troubleshooting Auth0 integration issues, use these diagnostic tools:
+
+1. Environment Variables Test Page
+2. Auth0 URL Construction Test API
+3. Basic Middleware Test
+4. Discovery Endpoint Checker
+
+See the complete Auth0 deployment guide in `HitList-Rules-Updates-Guides-Auth0.md`
+
+## Relationship with Other Rules
+
+This rule extends and complements:
+- Rule 011-env-var-security.mdc - Ensure proper environment variable security
+- Rule 014-third-party-auth.mdc - Auth provider integration standards
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Complete Auth0 setup guide
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Pre-deployment checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate Auth0 configuration
+  ```bash
+  ./.cursor/tools/check-auth-config.sh
+  # Validates: Env vars, secret strength, secure cookies, SDK version
+  ```
+- **`.cursor/tools/check-env-vars.sh`** - Ensure no secrets exposed
+- **`.cursor/tools/scan-secrets.sh`** - Detect hardcoded secrets
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @014-third-party-auth.mdc - Authentication implementation standards
+- @019-auth0-integration.mdc - Auth0 integration patterns (primary)
+- @046-session-validation.mdc - Session security
+- @047-session-token-debugging.mdc - Session debugging patterns
+- @330-auth0-testing-standards.mdc - Auth0 testing standards
+- @374-authentication-architecture-standards.mdc - Auth architecture
+- @400-auth-testing-patterns.mdc - Auth testing patterns
+- @410-auth-debugging.mdc - Auth debugging workflows
+
+### Quick Start
+1. **Validate:** `.cursor/tools/check-auth-config.sh`
+2. **Follow:** `.cursor/docs/security-workflows.md#auth0-integration-workflow`
+3. **Deploy:** `.cursor/docs/security-checklist.md#authentication-authorization`
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH0_CURRENT_IMPLEMENTATION.md`** - Current Auth0 setup and configuration
+- **`guides/AUTH0_TROUBLESHOOTING_GUIDE.md`** - Common Auth0 issues and solutions
+- **`guides/auth0/01-Auth0-Setup-Guide.md`** - Initial Auth0 setup walkthrough
+- **`guides/auth0/03-Advanced-Auth0-Integration.md`** - Advanced integration patterns

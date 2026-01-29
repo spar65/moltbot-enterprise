@@ -1,0 +1,233 @@
+---
+description: Use when designing, implementing, or reviewing API endpoints to ensure they follow security best practices
+globs: "**/api/**/*.{js,ts,jsx,tsx}, **/routes/**/*.{js,ts,jsx,tsx}, **/controllers/**/*.{js,ts,jsx,tsx}"
+---
+
+# API Security Best Practices
+
+This rule provides guidelines for securing API endpoints in any web application. These guidelines should be applied whenever designing, implementing, or reviewing API endpoints to protect against common security vulnerabilities and attacks.
+
+## Rate Limiting
+
+### Rate Limit All API Endpoints
+
+- **REQUIRED**: All API endpoints must implement rate limiting to prevent abuse and DoS attacks.
+- Rate limits should be applied at multiple levels:
+  - Per IP address
+  - Per user ID (when authenticated)
+  - Per API token/key
+  - Global endpoint protection
+- Different rate limits should be applied to different endpoint types:
+  - Public endpoints: Lower limits
+  - Authenticated endpoints: Moderate limits
+  - Admin endpoints: Higher but still reasonable limits
+
+### Implementation Guidelines
+
+```typescript
+// Example using Express Rate Limit middleware
+import rateLimit from 'express-rate-limit';
+
+// Global API rate limiter
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  message: 'Too many requests from this IP, please try again after 15 minutes'
+});
+
+// Authentication endpoints rate limiter (stricter)
+const authLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // limit each IP to 10 login attempts per hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many login attempts from this IP, please try again after an hour'
+});
+
+// Apply the rate limiters
+app.use('/api/', globalLimiter); // Apply to all API routes
+app.use('/api/auth', authLimiter); // Apply stricter limits to auth routes
+```
+
+### Rate Limit Headers
+
+- All rate-limited endpoints should include standard rate limit headers:
+  - `X-RateLimit-Limit`: Maximum number of requests allowed in the period
+  - `X-RateLimit-Remaining`: Number of requests remaining in the current period
+  - `X-RateLimit-Reset`: Time when the rate limit will reset
+
+## API Authentication & Authorization
+
+### Authentication Methods
+
+- **REQUIRED**: All non-public APIs must require proper authentication
+- Use industry-standard authentication methods:
+  - JWT tokens with proper signing and expiration
+  - OAuth 2.0 for third-party integrations
+  - API keys for service-to-service communication
+- **AVOID**: Using basic authentication over non-HTTPS connections
+
+### API Key Management
+
+- API keys should never be hardcoded in source code or committed to repositories
+- Store API keys in environment variables or secure key management systems
+- Implement key rotation policies
+- Allow for API key revocation in case of compromise
+
+### Authorization Checks
+
+- Implement proper authorization checks for every API endpoint
+- Validate user permissions before processing any request
+- Use role-based access control (RBAC) for complex permission systems
+- Log all authorization failures for security monitoring
+
+## Input Validation & Sanitization
+
+### Validate All Inputs
+
+- All API inputs must be validated for:
+  - Type correctness (string, number, etc.)
+  - Format validation (email, URL, etc.)
+  - Range/length validation
+  - Content validation (allowed characters)
+- Use schema validation libraries like Joi, Zod, or Yup
+- Implement validation at the controller level, before business logic
+
+```typescript
+// Example using Zod for validation
+import { z } from 'zod';
+
+const userSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(100),
+  name: z.string().min(2).max(100),
+  role: z.enum(['user', 'admin']).default('user'),
+});
+
+// In your controller
+const createUser = async (req, res) => {
+  try {
+    // Validate input
+    const userData = userSchema.parse(req.body);
+    
+    // If we get here, validation passed
+    // Proceed with business logic
+    const user = await userService.create(userData);
+    return res.status(201).json(user);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: error.errors 
+      });
+    }
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+```
+
+### Prevent Injection Attacks
+
+- **REQUIRED**: Use parameterized queries or ORM for database operations
+- **AVOID**: Constructing SQL queries by string concatenation
+- Sanitize inputs that will be used in file paths, shell commands, or HTML output
+- Be particularly careful with inputs used in dynamic code evaluation (eval, etc.)
+
+## Response Security
+
+### Secure Response Headers
+
+- Implement appropriate security headers in all API responses:
+  - `Content-Security-Policy`: Restrict content sources
+  - `X-Content-Type-Options: nosniff`: Prevent MIME type sniffing
+  - `X-Frame-Options: DENY`: Prevent clickjacking
+  - `Strict-Transport-Security`: Enforce HTTPS
+  - `Cache-Control`: Prevent sensitive data caching
+
+### Error Handling
+
+- Do not expose sensitive information in error messages
+- Use generic error messages for clients
+- Log detailed errors on the server side only
+- Return appropriate HTTP status codes
+- Include a correlation ID in errors for server-side troubleshooting
+
+```typescript
+// Avoid exposing internal errors
+// BAD:
+app.use((err, req, res, next) => {
+  res.status(500).json({ error: err.stack });
+});
+
+// GOOD:
+app.use((err, req, res, next) => {
+  const correlationId = req.id || crypto.randomUUID();
+  logger.error({ err, correlationId, req: { url: req.url, method: req.method } });
+  
+  res.status(500).json({
+    error: 'An internal server error occurred',
+    correlationId: correlationId
+  });
+});
+```
+
+### Sensitive Data Exposure
+
+- Never return sensitive data in API responses:
+  - Password hashes
+  - API keys/tokens
+  - PII not required by the client
+  - Internal system information
+- Implement proper data filtering before sending responses
+
+## API Documentation Security
+
+- Do not expose complete API documentation publicly without authentication
+- Avoid documenting internal endpoints in public-facing docs
+- Remove sample authentication tokens from documentation
+- Document security requirements for each endpoint (authentication, rate limits)
+
+## Monitoring & Logging
+
+- Implement logging for all API access, especially:
+  - Authentication failures
+  - Authorization failures
+  - Rate limit breaches
+  - Input validation failures
+  - Unusual access patterns
+- Set up alerts for suspicious activity
+- Regularly review API access logs for security issues
+
+## Implementation Checklist
+
+When implementing or reviewing API endpoints, verify the following:
+
+- [ ] Rate limiting is implemented for all endpoints
+- [ ] Authentication is required for non-public endpoints
+- [ ] Authorization is checked appropriately
+- [ ] All inputs are validated and sanitized
+- [ ] Error handling does not expose sensitive information
+- [ ] Security headers are properly configured
+- [ ] Sensitive data is filtered from responses
+- [ ] Logging captures security-relevant events
+- [ ] Integration tests verify security controls 
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/rules-guide.md`** - Understanding the rule system
+- **`.cursor/docs/ai-workflows.md`** - Proven API development patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools
+- **`.cursor/tools/check-schema-changes.sh`** - Validate changes before deploying
+
+### Related Rules
+- @002-rule-application.mdc - Rule priority and application  
+- @060-api-standards.mdc - Organization-scoped API patterns
+- @025-multi-tenancy.mdc - Multi-tenant security
+- @375-api-test-first-time-right.mdc - Secure API testing
+- @355-rate-limiting-implementation.mdc - Rate limiting patterns
+

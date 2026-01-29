@@ -1,0 +1,381 @@
+---
+description: Use for ALL testing to ensure clear organization, visual feedback, bulletproof infrastructure, and comprehensive coverage across the entire application
+globs: "**/*.test.{ts,tsx,js,jsx},tests/**/*.{ts,tsx,js,jsx},__tests__/**/*.{ts,tsx,js,jsx}"
+---
+
+# Comprehensive Testing Standards - Universal Framework
+
+## Context
+
+- Apply to ALL testing scenarios across the application
+- Use for database tests, API tests, component tests, integration tests, and end-to-end tests
+- Follow for establishing clear test organization, visual feedback, and bulletproof infrastructure
+- Reference when creating new test suites or refactoring existing tests
+
+## Requirements
+
+### Test What You Actually Built (v2.1.1 Lesson)
+
+- **FOCUS ON IMPLEMENTATION**: Create tests that directly validate what you built, not extensive documentation
+- **PREVENT REGRESSIONS**: Tests should ensure functionality doesn't break with future changes
+- **EXAMPLE**: Story points feature needed database constraints, API integration, UI interaction, and export format tests
+- **AVOID**: Over-documentation, focus on actual test coverage that catches real problems
+- **RULE**: Test the implementation, not the concept
+
+### Visual Test Organization
+
+- Use descriptive test names with visual indicators: `✅ Should work correctly` and `❌ Should reject invalid input`
+- Group related tests in clearly named describe blocks with consistent naming
+- Use console.log statements with emojis for test progress tracking: `console.log('🧪 Testing user authentication')`
+- Provide clear test output that shows exactly what's working and what's not
+
+### Test Infrastructure Architecture
+
+- Create separate Jest configurations for different test types (database, API, component, E2E)
+- Establish dedicated setup files for each test environment with proper mocking and polyfills
+- Use consistent helper utilities and reusable test patterns
+- Implement proper test isolation with beforeEach/afterEach cleanup
+
+### Test Categorization Strategy
+
+- **Database Tests**: Business logic, data integrity, and database operations
+- **API Tests**: Endpoint behavior, authentication, validation, and error handling
+- **Component Tests**: UI behavior, user interactions, and rendering
+- **Integration Tests**: Cross-system functionality and workflow testing
+- **Security Tests**: Authentication, authorization, and vulnerability testing
+
+### Mock Management Patterns
+
+- Use explicit mock setup with clear sequencing: `mockResolvedValueOnce` for each database call
+- Implement mock reset strategies: `jest.clearAllMocks()` or dedicated mock reset functions
+- Create reusable mock utilities for common scenarios (auth, database, external APIs)
+- Use mock verification to ensure correct call patterns and parameters
+
+### Error Scenario Coverage
+
+- Test both positive and negative scenarios in every test suite
+- Include graceful error handling tests for all failure modes
+- Test edge cases, boundary conditions, and invalid inputs
+- Verify proper error messages and status codes
+
+### Test Performance and Reliability
+
+- Use appropriate timeouts for different test types (unit: 5s, integration: 30s, E2E: 60s)
+- Implement retry strategies for flaky tests when appropriate
+- Use proper async/await patterns to avoid race conditions
+- Design tests to be independent and runnable in any order
+
+## Examples
+
+<example>
+// ✅ Good: Clear test organization with visual indicators
+describe('API Key Security Tests', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockSql = dbTestUtils.setupMocks();
+  });
+
+test('✅ Should validate environment prefixes correctly', async () => {
+console.log('🛡️ Testing environment prefix validation');
+
+    const liveKey = 'vibe_live_' + 'a'.repeat(64);
+    const testKey = 'vibe_test_' + 'b'.repeat(64);
+
+    expect(ApiKeyManager.validateEnvironmentPrefix(liveKey, 'live')).toBe(true);
+    expect(ApiKeyManager.validateEnvironmentPrefix(liveKey, 'test')).toBe(false);
+
+    console.log('✅ Environment prefix validation working');
+
+});
+
+test('❌ Should reject malformed API keys', async () => {
+console.log('🛡️ Testing malformed key rejection');
+
+    const malformedKeys = [
+      'invalid-key',
+      'vibe_invalid_format',
+      'too_short',
+      ''
+    ];
+
+    for (const key of malformedKeys) {
+      const result = await ApiKeyManager.validateApiKey(key);
+      expect(result).toBeNull();
+    }
+
+    console.log('✅ Malformed keys properly rejected');
+
+});
+});
+</example>
+
+<example>
+// ✅ Good: Comprehensive test infrastructure setup
+// jest.database.config.js
+const nextJest = require('next/jest');
+
+const createJestConfig = nextJest({
+dir: './',
+});
+
+const databaseJestConfig = {
+setupFilesAfterEnv: ['<rootDir>/jest.database.setup.js'],
+testEnvironment: 'node', // Node environment for database testing
+testMatch: [
+'**/__tests__/**/*database*.test.(ts|tsx|js|jsx)',
+'**/__tests__/**/*db*.test.(ts|tsx|js|jsx)',
+],
+testTimeout: 30000, // Longer timeout for database operations
+verbose: true,
+collectCoverageFrom: [
+'src/lib/**/*.ts',
+'!**/*.d.ts',
+'!**/node_modules/**',
+],
+};
+
+module.exports = createJestConfig(databaseJestConfig);
+</example>
+
+<example>
+// ✅ Good: Reusable test utilities
+export const testUtils = {
+  // Database test utilities
+  database: {
+    setupMocks: () => {
+      const mockSql = require("../../src/lib/database").sql;
+      const bcrypt = require("bcryptjs");
+      
+      bcrypt.hash.mockResolvedValue("$2b$12$hashedvalue");
+      bcrypt.compare.mockResolvedValue(true);
+      
+      return mockSql;
+    },
+    
+    resetMocks: () => {
+      jest.clearAllMocks();
+      const { sql } = require("../../src/lib/database");
+      sql.mockImplementation(() => Promise.resolve([]));
+    }
+  },
+
+// API test utilities  
+ api: {
+createRequest: (config) => {
+const { createMocks } = require('node-mocks-http');
+return createMocks({
+method: config.method || 'GET',
+body: config.body || {},
+headers: config.headers || {},
+query: config.query || {}
+});
+},
+
+    expectError: (response, statusCode, errorCode) => {
+      const data = JSON.parse(response._getData());
+      expect(response._getStatusCode()).toBe(statusCode);
+      expect(data.error).toBeDefined();
+      if (errorCode) expect(data.code).toBe(errorCode);
+    }
+
+},
+
+// Component test utilities
+component: {
+renderWithProviders: (component, providers = {}) => {
+// Implement provider wrapping logic
+},
+
+    expectAccessibility: async (component) => {
+      // Implement accessibility testing
+    }
+
+}
+};
+</example>
+
+<example type="invalid">
+// ❌ Bad: Unclear test organization without visual indicators
+describe('tests', () => {
+  test('it works', async () => {
+    // No clear indication of what's being tested
+    const result = await someFunction();
+    expect(result).toBeTruthy();
+  });
+  
+  test('error case', async () => {
+    // No visual distinction between success and error cases
+    // No logging or progress indication
+  });
+});
+</example>
+
+<example type="invalid">
+// ❌ Bad: Poor mock management
+test('should do something', async () => {
+  // No mock reset, potential state leakage
+  mockSql.mockResolvedValue([{ data: 'test' }]);
+  
+  // No verification of mock calls
+  // No clear mock sequencing for multi-step operations
+});
+</example>
+
+## Test Categorization Framework
+
+### Database Tests (`jest.database.config.js`)
+
+- **Purpose**: Test business logic, data operations, and database interactions
+- **Environment**: Node.js with database mocks
+- **Patterns**: Transaction rollback, mock SQL responses, data validation
+- **Coverage**: CRUD operations, constraints, performance, error handling
+
+### API Tests (`jest.api.config.js`)
+
+- **Purpose**: Test HTTP endpoints, authentication, and API contracts
+- **Environment**: Node.js with middleware mocks
+- **Patterns**: Request/response mocking, authentication simulation, error scenarios
+- **Coverage**: Status codes, validation, security, rate limiting
+
+### Component Tests (`jest.component.config.js`)
+
+- **Purpose**: Test UI behavior, user interactions, and rendering
+- **Environment**: jsdom for browser simulation
+- **Patterns**: Render testing, event simulation, accessibility validation
+- **Coverage**: User workflows, responsive behavior, error states
+
+### Integration Tests (`jest.integration.config.js`)
+
+- **Purpose**: Test cross-system functionality and end-to-end workflows
+- **Environment**: Full application stack or test environment
+- **Patterns**: Real API calls, database transactions, external service mocking
+- **Coverage**: User journeys, data flow, system integration
+
+### Security Tests (Mixed environments)
+
+- **Purpose**: Test authentication, authorization, and security boundaries
+- **Environment**: Varies by test type (API, component, integration)
+- **Patterns**: Permission testing, attack simulation, compliance validation
+- **Coverage**: Access control, data protection, vulnerability prevention
+
+## Test Naming Conventions
+
+### Visual Indicators
+
+- `✅ Should [expected behavior]` - Positive test cases
+- `❌ Should [reject/fail/error on] [invalid scenario]` - Negative test cases
+- `🔄 Should [handle state changes]` - State transition tests
+- `🛡️ Should [security behavior]` - Security-related tests
+- `⚡ Should [performance expectation]` - Performance tests
+
+### Progress Logging
+
+- `🧪 Testing [feature description]` - Test start indicator
+- `🔍 [Debug information]: [details]` - Debug/diagnostic info
+- `✅ [Feature] working correctly` - Success confirmation
+- `❌ [Feature] properly handled` - Error case confirmation
+
+### Test Organization
+
+- Group by feature/functionality in describe blocks
+- Use consistent naming: `[Component/Service/Feature] [Test Category] Tests`
+- Order from most critical to least critical functionality
+- Include setup/teardown in clear beforeEach/afterEach blocks
+
+## Infrastructure Patterns
+
+### Jest Configuration Strategy
+
+```javascript
+// Separate configs for different test types
+jest.database.config.js; // Database-focused tests
+jest.api.config.js; // API endpoint tests
+jest.component.config.js; // Component/UI tests
+jest.integration.config.js; // Integration tests
+jest.e2e.config.js; // End-to-end tests
+```
+
+### Setup File Organization
+
+```javascript
+// Dedicated setup files for each environment
+jest.database.setup.js; // Database mocking, polyfills
+jest.api.setup.js; // API mocking, middleware setup
+jest.component.setup.js; // DOM setup, provider mocking
+```
+
+### Helper Utilities Structure
+
+```javascript
+// Reusable test utilities
+tests/helpers/
+├── database-helpers.ts    // Database testing utilities
+├── api-helpers.ts        // API testing utilities
+├── component-helpers.ts  // Component testing utilities
+└── integration-helpers.ts // Integration testing utilities
+```
+
+## Coverage and Quality Standards
+
+### Minimum Coverage Requirements
+
+- **Critical Paths**: 100% coverage (authentication, payments, data integrity)
+- **Business Logic**: 90% coverage (core functionality, workflows)
+- **UI Components**: 80% coverage (rendering, interactions, accessibility)
+- **Utilities**: 95% coverage (helper functions, data transformations)
+
+### Test Quality Checklist
+
+- [ ] Clear visual organization with ✅/❌ indicators
+- [ ] Comprehensive error scenario coverage
+- [ ] Proper mock management and isolation
+- [ ] Performance considerations and timeouts
+- [ ] Accessibility testing where applicable
+- [ ] Security boundary testing
+- [ ] Clear progress logging and debug information
+- [ ] Consistent naming conventions throughout
+
+### Continuous Improvement
+
+- Review test output regularly for clarity and usefulness
+- Refactor tests that are difficult to understand or maintain
+- Add visual indicators and logging to existing test suites
+- Establish team standards for test quality and organization
+- Monitor test performance and optimize slow tests
+
+## Performance Guidelines
+
+### Test Execution Speed
+
+- **Unit Tests**: < 100ms per test
+- **Integration Tests**: < 5s per test
+- **E2E Tests**: < 30s per test
+- **Database Tests**: < 1s per test
+
+### Resource Management
+
+- Clean up resources in afterEach/afterAll hooks
+- Use test-specific databases or transaction rollbacks
+- Mock external services to avoid network dependencies
+- Implement proper timeout handling for async operations
+
+This comprehensive testing framework ensures that all tests across the application follow consistent, clear, and maintainable patterns while providing excellent visual feedback and bulletproof infrastructure.
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/rules-guide.md`** - Understanding the rule system
+- **`.cursor/docs/ai-workflows.md`** - Complete testing workflows (95%+ success rate)
+- **`.cursor/docs/tools-guide.md`** - Testing automation tools
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Schema inspection before tests
+- **`.cursor/tools/check-schema-changes.sh`** - Validate before committing
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @300-testing-standards.mdc - General testing standards
+- @375-api-test-first-time-right.mdc - API testing (Schema-First)
+- @376-database-test-isolation.mdc - Database testing patterns
+- @350-debug-test-failures.mdc - Systematic debugging

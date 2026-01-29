@@ -1,0 +1,185 @@
+___
+description: Prevent Jest configuration mistakes that break entire test suites by enforcing safe mocking practices
+globs: "jest.config.*,**/*.test.{js,ts,tsx},**/setupTests.{js,ts}"
+___
+
+# Jest Configuration Standards - Preventing Global Mock Disasters
+
+## Context
+When modifying Jest configuration or implementing test mocks, ensure changes are targeted and don't break existing functionality. Global mocks applied through `setupFilesAfterEnv` can break hundreds of tests across an entire project.
+
+## Critical Requirements
+
+### ❌ NEVER Add Global Mocks to Jest Config
+- **NEVER** add global mocks to `jest.config.js/mjs` `setupFilesAfterEnv`
+- **NEVER** create global mock files that override core modules (database, auth, etc.)
+- **NEVER** apply mocks globally unless absolutely necessary and thoroughly tested
+
+### ✅ ALWAYS Use Test-Specific Mocks
+- **ALWAYS** use `jest.mock()` at the module level within individual test files
+- **ALWAYS** test your mocking approach on a small subset before applying broadly
+- **ALWAYS** verify existing tests still pass after mock changes
+
+### 🛡️ Safe Mocking Patterns
+
+#### ✅ Good: Test-Specific Module Mocking
+```javascript
+// At the top of your specific test file
+jest.mock("../src/lib/database", () => ({
+  sql: jest.fn().mockImplementation((strings, ...values) => {
+    // Smart mock logic specific to this test
+    return Promise.resolve([{ id: 'test-data' }]);
+  })
+}));
+
+jest.mock("bcryptjs", () => ({
+  hash: jest.fn().mockResolvedValue("$2b$12$hashedkey"),
+  compare: jest.fn().mockResolvedValue(true)
+}));
+```
+
+#### ❌ Bad: Global Setup File Mocking
+```javascript
+// In jest.config.mjs - DON'T DO THIS
+setupFilesAfterEnv: [
+  "<rootDir>/jest.setup.ts",
+  "<rootDir>/tests/setup/global-mocks.js" // ❌ BREAKS EVERYTHING
+]
+```
+
+#### ❌ Bad: Global Mock File
+```javascript
+// In tests/setup/global-mocks.js - DON'T CREATE THIS
+jest.mock('../../src/lib/database', () => { /* ... */ }); // ❌ Affects ALL tests
+jest.mock('bcryptjs', () => { /* ... */ }); // ❌ Breaks unrelated tests
+```
+
+## Implementation Strategy
+
+### 1. Identify Tests That Need Mocks
+- Database interaction tests
+- Authentication/authorization tests  
+- External API integration tests
+- File system operation tests
+
+### 2. Create Targeted Mock Implementations
+- Mock only what's necessary for the specific test
+- Use realistic mock data that matches real API responses
+- Include proper error scenarios in mocks
+
+### 3. Validate Mock Impact
+```bash
+# Test specific file first
+npm test path/to/your-test.test.ts
+
+# Then test broader impact
+npm test -- --passWithNoTests
+
+# Check for regression in test counts
+```
+
+## Error Prevention Checklist
+
+Before modifying Jest configuration:
+- [ ] Changes are isolated to specific test files
+- [ ] No modifications to `setupFilesAfterEnv` with global mocks
+- [ ] Existing test suite still passes
+- [ ] Mock implementations are realistic and targeted
+- [ ] Error scenarios are properly mocked
+
+## Recovery from Global Mock Disasters
+
+If you accidentally break tests with global mocks:
+
+1. **Immediate Recovery**
+   ```bash
+   # Remove the problematic global setup
+   git checkout jest.config.mjs
+   
+   # Or manually remove from setupFilesAfterEnv
+   ```
+
+2. **Assess Damage**
+   ```bash
+   npm test -- --passWithNoTests 2>&1 | tail -10
+   ```
+
+3. **Migrate to Targeted Approach**
+   - Move mock logic to specific test files
+   - Use `jest.mock()` at module level in individual tests
+   - Test incrementally to ensure no regressions
+
+## Examples
+
+### ✅ Working Example: API Key Tests
+```javascript
+// __tests__/api-key-endpoints-simple.test.ts
+jest.mock("../src/lib/database", () => {
+  const mockSql = jest.fn().mockImplementation((strings, ...values) => {
+    const query = strings.join('?').toLowerCase();
+    
+    if (query.includes('count') && query.includes('user_api_keys')) {
+      return Promise.resolve([{ count: 1 }]);
+    }
+    
+    if (query.includes('insert') && query.includes('user_api_keys')) {
+      return Promise.resolve([{
+        id: 'test-key-id',
+        created_at: new Date('2024-01-01T00:00:00Z')
+      }]);
+    }
+    
+    return Promise.resolve([]);
+  });
+  
+  return { sql: mockSql };
+});
+```
+
+### ❌ Disaster Example: Global Setup
+```javascript
+// jest.config.mjs - This broke 175+ tests
+setupFilesAfterEnv: [
+  "<rootDir>/jest.setup.ts",
+  "<rootDir>/tests/setup/global-mocks.js" // ❌ Applied to ALL 1,429 tests
+]
+```
+
+## Monitoring and Validation
+
+### Test Health Metrics
+- Monitor total test count for unexpected changes
+- Track failing test count before/after changes
+- Validate that mock changes don't break unrelated tests
+
+### Success Indicators
+- Specific tests pass with new mocks
+- Overall test suite health maintained or improved
+- No increase in unrelated test failures
+
+## Related Rules
+- @300-testing-standards.mdc - General testing practices
+- @380-comprehensive-testing-standards.mdc - Testing framework requirements
+- @350-debug-test-failures.mdc - Systematic debugging approaches
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Test workflows
+- **`.cursor/docs/tools-guide.md`** - Testing tools
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools
+- **`.cursor/tools/check-env-vars.sh`** - Verify test environment variables
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @116-testing-environments.mdc - Test environment setup
+- @300-testing-standards.mdc - General testing standards
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Quick Start
+1. **Configure:** Jest per this rule
+2. **Validate:** `.cursor/tools/check-env-vars.sh`
+3. **Test:** Follow @380-comprehensive-testing-standards.mdc

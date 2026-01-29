@@ -1,0 +1,448 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply Auth0 integration standards when implementing authentication features to ensure secure and consistent user authentication
+globs: "src/{pages,components,lib}/**/*.{js,jsx,ts,tsx}"
+___
+
+# Auth0 Integration Standards
+
+## Context
+- These standards apply to all authentication-related code
+- Auth0 is our identity provider of choice
+- We use Auth0's Next.js SDK (v4+) for integration
+
+## Common Pitfalls (Production Experience)
+- **Middleware matcher confusion**: Static assets blocked during auth checks
+- **Version migration breaks**: getSession(req, res) → getSession(req) signature changes
+- **Test brittleness**: Auth0 mocks failing during SDK updates
+- **Redirect loops**: Public routes incorrectly protected by middleware
+- **Redirect behavior changes**: Status codes changing from 302 to 307 in v4.6.0
+- **Inconsistent route protection**: Some routes protected while others with similar access requirements are not
+- **Performance bottlenecks**: Authentication checks causing noticeable latency in page transitions
+- **Session persistence issues**: Users losing session state during normal navigation
+
+## Requirements
+
+### General Auth0 Implementation
+- Use Auth0 Next.js SDK v4+ for all new implementations
+- Do NOT create custom authentication solutions
+- Abstract Auth0 SDK behind custom hooks/utilities to ease future migrations
+- Implement feature flags for gradual Auth0 feature rollouts
+- Document migration checklists for major version updates
+
+### Configuration
+- Store Auth0 credentials in environment variables following naming conventions in .env.example
+- Never expose Auth0 client secrets in client-side code
+- Define AUTH0_BASE_URL to match deployment environment
+- Configure proper callback URLs in Auth0 dashboard to match all environments
+
+### Middleware Setup
+- Use the withMiddlewareAuthRequired HOC for protected API routes
+- Configure middleware with proper matcher patterns that exclude static assets
+- Use the following pattern for middleware setup:
+
+<example>
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api/public (API routes that don't require authentication)
+     * - api/auth (Auth0 callback routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public folder
+     */
+    '/((?!api/public|api/auth|_next/static|_next/image|favicon.ico|public/).*)',
+  ],
+};
+
+export default withMiddlewareAuthRequired();
+</example>
+
+### Route Protection Consistency
+- Create centralized route protection configuration to ensure consistent application
+- Categorize routes by protection level (public, authenticated, role-specific)
+- Use the following pattern for consistent protection:
+
+<example>
+// src/utils/auth/route-protection.ts
+import { withPageAuthRequired, withApiAuthRequired } from '@auth0/nextjs-auth0';
+
+// Centralized page protection
+export const protectedPage = withPageAuthRequired;
+
+// Centralized API protection
+export const protectedApi = withApiAuthRequired;
+
+// Role-based page protection
+export const roleProtectedPage = (requiredRole) => withPageAuthRequired(({ user, ...props }) => {
+  if (!user?.roles?.includes(requiredRole)) {
+    return <AccessDenied />;
+  }
+  return props.children({ user, ...props });
+});
+</example>
+
+### User Profile Management
+- Use getSession() to retrieve user session information
+- Cache user profile data using React Query or similar caching solution
+- Handle user metadata updates via Auth0 Management API
+- Maintain session state consistently across tabs using browser storage
+
+### Authentication Performance Optimization
+- Cache authentication state using React Query or similar to prevent redundant checks
+- Implement optimistic UI updates for authentication-dependent actions
+- Consider using Web Workers for token validation when appropriate
+- Use the following pattern for optimized authentication checks:
+
+<example>
+// src/hooks/useOptimizedAuth.ts
+import { useUser } from '@auth0/nextjs-auth0';
+import { useQuery } from 'react-query';
+
+export function useOptimizedAuth() {
+  const { user, error, isLoading } = useUser();
+  
+  // Cache the authentication state with React Query
+  const { data: authState } = useQuery(
+    ['auth-state', user?.sub],
+    async () => {
+      if (!user) return null;
+      // Fetch any additional user data here
+      return {
+        user,
+        permissions: await fetchUserPermissions(user.sub),
+      };
+    },
+    {
+      enabled: !!user,
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      cacheTime: 10 * 60 * 1000, // 10 minutes
+    }
+  );
+  
+  return {
+    user: authState?.user || user,
+    permissions: authState?.permissions || [],
+    isLoading,
+    error,
+    isAuthenticated: !!user,
+  };
+}
+</example>
+
+### Migration Strategy
+- When upgrading Auth0 SDK versions:
+  1. Review changelog for breaking changes
+  2. Update tests first before implementation code
+  3. Use feature flags for gradual rollout
+  4. Monitor authentication failures closely post-deployment
+
+## Future-Proof Implementation Patterns
+- Abstract Auth0 SDK behind custom hooks/utilities
+- Use flexible test assertions that survive implementation changes
+- Implement feature flags for gradual Auth0 feature rollouts
+- Document migration checklists for major version updates
+
+## SDK Version Migration
+
+### Critical Differences Between Auth0 Versions
+- Be aware of significant changes between SDK versions:
+  - Function signature changes: `getSession(req, res)` → `getSession(req)`
+  - Environment variable changes: `AUTH0_ISSUER_BASE_URL` → `AUTH0_DOMAIN`
+  - Redirect status code changes: 302 in v3 → 307 in v4.6.0
+  - Secret requirements: 32-character exact length in v4.6.0
+
+### Version Migration Strategy
+- Create abstract interfaces between your application and Auth0 SDK
+- When upgrading Auth0 SDK versions:
+  1. Thoroughly review changelogs for breaking changes
+  2. Test on non-production environments first
+  3. Use feature flags to gradually enable new SDK in production
+  4. Modify tests before application code
+  5. Maintain compatibility with both old and new SDK during transition
+
+### Environment Variable Compatibility
+- Support both naming conventions during migration periods:
+
+<example>
+// Next.js config supporting both v3 and v4.6.0 environment variable patterns
+module.exports = {
+  publicRuntimeConfig: {
+    // Support both AUTH0_BASE_URL (v3) and APP_BASE_URL (v4.6.0)
+    baseUrl: process.env.APP_BASE_URL || process.env.AUTH0_BASE_URL,
+    
+    // Support both formats for Auth0 domain
+    auth0Domain: process.env.AUTH0_DOMAIN || 
+                (process.env.AUTH0_ISSUER_BASE_URL ? 
+                  process.env.AUTH0_ISSUER_BASE_URL.replace(/^https?:\/\//, '') : 
+                  undefined)
+  }
+}
+</example>
+
+### API Compatibility Layer
+- Create adapter functions to handle API differences between versions:
+
+<example>
+// src/utils/auth/session-adapter.ts
+import { getSession as auth0GetSession } from '@auth0/nextjs-auth0';
+
+// Version-agnostic session retrieval
+export async function getSession(req, res) {
+  try {
+    // Try v4.6.0 signature (req only)
+    return await auth0GetSession(req);
+  } catch (error) {
+    if (error.message?.includes('requires 1-2 arguments')) {
+      // Fall back to v3 signature (req, res)
+      return await auth0GetSession(req, res);
+    }
+    throw error;
+  }
+}
+</example>
+
+## Examples
+
+<example>
+// Good Auth0 implementation with proper abstraction
+// auth.ts
+import { getSession, withPageAuthRequired } from '@auth0/nextjs-auth0';
+
+export const useAuth = () => {
+  const { user, error, isLoading } = useUser();
+  
+  return {
+    user,
+    isAuthenticated: !!user,
+    isLoading,
+    error,
+    // Additional helper methods that abstract Auth0 specifics
+  };
+};
+
+// Re-export withPageAuthRequired with consistent options
+export const requireAuth = (options = {}) => 
+  withPageAuthRequired({
+    returnTo: '/login',
+    ...options
+  });
+</example>
+
+<example type="invalid">
+// Bad implementation - directly using Auth0 SDK without abstraction
+import { useUser } from '@auth0/nextjs-auth0';
+
+export default function Profile() {
+  // Direct coupling to Auth0 SDK makes migration difficult
+  const { user, error, isLoading } = useUser();
+  
+  // No error handling for authentication failures
+  return <div>Hello {user?.name}</div>;
+}
+</example>
+
+## Critical File Structure Requirements (Based on Production Experience)
+
+### Auth0 SDK v4.6.0+ File Structure (MANDATORY)
+✅ REQUIRED Structure:
+```
+├── middleware.ts              ← MUST be in root directory
+├── src/lib/auth0.ts          ← Auth0 client configuration
+├── pages/auth/[...auth0].ts   ← Auth route handler (NOT /api/auth/)
+└── scripts/validate-auth0-config.js ← Pre-deployment validation
+```
+
+❌ FORBIDDEN (will cause failures):
+```
+├── src/middleware.ts         ← Wrong location
+├── pages/api/auth/[...auth0].ts ← Old v3.x path
+├── pages/auth/[...auth0].tsx ← Duplicate handler
+```
+
+### Production-Tested Patterns
+- **NEVER have multiple Auth0 handlers** (causes conflicts and undefined redirects)
+- **ALWAYS use `/auth/` paths** with SDK v4.6.0+ (not `/api/auth/`)
+- **ALWAYS validate configuration** before deployment using automated scripts
+- **ALWAYS use simple delegation** to Auth0 SDK (avoid complex custom implementations)
+
+### Auth0 SDK Version-Specific Requirements
+
+#### v4.6.0+ Critical Differences
+- **Route Paths**: Use `/auth/` (NOT `/api/auth/`)
+- **File Location**: middleware.ts in root (NOT src/)
+- **Error Handling**: Robust URL validation required for Edge Runtime
+- **Prerendering**: Add getServerSideProps to auth routes to prevent static generation errors
+
+#### Common Migration Failures
+- Keeping old `/api/auth/` route handlers alongside new `/auth/` handlers
+- Complex custom middleware that fights Auth0 SDK defaults
+- Missing environment variable validation
+- Inadequate error handling for URL construction in Edge Runtime
+
+#### Production-Tested Implementation Pattern
+```typescript
+// Simple, reliable Auth0 integration
+import { auth0 } from "../../src/lib/auth0";
+export default auth0.handleAuth();
+
+// Add this to prevent prerendering errors
+export const getServerSideProps = async () => {
+  return { props: {} };
+};
+```
+
+## Examples
+
+### Correct Auth0 Client Configuration
+```typescript
+// src/lib/auth0.ts
+import { Auth0Client } from "@auth0/nextjs-auth0/server";
+
+// Helper function to ensure valid URLs
+const getValidUrl = (url?: string): string => {
+  if (!url) return "";
+  return url.startsWith("http") ? url : `https://${url}`;
+};
+
+// Get base URL with fallbacks
+const appBaseUrl = getValidUrl(
+  process.env.AUTH0_BASE_URL ||
+    process.env.APP_BASE_URL ||
+    (process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : "http://localhost:3000")
+);
+
+// Extract domain from issuer URL if needed
+const domain =
+  process.env.AUTH0_DOMAIN ||
+  process.env.AUTH0_ISSUER_BASE_URL?.replace("https://", "").split("/")[0] ||
+  "";
+
+export const auth0 = new Auth0Client({
+  domain,
+  clientId: process.env.AUTH0_CLIENT_ID || "",
+  clientSecret: process.env.AUTH0_CLIENT_SECRET || "",
+  appBaseUrl,
+  secret: process.env.AUTH0_SECRET || "",
+  authorizationParameters: {
+    scope: "openid profile email",
+  },
+});
+
+export default auth0;
+```
+
+### Correct Middleware Implementation
+```typescript
+// middleware.ts (ROOT directory - not in src/)
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { auth0 } from "./src/lib/auth0";
+
+export async function middleware(request: NextRequest) {
+  try {
+    // Let Auth0 middleware handle everything
+    const result = await auth0.middleware(request);
+    
+    if (result) {
+      return result;
+    }
+    
+    return NextResponse.next();
+  } catch (error) {
+    console.error("Auth0 middleware error:", error);
+    // Fallback: allow request to continue
+    return NextResponse.next();
+  }
+}
+
+export const config = {
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)",
+  ],
+};
+```
+
+### Correct Auth Route Handler
+```typescript
+// pages/auth/[...auth0].ts
+import { auth0 } from "../../src/lib/auth0";
+
+// Simple delegation to Auth0 SDK
+export default auth0.handleAuth();
+
+// Prevent prerendering errors
+export const getServerSideProps = async () => {
+  return { props: {} };
+};
+```
+
+## Anti-patterns to Avoid
+
+### Multiple Auth Handlers
+```typescript
+// WRONG: Don't have multiple Auth0 handlers
+// pages/api/auth/[...auth0].ts AND pages/auth/[...auth0].ts
+```
+
+### Custom Middleware Fighting SDK
+```typescript
+// WRONG: Don't create complex custom middleware that fights the SDK
+export async function middleware(request: NextRequest) {
+  // Custom auth logic that bypasses Auth0 SDK
+  // ...complex custom implementation...
+}
+```
+
+### Missing URL Validation
+```typescript
+// WRONG: Missing URL validation
+const loginUrl = `${process.env.AUTH0_ISSUER_BASE_URL}/authorize?...`;
+return NextResponse.redirect(loginUrl); // Can fail if URL is invalid
+```
+
+## Relationship with Other Rules
+- Supports [011-env-var-security.mdc](mdc:011-env-var-security.mdc) for secure environment variable handling
+- Works with [013-auth0-deployment-validation.mdc](mdc:013-auth0-deployment-validation.mdc) for pre-deployment validation
+- Complements [046-session-validation.mdc](mdc:046-session-validation.mdc) for secure session management
+- Aligns with [130-error-handling.mdc](mdc:130-error-handling.mdc) for proper error handling
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Complete Auth0 setup guide
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Deployment checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - CRITICAL: Validate Auth0 setup!
+  ```bash
+  ./.cursor/tools/check-auth-config.sh
+  # Validates: All env vars, secret strength, secure cookies, SDK version
+  ```
+- **`.cursor/tools/check-env-vars.sh`** - Verify no Auth0 secrets in client code
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @014-third-party-auth.mdc - Authentication implementation standards
+- @046-session-validation.mdc - Session security patterns
+
+### Quick Start
+1. **Setup:** Follow `.cursor/docs/security-workflows.md#auth0-integration-workflow`
+2. **Validate:** `.cursor/tools/check-auth-config.sh` (verify configuration)
+3. **Deploy:** `.cursor/docs/security-checklist.md#authentication-authorization`
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH0_CURRENT_IMPLEMENTATION.md`** - Current Auth0 setup and configuration
+- **`guides/AUTH0_TROUBLESHOOTING_GUIDE.md`** - Common Auth0 issues and solutions
+- **`guides/auth0/01-Auth0-Setup-Guide.md`** - Initial Auth0 setup walkthrough
+- **`guides/AUTH0_QUICK_REFERENCE.md`** - Quick Auth0 reference guide

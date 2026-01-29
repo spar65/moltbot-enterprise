@@ -1,0 +1,403 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Implement consistent image optimization patterns in Next.js applications to improve performance, Core Web Vitals, and user experience
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Next.js Image Optimization Standards
+
+## Context
+
+- Images often account for the largest portion of page weight
+- Poor image handling causes Layout Shift (CLS) and slow loading (LCP)
+- Next.js Image component offers built-in optimization but requires proper configuration
+
+## Requirements
+
+### Next.js Image Component Usage
+
+- Use the Next.js Image component for all images when possible
+- Specify explicit width and height to prevent layout shift
+- Apply proper sizing strategy based on image purpose
+- Implement responsive images with appropriate sizes attribute
+
+### Image Format Optimization
+
+- Use modern formats (WebP, AVIF) with fallbacks
+- Apply appropriate quality settings (typically 75-85)
+- Implement proper lazy loading for below-the-fold images
+- Use blur placeholders for important images
+
+### Performance Optimization
+
+- Apply priority attribute to LCP (Largest Contentful Paint) images
+- Configure appropriate caching strategies
+- Optimize for specific device needs and connection speeds
+- Use proper CDN configuration for image delivery
+
+### SVG Handling
+
+- Use inline SVGs for small, interactive icons
+- Apply proper accessibility attributes to all images
+- Use appropriate optimization tools for SVG assets
+- Create reusable SVG component wrappers
+
+## Common Pitfalls
+
+- **Missing dimensions**: Not specifying width/height causing layout shift
+- **Over-sized images**: Using larger images than necessary
+- **Format inefficiency**: Not using modern image formats
+- **Excessive requests**: Loading too many images at once
+- **Poor prioritization**: Not identifying and optimizing LCP images
+
+## Migration Patterns
+
+- Create image component wrappers for consistent implementation
+- Implement gradual migration of legacy img tags
+- Add performance monitoring for image loading
+- Document image usage patterns for team consistency
+
+## Evidence Source
+
+Based on HitList issues:
+
+- HitList-Performance-Issue-01.md (CLS issues from image loading)
+- HitList-Test-Problem-Framework07-Image-Loading.md (image optimization issues)
+- HitList-Performance-Page-Speed.md (page load time improvements)
+- HitList-Core-Web-Vitals.md (LCP optimization for images)
+
+## Success Metrics
+
+- Improved Core Web Vitals scores (especially CLS and LCP)
+- Reduced page weight from image assets
+- Faster image loading times
+- Consistent rendering across devices and connections
+
+## Examples
+
+<example>
+// Good Next.js Image implementation
+// components/ResponsiveImage.tsx
+import Image from 'next/image';
+import { useState } from 'react';
+
+interface ResponsiveImageProps {
+  src: string;
+  alt: string;
+  width: number;
+  height: number;
+  priority?: boolean;
+  className?: string;
+}
+
+export function ResponsiveImage({
+  src,
+  alt,
+  width,
+  height,
+  priority = false,
+  className,
+}: ResponsiveImageProps) {
+  const [isLoading, setIsLoading] = useState(true);
+  
+  return (
+    <div
+      className={`image-container ${isLoading ? 'image-loading' : 'image-loaded'} ${className || ''}`}
+      style={{ aspectRatio: `${width} / ${height}` }}
+    >
+      <Image
+        src={src}
+        alt={alt}
+        width={width}
+        height={height}
+        priority={priority}
+        quality={80}
+        loading={priority ? 'eager' : 'lazy'}
+        onLoad={() => setIsLoading(false)}
+        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+        className="transition-opacity duration-300"
+        style={{
+          opacity: isLoading ? 0 : 1,
+        }}
+      />
+      
+      {isLoading && (
+        <div className="image-placeholder" aria-hidden="true" />
+      )}
+    </div>
+  );
+}
+</example>
+
+<example>
+// Good image usage in a page component
+// pages/blog/[slug].tsx
+import { ResponsiveImage } from '@/components/ResponsiveImage';
+import { BlogPost } from '@/types';
+
+interface BlogPostPageProps {
+  post: BlogPost;
+}
+
+export default function BlogPostPage({ post }: BlogPostPageProps) {
+  return (
+    <article className="blog-post">
+      <div className="blog-hero">
+        {/* Hero image is LCP - use priority */}
+        <ResponsiveImage
+          src={post.heroImage.url}
+          alt={post.heroImage.alt || post.title}
+          width={1200}
+          height={630}
+          priority={true}
+          className="blog-hero-image"
+        />
+      </div>
+      
+      <h1>{post.title}</h1>
+      <div className="blog-content">{/* Blog content */}</div>
+      
+      {/* Gallery images below the fold - don't use priority */}
+      <div className="image-gallery">
+        {post.gallery.map((image) => (
+          <ResponsiveImage
+            key={image.id}
+            src={image.url}
+            alt={image.alt || ''}
+            width={400}
+            height={300}
+            className="gallery-image"
+          />
+        ))}
+      </div>
+    </article>
+  );
+}
+</example>
+
+<example>
+// Good image optimization configuration
+// next.config.js
+module.exports = {
+  images: {
+    domains: ['assets.example.com', 'cdn.example.com'],
+    formats: ['image/avif', 'image/webp'],
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+    minimumCacheTTL: 60,
+    dangerouslyAllowSVG: true,
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.example.com',
+      },
+    ],
+  },
+};
+</example>
+
+<example type="invalid">
+// Bad image implementation - causes layout shift
+// components/BlogImage.tsx
+import Image from 'next/image';
+
+export function BlogImage({ src, alt }) {
+  return (
+    <div className="blog-image">
+      {/* Missing width and height - will cause CLS */}
+      <Image
+        src={src}
+        alt={alt}
+        layout="fill"
+      />
+    </div>
+  );
+}
+</example>
+
+<example type="invalid">
+// Bad image implementation - not using Next.js Image
+// components/TeamMember.tsx
+export function TeamMember({ member }) {
+  return (
+    <div className="team-member">
+      {/* Using regular img tag loses Next.js optimizations */}
+      <img
+        src={member.photo}
+        alt={`${member.name}, ${member.title}`}
+        width="200"
+        height="200"
+        className="member-photo"
+      />
+      <h3>{member.name}</h3>
+      <p>{member.title}</p>
+    </div>
+  );
+}
+</example>
+
+## Responsive Image Patterns
+
+<example>
+// Good responsive image pattern with art direction
+// components/HeroImage.tsx
+import Image from 'next/image';
+
+interface HeroImageProps {
+  mobileImage: string;
+  desktopImage: string;
+  alt: string;
+}
+
+export function HeroImage({ mobileImage, desktopImage, alt }: HeroImageProps) {
+  return (
+    <>
+      {/* Mobile image - hidden on desktop */}
+      <div className="block md:hidden">
+        <Image
+          src={mobileImage}
+          alt={alt}
+          width={640}
+          height={480}
+          priority={true}
+          className="w-full h-auto"
+        />
+      </div>
+      
+      {/* Desktop image - hidden on mobile */}
+      <div className="hidden md:block">
+        <Image
+          src={desktopImage}
+          alt={alt}
+          width={1920}
+          height={1080}
+          priority={true}
+          className="w-full h-auto"
+        />
+      </div>
+    </>
+  );
+}
+</example>
+
+## Image Loading Performance
+
+<example>
+// Good image loading performance optimization
+// hooks/useImagePreload.ts
+import { useEffect, useState } from 'react';
+
+export function useImagePreload(imageUrls: string[]) {
+  const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
+  
+  useEffect(() => {
+    const preloadImages = async () => {
+      const promises = imageUrls.map(url => {
+        return new Promise<string>((resolve, reject) => {
+          const img = new Image();
+          img.src = url;
+          img.onload = () => resolve(url);
+          img.onerror = () => reject(url);
+        });
+      });
+      
+      try {
+        const loaded = await Promise.allSettled(promises);
+        
+        const loadedMap = loaded.reduce((acc, result, index) => {
+          if (result.status === 'fulfilled') {
+            acc[result.value] = true;
+          }
+          return acc;
+        }, {} as Record<string, boolean>);
+        
+        setLoadedImages(loadedMap);
+      } catch (error) {
+        console.error('Failed to preload images:', error);
+      }
+    };
+    
+    preloadImages();
+  }, [imageUrls]);
+  
+  return {
+    isImageLoaded: (url: string) => !!loadedImages[url],
+    areAllImagesLoaded: imageUrls.every(url => loadedImages[url]),
+  };
+}
+</example>
+
+## Testing Image Components
+
+<example>
+// Testing image components
+// components/ResponsiveImage.test.tsx
+import { render, screen } from '@testing-library/react';
+import { ResponsiveImage } from './ResponsiveImage';
+
+// Mock next/image
+jest.mock('next/image', () => ({
+  __esModule: true,
+  default: (props) => {
+    // eslint-disable-next-line jsx-a11y/alt-text
+    return <img {...props} />;
+  },
+}));
+
+describe('ResponsiveImage', () => {
+  it('renders the image with correct attributes', () => {
+    render(
+      <ResponsiveImage
+        src="/test-image.jpg"
+        alt="Test image"
+        width={800}
+        height={600}
+      />
+    );
+    
+    const image = screen.getByAltText('Test image');
+    expect(image).toBeInTheDocument();
+    expect(image).toHaveAttribute('src', '/test-image.jpg');
+    expect(image).toHaveAttribute('width', '800');
+    expect(image).toHaveAttribute('height', '600');
+  });
+  
+  it('sets priority attribute when specified', () => {
+    render(
+      <ResponsiveImage
+        src="/test-image.jpg"
+        alt="Priority image"
+        width={800}
+        height={600}
+        priority={true}
+      />
+    );
+    
+    const image = screen.getByAltText('Priority image');
+    expect(image).toHaveAttribute('priority', 'true');
+    expect(image).toHaveAttribute('loading', 'eager');
+  });
+});
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Image optimization patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @061-code-splitting.mdc - Code splitting patterns
+- @063-client-performance.mdc - Client performance
+- @070-nextjs-architecture.mdc - Architecture patterns
+
+### Quick Start
+1. **Optimize:** Use Next.js Image component per this rule
+2. **Performance:** See @063-client-performance.mdc
+3. **Split:** Follow @061-code-splitting.mdc patterns

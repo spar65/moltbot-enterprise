@@ -1,0 +1,188 @@
+___
+description: NEVER set environment variables in package.json build scripts when deploying to VERCEL to PREVENT production runtime failures
+globs: "package.json,scripts/**/*"
+___
+
+# Vercel Build Environment Variables Safety
+
+## Context
+- Environment variables set in package.json build scripts persist into Vercel production runtime
+- This causes database skipping, authentication failures, and silent production errors
+- Works perfectly in test/development but fails mysteriously in production
+
+## Critical Issues Discovered
+**ROOT CAUSES**: 
+1. **Package.json:** `"build:vercel": "SKIP_AUTH0_CHECK=true next build"`
+2. **⚠️ vercel.json:** `{ "env": { "SKIP_AUTH0_CHECK": "true" } }`
+
+Both cause `SKIP_AUTH0_CHECK=true` to persist into production runtime:
+- Database operations are skipped: `shouldSkipDatabase = true`
+- All data saves silently fail in production
+
+## Requirements
+
+### ❌ NEVER Do This
+```json
+// package.json
+{
+  "scripts": {
+    "build:vercel": "SKIP_AUTH0_CHECK=true next build",
+    "build:prod": "DATABASE_SKIP=true npm run build"
+  }
+}
+```
+
+```json
+// vercel.json - CRITICAL: DELETE FILES LIKE THIS!
+{
+  "env": {
+    "SKIP_AUTH0_CHECK": "true",
+    "DATABASE_SKIP": "true"
+  }
+}
+```
+
+### ✅ ALWAYS Do This Instead
+```json
+// package.json - Use build-specific flags
+{
+  "scripts": {
+    "build:vercel": "VERCEL_BUILD=true npm run auth0:check && next build",
+    "build:prod": "PROD_BUILD=true npm run validate && next build"
+  }
+}
+```
+
+```bash
+# NO vercel.json needed! 
+# Let Next.js handle configuration through next.config.js
+# Vercel automatically uses package.json scripts
+```
+
+### Build Script Safety Rules
+1. **NEVER** set `SKIP_AUTH0_CHECK` in build commands OR vercel.json
+2. **NEVER** set `DATABASE_SKIP` or similar in build commands OR vercel.json  
+3. **NEVER** set any `*_SKIP` environment variables in build commands OR vercel.json
+4. **DELETE** vercel.json files that set global environment variables
+5. **USE** build-specific flags like `VERCEL_BUILD=true` instead
+6. **UPDATE** validation scripts to handle build-specific flags
+
+### Detection Methods
+- Check `/api/debug/env-check` for unexpected variables in production
+- Run pre-deployment safety check: `./scripts/pre-deployment-safety-check.sh`
+- Look for `"shouldSkipDatabase": true` in production environment checks
+
+## Examples
+
+<example>
+**Safe Vercel Build Configuration:**
+```json
+{
+  "scripts": {
+    "build:vercel": "VERCEL_BUILD=true npm run auth0:check && next build"
+  }
+}
+```
+
+**Updated validation script:**
+```javascript
+const isCIEnvironment = process.env.CI === 'true' || 
+                        process.env.SKIP_AUTH0_CHECK === 'true' ||
+                        process.env.VERCEL_BUILD === 'true';
+```
+</example>
+
+<example type="invalid">
+**Dangerous Build Configuration:**
+```json
+{
+  "scripts": {
+    "build:vercel": "SKIP_AUTH0_CHECK=true next build"
+  }
+}
+```
+**Result:** Database fails in production, `shouldSkipDatabase = true`
+</example>
+
+## Files to Check
+- `package.json` - All build scripts
+- **`vercel.json` - DELETE if it sets env vars!**
+- `scripts/validate-auth0-config.js` - Validation logic
+- `src/lib/database.ts` - Database skip logic
+- `src/lib/neonDatabase.ts` - Alternative database skip logic
+- `src/lib/prisma.ts` - Prisma skip logic
+
+## Emergency Fix Process
+1. **Identify** the problematic build script in package.json
+2. **Replace** environment variable with build-specific flag
+3. **Update** validation scripts to handle the new flag
+4. **Deploy** immediately - production is broken until fixed
+5. **Test** environment check endpoint after deployment
+6. **Verify** database operations work in production
+
+## Prevention
+- Add this check to pre-deployment scripts
+- Review all package.json changes for environment variables
+- Test production deployments with environment check endpoints
+- Never assume build-time variables don't affect runtime
+
+## See Also
+
+### Related Rules
+- @200-deployment-infrastructure.mdc - Deployment infrastructure standards
+- @201-vercel-deployment-standards.mdc - Vercel deployment best practices
+- @202-vercel-production-gotchas.mdc - Critical Vercel production gotchas
+- @203-production-deployment-safety.mdc - Production safety standards
+- @011-env-var-security.mdc - Environment variable security
+- @224-secrets-management.mdc - Secrets and environment variable management
+- @202-rollback-procedures.mdc - Emergency rollback procedures
+- @220-security-monitoring.mdc - Security monitoring and WAF
+
+### Tools & Documentation
+- **`.cursor/tools/check-env-vars.sh`** - Validate environment variable security
+  ```bash
+  ./.cursor/tools/check-env-vars.sh
+  # Validates: No SKIP_* vars in build scripts, proper isolation, no vercel.json issues
+  ```
+- **`.cursor/tools/check-infrastructure.sh`** - Verify infrastructure health
+- **`.cursor/tools/scan-secrets.sh`** - Detect hardcoded secrets
+
+### Comprehensive Guides
+- **`guides/Secrets-Management-Complete-Guide.md`** ⭐ **Essential** - Environment variable management
+- **`guides/Incident-Response-Complete-Guide.md`** - Emergency response procedures
+- **`.cursor/docs/security-workflows.md`** - Security-specific workflows
+- **`.cursor/docs/security-checklist.md`** - Pre-deployment security checks
+
+### Quick Start - Audit Your Build Scripts
+```bash
+# 1. Check for dangerous build script patterns
+grep -r "SKIP_.*=" package.json
+grep -r "DATABASE_SKIP" package.json
+
+# 2. Check for vercel.json with env vars (DELETE IT!)
+cat vercel.json 2>/dev/null | grep -A 10 '"env"'
+
+# 3. Validate environment variables
+./.cursor/tools/check-env-vars.sh
+
+# 4. Test in production-like staging first!
+```
+
+### Emergency Fix Workflow
+If you discover this issue in production:
+
+1. **Immediate**: Check `/api/debug/env-check` endpoint
+2. **Identify**: Find SKIP_* variables in package.json or vercel.json
+3. **Fix**: Replace with build-specific flags (VERCEL_BUILD=true)
+4. **Deploy**: Push fix immediately
+5. **Verify**: Test database operations work
+6. **Monitor**: Use @221-application-monitoring.mdc patterns
+
+### Prevention Checklist
+- [ ] No `SKIP_*` variables in package.json scripts
+- [ ] No `*_SKIP` variables in package.json scripts
+- [ ] Delete vercel.json if it sets environment variables
+- [ ] Use build-specific flags (VERCEL_BUILD=true) instead
+- [ ] Run `.cursor/tools/check-env-vars.sh` before deployment
+- [ ] Test in staging with production-like configuration
+- [ ] Monitor `/api/debug/env-check` after deployment

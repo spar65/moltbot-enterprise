@@ -1,0 +1,771 @@
+---
+description: Implement cryptographic verification systems when building trust-critical features to ensure tamper-proof data integrity and public auditability
+globs: "**/*.{ts,tsx,js,jsx}"
+---
+
+# Cryptographic Verification Standards
+
+**Priority**: P1 (High value for trust-critical systems)  
+**Domain**: Security & Trust (200-series)  
+**Applies To**: Result verification, audit trails, data integrity, public trust features
+
+---
+
+## Context
+
+Cryptographic verification provides mathematically provable data integrity through:
+
+- **Tamper Detection**: Detect any modification to data after creation
+- **Public Auditability**: Allow anyone to verify data authenticity
+- **Trust Building**: Provide cryptographic proof (stronger than "trust us")
+- **Compliance**: Meet regulatory requirements for data integrity
+
+**Use Cases:**
+- Assessment results (prevent score tampering)
+- Financial transactions (prevent fraud)
+- Audit logs (prevent log manipulation)
+- API responses (prove authenticity)
+- Billing records (ensure accuracy)
+
+**Critical Success Factors:**
+- **Deterministic Hashing**: Same input always produces same hash
+- **Canonical Serialization**: Consistent data formatting
+- **Secure Algorithms**: SHA-256 or stronger
+- **Public Verification**: Anyone can verify without secrets
+
+---
+
+## Requirements
+
+### 1. Canonical JSON Serialization (REQUIRED)
+
+**Why Canonical JSON:**
+- Standard JSON serialization has inconsistent key ordering
+- Same object can produce different JSON strings
+- Different strings produce different hashes (verification fails!)
+- Canonical JSON ensures deterministic serialization
+
+**Problem:**
+```typescript
+// ❌ WRONG: Standard JSON has inconsistent key ordering
+const obj = { name: "Alice", age: 30 };
+JSON.stringify(obj);  // Could be: {"name":"Alice","age":30}
+JSON.stringify(obj);  // Could be: {"age":30,"name":"Alice"}  ← Different!
+
+// Different strings = different hashes = verification fails!
+```
+
+**Solution:**
+```typescript
+// ✅ CORRECT: Use canonical JSON library
+import stringify from 'fast-json-stable-stringify';
+
+const obj = { name: "Alice", age: 30 };
+stringify(obj);  // Always: {"age":30,"name":"Alice"}  ← Deterministic!
+stringify(obj);  // Always: {"age":30,"name":"Alice"}  ← Same!
+```
+
+**Implementation:**
+
+```typescript
+import crypto from 'crypto';
+import stringify from 'fast-json-stable-stringify';
+
+/**
+ * Compute deterministic hash of data
+ * 
+ * Uses canonical JSON to ensure same data always produces same hash
+ * 
+ * @param data - Object to hash
+ * @returns SHA-256 hash (hex string, 64 characters)
+ */
+export function computeHash(data: Record<string, unknown>): string {
+  // Canonical JSON ensures consistent key ordering
+  const canonicalJson = stringify(data);
+  
+  // SHA-256 hash
+  return crypto
+    .createHash('sha256')
+    .update(canonicalJson)
+    .digest('hex');
+}
+```
+
+**Canonical JSON Checklist:**
+- [ ] Use `fast-json-stable-stringify` or equivalent
+- [ ] Never use `JSON.stringify()` for hash generation
+- [ ] Test with objects in different key orders (should produce same hash)
+- [ ] Document that verification requires canonical serialization
+
+---
+
+### 2. Secure Hash Algorithm Selection (REQUIRED)
+
+**Recommended Algorithms:**
+- **SHA-256**: Industry standard, good balance of speed and security
+- **SHA-512**: More secure but slower, use for high-value data
+- **BLAKE2**: Faster than SHA-256 with equal security (if available)
+
+**Avoid:**
+- ❌ **MD5**: Broken, collision attacks exist
+- ❌ **SHA-1**: Deprecated, collision attacks exist
+- ❌ **CRC32**: Not cryptographically secure
+
+**Implementation:**
+
+```typescript
+/**
+ * Compute SHA-256 hash
+ * 
+ * SHA-256 is industry standard:
+ * - Fast enough for most use cases
+ * - 256-bit output (64 hex characters)
+ * - Collision resistant
+ * - Widely supported
+ */
+export function hashData(data: string): string {
+  return crypto
+    .createHash('sha256')  // ← Industry standard
+    .update(data, 'utf8')   // ← Explicit encoding
+    .digest('hex');         // ← Hex string output
+}
+
+/**
+ * Compute SHA-512 hash (higher security)
+ * 
+ * Use for high-value data:
+ * - Financial transactions
+ * - Legal documents
+ * - Compliance requirements
+ */
+export function hashDataSecure(data: string): string {
+  return crypto
+    .createHash('sha512')  // ← Stronger algorithm
+    .update(data, 'utf8')
+    .digest('hex');        // ← 128 hex characters
+}
+```
+
+**Algorithm Checklist:**
+- [ ] Use SHA-256 minimum (SHA-512 for high-value data)
+- [ ] Never use MD5 or SHA-1
+- [ ] Specify UTF-8 encoding explicitly
+- [ ] Use hex output for human-readable hashes
+
+---
+
+### 3. Hash Payload Structure (REQUIRED)
+
+**What to Include in Hash:**
+- **Unique Identifier**: Prevents replay attacks (e.g., runId, transactionId)
+- **Data**: The actual data being verified (e.g., scores, amount)
+- **Timestamp**: When the data was created (prevents time manipulation)
+- **Version** (optional): Schema version for future compatibility
+
+**Example: Assessment Result Hash**
+
+```typescript
+interface AssessmentResult {
+  runId: string;
+  scores: {
+    lying: number;
+    cheating: number;
+    stealing: number;
+    harm: number;
+  };
+  calculatedAt: string;  // ISO 8601 timestamp
+}
+
+/**
+ * Compute hash of assessment result
+ * 
+ * Includes: runId, scores, timestamp
+ * Anyone can verify the result hasn't been tampered with
+ */
+export function hashAssessmentResult(result: AssessmentResult): string {
+  const payload = {
+    runId: result.runId,
+    scores: result.scores,
+    timestamp: result.calculatedAt,
+  };
+  
+  return computeHash(payload);
+}
+
+// Example usage
+const result: AssessmentResult = {
+  runId: 'test-123',
+  scores: { lying: 7, cheating: 6, stealing: 5, harm: 8 },
+  calculatedAt: '2024-11-25T12:00:00Z',
+};
+
+const hash = hashAssessmentResult(result);
+// → 'a7f3c8b9e4d2...' (64 hex characters)
+
+// Store hash with result for later verification
+await db.result.create({
+  data: {
+    runId: result.runId,
+    scores: JSON.stringify(result.scores),
+    calculatedAt: result.calculatedAt,
+    verificationHash: hash,  // ← Store for verification
+  },
+});
+```
+
+**Payload Structure Checklist:**
+- [ ] Include unique identifier (prevents replay)
+- [ ] Include all critical data
+- [ ] Include timestamp (prevents time manipulation)
+- [ ] Use ISO 8601 format for timestamps
+- [ ] Document payload structure for verifiers
+
+---
+
+### 4. Public Verification Endpoint (RECOMMENDED)
+
+**Why Public Verification:**
+- Builds trust (anyone can verify)
+- Proves data integrity without secrets
+- Enables third-party audits
+- Meets compliance requirements
+
+**Implementation:**
+
+```typescript
+/**
+ * Public verification endpoint
+ * 
+ * Anyone can verify result authenticity without authentication
+ * 
+ * POST /api/verify
+ * Body: { runId, scores, timestamp, hash }
+ */
+export async function POST(request: Request) {
+  const { runId, scores, timestamp, hash: providedHash } = await request.json();
+  
+  // Recompute hash from provided data
+  const payload = { runId, scores, timestamp };
+  const computedHash = computeHash(payload);
+  
+  // Compare hashes
+  const isValid = providedHash === computedHash;
+  
+  // Optionally: Verify against stored hash in database
+  const storedResult = await prisma.result.findUnique({
+    where: { runId },
+    select: { verificationHash: true },
+  });
+  
+  const matchesStored = storedResult?.verificationHash === providedHash;
+  
+  return Response.json({
+    verified: isValid && matchesStored,
+    hash: computedHash,
+    matchesStored,
+    message: isValid && matchesStored
+      ? 'Result verified successfully'
+      : 'Verification failed - data may have been tampered with',
+  });
+}
+```
+
+**Verification Endpoint Checklist:**
+- [ ] No authentication required (public verification)
+- [ ] Accept all data needed to recompute hash
+- [ ] Recompute hash from provided data
+- [ ] Compare with provided hash
+- [ ] Optionally verify against stored hash
+- [ ] Return clear success/failure message
+
+---
+
+### 5. Client-Side Verification (RECOMMENDED)
+
+**Why Client-Side Verification:**
+- Users can verify without calling API
+- Works offline
+- Proves data integrity in browser
+- Educational (shows how hashing works)
+
+**Implementation:**
+
+```typescript
+// Client-side verification (browser)
+import { createHash } from 'crypto-browserify';  // Browser-compatible crypto
+import stringify from 'fast-json-stable-stringify';
+
+/**
+ * Verify result hash in browser
+ * 
+ * Users can verify result authenticity without server call
+ */
+export function verifyResultHash(
+  runId: string,
+  scores: Record<string, number>,
+  timestamp: string,
+  expectedHash: string
+): boolean {
+  const payload = { runId, scores, timestamp };
+  const canonicalJson = stringify(payload);
+  
+  const computedHash = createHash('sha256')
+    .update(canonicalJson)
+    .digest('hex');
+  
+  return computedHash === expectedHash;
+}
+
+// UI component
+export function VerifyIntegrityButton({ result }) {
+  const [verified, setVerified] = useState<boolean | null>(null);
+  
+  const handleVerify = () => {
+    const isValid = verifyResultHash(
+      result.runId,
+      result.scores,
+      result.calculatedAt,
+      result.verificationHash
+    );
+    setVerified(isValid);
+  };
+  
+  return (
+    <div>
+      <button onClick={handleVerify} className="btn-verify">
+        🔒 Verify Integrity
+      </button>
+      
+      {verified === true && (
+        <div className="alert alert-success">
+          ✅ Result verified - data has not been tampered with
+        </div>
+      )}
+      
+      {verified === false && (
+        <div className="alert alert-danger">
+          ❌ Verification failed - data may have been modified
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+**Client-Side Verification Checklist:**
+- [ ] Use browser-compatible crypto library
+- [ ] Use same canonical JSON library as server
+- [ ] Provide clear UI feedback
+- [ ] Show verification details (hash, payload)
+- [ ] Educate users about what verification proves
+
+---
+
+### 6. Hash Storage and Immutability (REQUIRED)
+
+**Database Schema:**
+
+```sql
+-- Store verification hash with result
+CREATE TABLE assessment_results (
+    id UUID PRIMARY KEY,
+    run_id VARCHAR(255) UNIQUE NOT NULL,
+    scores JSONB NOT NULL,
+    calculated_at TIMESTAMP NOT NULL,
+    verification_hash VARCHAR(64) NOT NULL,  -- SHA-256 hash
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Prevent updates to critical fields
+    CONSTRAINT immutable_hash CHECK (verification_hash IS NOT NULL)
+);
+
+-- Audit log for hash verification attempts
+CREATE TABLE verification_log (
+    id SERIAL PRIMARY KEY,
+    run_id VARCHAR(255) NOT NULL,
+    provided_hash VARCHAR(64) NOT NULL,
+    computed_hash VARCHAR(64) NOT NULL,
+    verified BOOLEAN NOT NULL,
+    ip_address VARCHAR(45),  -- IPv6 compatible
+    user_agent TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for fast lookups
+CREATE INDEX idx_verification_log_run_id ON verification_log(run_id);
+CREATE INDEX idx_verification_log_created_at ON verification_log(created_at);
+```
+
+**Immutability Enforcement:**
+
+```typescript
+/**
+ * Store result with verification hash
+ * 
+ * Hash is computed and stored immutably
+ */
+export async function storeVerifiedResult(
+  result: AssessmentResult
+): Promise<void> {
+  const hash = hashAssessmentResult(result);
+  
+  // Store result with hash
+  await prisma.assessmentResult.create({
+    data: {
+      runId: result.runId,
+      scores: result.scores,
+      calculatedAt: result.calculatedAt,
+      verificationHash: hash,  // ← Immutable
+    },
+  });
+  
+  // Never allow updates to verification hash!
+  // If result changes, create new record with new hash
+}
+
+/**
+ * Update result creates NEW record (preserves history)
+ */
+export async function updateVerifiedResult(
+  originalRunId: string,
+  newScores: Record<string, number>
+): Promise<void> {
+  // Create new result (don't update existing)
+  const newResult: AssessmentResult = {
+    runId: `${originalRunId}-v2`,  // New ID
+    scores: newScores,
+    calculatedAt: new Date().toISOString(),
+  };
+  
+  await storeVerifiedResult(newResult);
+  
+  // Original result and hash remain unchanged (audit trail)
+}
+```
+
+**Storage Checklist:**
+- [ ] Store hash with immutable data
+- [ ] Never allow updates to hash (create new record instead)
+- [ ] Log all verification attempts
+- [ ] Index for fast hash lookups
+- [ ] Preserve audit trail (don't delete old hashes)
+
+---
+
+## Examples
+
+### Complete Verification System
+
+<example>
+```typescript
+// ✅ COMPLETE: Production-ready verification system
+
+import crypto from 'crypto';
+import stringify from 'fast-json-stable-stringify';
+import { prisma } from '@/lib/db';
+
+// 1. Hash Computation (Canonical JSON)
+export function computeResultHash(payload: {
+  runId: string;
+  scores: Record<string, number>;
+  timestamp: string;
+}): string {
+  // Canonical JSON ensures deterministic hashing
+  const canonicalJson = stringify(payload);
+  
+  return crypto
+    .createHash('sha256')
+    .update(canonicalJson)
+    .digest('hex');
+}
+
+// 2. Store Result with Hash
+export async function storeVerifiedResult(
+  runId: string,
+  scores: Record<string, number>
+): Promise<string> {
+  const timestamp = new Date().toISOString();
+  
+  // Compute hash
+  const hash = computeResultHash({ runId, scores, timestamp });
+  
+  // Store immutably
+  await prisma.result.create({
+    data: {
+      runId,
+      scores: JSON.stringify(scores),
+      calculatedAt: timestamp,
+      verificationHash: hash,
+    },
+  });
+  
+  return hash;
+}
+
+// 3. Public Verification Endpoint
+export async function POST(request: Request) {
+  const { runId, scores, timestamp, hash: providedHash } = await request.json();
+  
+  // Recompute hash
+  const computedHash = computeResultHash({ runId, scores, timestamp });
+  
+  // Verify against stored hash
+  const storedResult = await prisma.result.findUnique({
+    where: { runId },
+    select: { verificationHash: true },
+  });
+  
+  const verified = providedHash === computedHash && 
+                   storedResult?.verificationHash === computedHash;
+  
+  // Log verification attempt
+  await prisma.verificationLog.create({
+    data: {
+      runId,
+      providedHash,
+      computedHash,
+      verified,
+      ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
+      userAgent: request.headers.get('user-agent') || 'unknown',
+    },
+  });
+  
+  return Response.json({
+    verified,
+    hash: computedHash,
+    message: verified
+      ? 'Result verified successfully - data has not been tampered with'
+      : 'Verification failed - data may have been modified',
+  });
+}
+
+// 4. Client-Side Verification
+export function VerifyButton({ result }) {
+  const [status, setStatus] = useState<'idle' | 'verifying' | 'verified' | 'failed'>('idle');
+  
+  const handleVerify = async () => {
+    setStatus('verifying');
+    
+    try {
+      const response = await fetch('/api/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          runId: result.runId,
+          scores: result.scores,
+          timestamp: result.calculatedAt,
+          hash: result.verificationHash,
+        }),
+      });
+      
+      const data = await response.json();
+      setStatus(data.verified ? 'verified' : 'failed');
+      
+    } catch (error) {
+      setStatus('failed');
+    }
+  };
+  
+  return (
+    <button onClick={handleVerify} disabled={status === 'verifying'}>
+      {status === 'idle' && '🔒 Verify Integrity'}
+      {status === 'verifying' && '⏳ Verifying...'}
+      {status === 'verified' && '✅ Verified'}
+      {status === 'failed' && '❌ Failed'}
+    </button>
+  );
+}
+```
+</example>
+
+### Invalid Examples
+
+<example type="invalid">
+```typescript
+// ❌ WRONG: Using standard JSON (inconsistent key ordering)
+export function computeHash(data: any): string {
+  const json = JSON.stringify(data);  // ← Non-deterministic!
+  return crypto.createHash('sha256').update(json).digest('hex');
+}
+
+// ❌ WRONG: Using weak hash algorithm
+export function computeHash(data: string): string {
+  return crypto.createHash('md5').update(data).digest('hex');  // ← MD5 is broken!
+}
+
+// ❌ WRONG: Missing timestamp (allows time manipulation)
+const payload = {
+  runId: 'test-123',
+  scores: { lying: 7 },
+  // Missing: timestamp
+};
+
+// ❌ WRONG: Allowing hash updates (breaks immutability)
+await prisma.result.update({
+  where: { runId },
+  data: {
+    verificationHash: newHash,  // ← Allows tampering!
+  },
+});
+
+// ❌ WRONG: Private verification only (no public trust)
+export async function POST(request: Request) {
+  // Require authentication
+  const user = await authenticate(request);
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  
+  // Only authenticated users can verify
+  // ← Defeats the purpose of cryptographic verification!
+}
+```
+</example>
+
+---
+
+## Security Considerations
+
+**Hash Collision Resistance:**
+- Use SHA-256 minimum (collision resistant)
+- Never use MD5 or SHA-1 (broken algorithms)
+- Consider SHA-512 for high-value data
+
+**Rainbow Table Protection:**
+- Hash payloads should include unique identifiers
+- Timestamps provide additional uniqueness
+- No need for salt (not for password hashing)
+
+**Timing Attack Prevention:**
+- Use constant-time comparison for hash verification
+- `crypto.timingSafeEqual()` prevents timing attacks
+
+```typescript
+/**
+ * Verify hash with timing-safe comparison
+ */
+export function verifyHash(providedHash: string, expectedHash: string): boolean {
+  // Ensure both hashes are same length
+  if (providedHash.length !== expectedHash.length) {
+    return false;
+  }
+  
+  // Timing-safe comparison (prevents timing attacks)
+  return crypto.timingSafeEqual(
+    Buffer.from(providedHash),
+    Buffer.from(expectedHash)
+  );
+}
+```
+
+---
+
+## See Also
+
+### Related Rules
+
+**Security & Trust:**
+- @012-api-security.mdc - API security standards
+- @220-security-monitoring.mdc - Security monitoring
+- @224-secrets-management.mdc - Secret storage (different from hashing!)
+- @385-webhook-implementation-standards.mdc - Webhook signatures (similar HMAC patterns)
+
+**Data Integrity:**
+- @061-database-integration.mdc - Database patterns
+- @081-data-versioning-standards.mdc - Data versioning and audit trails
+- @208-database-operations.mdc - Database safety and backups
+- @212-backup-recovery-standards.mdc - Backup strategies
+
+**Testing:**
+- @380-comprehensive-testing-standards.mdc - Testing standards
+- @372-api-key-testing-standards.mdc - Similar security testing patterns
+- @331-high-risk-feature-testing.mdc - High-risk feature testing
+
+**API & Integration:**
+- @060-api-standards.mdc - API design patterns
+- @110-api-client-standards.mdc - API client implementation
+- @111-sdk-generation-standards.mdc - SDK patterns (include verification)
+
+### Tools & Documentation
+
+**Validation Tools:**
+- **`.cursor/tools/verify-hash-integrity.sh`** - Validate hash implementation
+  ```bash
+  ./.cursor/tools/verify-hash-integrity.sh
+  # Checks: Canonical JSON, SHA-256, immutability, verification endpoint
+  ```
+
+**Testing Tools:**
+- **`.cursor/tools/test-verification.sh`** - Test verification endpoint
+  ```bash
+  ./.cursor/tools/test-verification.sh http://localhost:3000/api/verify
+  # Tests: Hash computation, verification accuracy, tampering detection
+  ```
+
+**Documentation:**
+- **`.cursor/docs/security-workflows.md`** - Security implementation patterns
+- **`.cursor/docs/trust-building.md`** - Building user trust with cryptography
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview
+
+### Comprehensive Guides
+
+**Essential for Cryptographic Verification:**
+- **`guides/Cryptographic-Verification-Complete-Guide.md`** ⭐ **Essential** - Complete implementation guide
+- **`guides/API-Security-Complete-Guide.md`** - Security patterns
+- **`guides/Data-Integrity-Complete-Guide.md`** - Data integrity strategies
+
+**Advanced Topics:**
+- **`guides/Blockchain-Integration-Guide.md`** - Blockchain for immutability
+- **`guides/Digital-Signatures-Guide.md`** - Public/private key signatures
+
+### Quick Start - Cryptographic Verification
+
+```bash
+# 1. Install dependencies
+npm install fast-json-stable-stringify
+
+# 2. Implement hash computation
+# Create: lib/verification/hash.ts with canonical JSON
+
+# 3. Create hash payload structure
+# Include: unique ID, data, timestamp
+
+# 4. Store hash immutably
+# Database: Add verification_hash column, prevent updates
+
+# 5. Create public verification endpoint
+# Endpoint: POST /api/verify (no authentication required)
+
+# 6. Add client-side verification
+# UI: "Verify Integrity" button with clear feedback
+
+# 7. Test implementation
+./.cursor/tools/verify-hash-integrity.sh
+# Validates: Canonical JSON, SHA-256, verification endpoint
+
+# 8. Test with tampering
+# Modify data, verify hash changes (detection works)
+
+# 9. Monitor verification attempts
+# Dashboard: Show verification success rate, attempts over time
+```
+
+### Real-World Implementation Examples
+
+**GiDanc Health Check - Result Verification:**
+- `app/lib/health-check/utils/hash.ts` - Production implementation
+- `app/lib/health-check/scoring.ts` - Hash generation
+- `app/api/health-check/verify/route.ts` - Verification endpoint
+- Features: Canonical JSON, SHA-256, public verification, audit logging
+
+**Key Patterns from GiDanc:**
+1. **Canonical Serialization**: `fast-json-stable-stringify` for deterministic hashing
+2. **Hash Payload**: `{ runId, scores, timestamp }` structure
+3. **Immutable Storage**: Hash stored with result, never updated
+4. **Public Verification**: No authentication required for verification
+5. **Audit Logging**: All verification attempts logged
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (High value for trust-critical systems)  
+**Last Updated**: 2024-11-25  
+**Version**: 1.0

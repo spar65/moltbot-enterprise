@@ -1,0 +1,255 @@
+---
+description: Use when implementing new features or making significant changes to ensure proper planning and tracking of work
+globs: "**/feature-plans/**/*.{md,txt,plan}, **/implementation/*.{md,txt,plan}"
+---
+
+# Feature Implementation Plan
+
+## Context
+
+- AgentMinder requires structured implementation of new features and changes
+- Implementation plans improve consistency, quality, and visibility of work
+- Each feature should follow well-defined phases and steps
+- Implementation plans serve as documentation for current and future developers
+- Implementation plans can be referenced during code reviews and testing
+
+## Requirements
+
+### Feature Documentation
+
+- **REQUIRED**: Create a new implementation plan file for each significant feature
+- Document key feature information including priority, stakeholders, and timeline
+- Include clear business value and user stories to justify implementation
+- Outline technical considerations including architecture and dependencies
+- Update the plan as implementation progresses
+
+```markdown
+# Feature: User Profile Enhancement
+
+## Feature Information
+
+| Field               | Description              |
+| ------------------- | ------------------------ |
+| Feature Name        | User Profile Enhancement |
+| Priority            | High                     |
+| Proposed By         | Product Team             |
+| Implementation Lead | Jane Developer           |
+| Start Date          | 2023-06-01               |
+| Target Completion   | 2023-06-15               |
+| Related Issues      | #123, #124               |
+
+## Business Value
+
+This feature improves user engagement by allowing users to customize their profiles with avatars and bios, which increases platform stickiness and personalization.
+
+## User Stories
+
+- As a user, I want to upload a custom avatar so that my profile reflects my identity
+- As a user, I want to add a bio to my profile so that others understand my background
+```
+
+### Implementation Phases
+
+- **REQUIRED**: Divide implementation into logical phases:
+  1. Research and Design
+  2. Core Implementation
+  3. Testing
+  4. Documentation and Deployment
+- Mark steps as completed with a brief summary as you progress
+- Ensure each phase is properly reviewed before proceeding to the next
+
+```markdown
+## Implementation Steps
+
+### Phase 1: Research and Design
+
+- [x] Review existing user model - Done: Current user model has basic fields only
+- [x] Design database schema changes - Done: Added avatar_url and bio fields
+- [x] Create UI/UX mockups - Done: Created mockups for profile edit screen
+- [ ] Document technical approach
+- [ ] Review design with team
+
+### Phase 2: Core Implementation
+
+- [ ] Create database migrations
+- [ ] Implement backend services
+- [ ] Implement API endpoints
+```
+
+### Risk Management
+
+- Document potential risks and mitigation strategies
+- Prepare rollback plans for high-risk changes
+- Consider performance impacts, security concerns, and user disruption
+- Identify dependencies and potential bottlenecks
+- Define clear success metrics to evaluate implementation
+
+```markdown
+## Risk Assessment
+
+| Risk                                      | Likelihood | Impact | Mitigation Strategy                      |
+| ----------------------------------------- | ---------- | ------ | ---------------------------------------- |
+| Large file uploads may affect performance | Medium     | High   | Implement client-side image compression  |
+| User data migration may cause downtime    | Low        | High   | Schedule migration during off-peak hours |
+
+## Rollback Plan
+
+If issues are encountered:
+
+1. Disable the new profile features via feature flag
+2. Revert database migrations using prepared down migrations
+3. Roll back frontend changes to previous stable version
+```
+
+### Post-Implementation Review
+
+- Conduct a review after implementation is complete
+- Document lessons learned and areas for improvement
+- Measure against defined success metrics
+- Identify follow-up actions or enhancements
+- Update team knowledge base with key insights
+
+```markdown
+## Post-Implementation Review
+
+### Lessons Learned
+
+- Image processing was more complex than anticipated
+- Team collaboration improved with regular check-ins
+- Need more comprehensive mobile testing earlier
+
+### Success Metrics
+
+- 45% of users updated their profiles within first week
+- Avatar upload success rate: 98.5%
+- Performance impact was minimal (<50ms average increase)
+```
+
+## Dependencies
+
+- Related rules: [800-workflow-guidelines.mdc](mdc:800-workflow-guidelines.mdc)
+- External standards: Project management best practices, Agile development methodologies
+
+## Testing Guidelines
+
+- Review implementation plan for completeness before beginning work
+- Ensure all stakeholders have approved the plan
+- Update the plan with actual progress and findings
+- Validate that all phases have been properly completed
+- Conduct post-implementation review to improve future planning
+
+## Implementation Checklist
+
+- [ ] Feature Information: Document basic feature details and stakeholders
+- [ ] Business Value: Articulate clear business justification
+- [ ] User Stories: Include specific user stories with acceptance criteria
+- [ ] Technical Plan: Outline architecture, dependencies, and technical changes
+- [ ] Implementation Steps: Break down work into clear, sequential steps
+- [ ] Risk Assessment: Identify risks and mitigation strategies
+- [ ] Testing Strategy: Define approach for validating implementation
+- [ ] Success Metrics: Establish how the feature's success will be measured
+
+## See Also
+
+### Related Rules
+
+**Project Startup & Planning**:
+
+- @000-project-startup-guide.mdc - Master project startup guide (this rule is Phase 4)
+- @900-tech-stack-selection.mdc - Tech stack selection (Phase 1)
+- @801-project-documentation-structure.mdc - Documentation structure (Phase 2)
+- @802-ai-documentation-generation.mdc - AI-assisted documentation (Phase 2)
+- @800-workflow-guidelines.mdc - Development workflow (Phase 3)
+
+**Git & Workflow**:
+
+- @802-git-workflow-standards.mdc - Git branching and commits
+- @803-pull-request-workflow.mdc - PR workflow
+- @804-hotfix-procedures.mdc - Emergency procedures
+
+**Code Quality**:
+
+- @100-coding-patterns.mdc - Code patterns and standards
+- @101-code-review-standards.mdc - Code review practices
+- @105-typescript-linter-standards.mdc - TypeScript standards
+
+**Testing**:
+
+- @300-testing-standards.mdc - General testing standards
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @331-high-risk-feature-testing.mdc - High-risk feature testing
+- @375-api-test-first-time-right.mdc - API testing patterns
+
+**Deployment**:
+
+- @203-production-deployment-safety.mdc - Production deployment safety
+- @202-rollback-procedures.mdc - Rollback procedures
+
+### Tools & Documentation
+
+**Planning Tools**:
+
+- **GitHub Projects / Linear / Jira** - Project tracking (create issues from user stories)
+- **`.cursor/tools/inspect-model.sh`** - Inspect Prisma models for implementation planning
+  ```bash
+  ./.cursor/tools/inspect-model.sh ModelName
+  # Shows: Fields, relationships, patterns to plan database work
+  ```
+
+**Documentation Resources**:
+
+- **`.cursor/docs/ai-workflows.md#feature-planning`** - AI-assisted feature planning patterns
+- **`.cursor/docs/rules-guide.md`** - How to use rules during implementation
+
+### Comprehensive Guides
+
+**Essential Planning Guides**:
+
+- **`guides/Project-Requirements-Generation-Complete-Guide.md`** - Requirements documentation
+- **`guides/Git-Workflow-Complete-Guide.md`** - Git workflow for implementation
+- **`guides/Code-Review-Complete-Guide.md`** - Code review during implementation
+
+**Testing & Quality Guides**:
+
+- **`guides/API-Database-Testing-Complete-Guide.md`** - Testing strategy for APIs and databases
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Performance considerations
+
+### Quick Start - Feature Implementation
+
+```bash
+# 1. Create implementation plan (use this rule template)
+# Document: Feature info, business value, user stories, technical plan, risks
+
+# 2. Break into phases
+# Phase 1: Foundation (Week 1)
+# Phase 2: Core features (Week 2-3)
+# Phase 3: Polish & testing (Week 4)
+
+# 3. Create branch
+git checkout -b feature/feature-name
+
+# 4. Create issues/tickets from user stories
+# Use GitHub Projects / Linear / Jira
+
+# 5. Follow implementation steps
+# Update plan as you go
+# Check off completed items
+
+# 6. Conduct post-implementation review
+# Document lessons learned
+# Measure against success criteria
+```
+
+### Common Implementation Scenarios
+
+| Scenario                       | Planning Approach        | Key Rules                     | Timeline   |
+| ------------------------------ | ------------------------ | ----------------------------- | ---------- |
+| **Small Feature (< 20 hrs)**   | Simplified plan          | @801-impl, @300               | 1-2 weeks  |
+| **Medium Feature (20-80 hrs)** | Full implementation plan | @801-impl, @800, @300, @380   | 4-6 weeks  |
+| **Large Feature (80+ hrs)**    | Multi-phase plan         | All startup rules + @801-impl | 8-12 weeks |
+| **High-Risk Feature**          | Comprehensive plan + POC | @801-impl, @331, @012         | Variable   |
+| **Technical Debt**             | Risk-focused plan        | @801-impl, @150               | 2-4 weeks  |
+
+---
+
+**Integration**: This rule is **Phase 4** of the Project Startup Sequence (@000-project-startup-guide.mdc)

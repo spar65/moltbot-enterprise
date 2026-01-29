@@ -1,0 +1,716 @@
+---
+description: Implement comprehensive backup and recovery procedures when designing data systems to ensure business continuity and data protection
+globs: "**/*.{ts,tsx,js,jsx,sql,prisma}"
+priority: P1
+---
+
+# Backup & Recovery Standards
+
+## Context
+Apply comprehensive backup and recovery standards when designing and implementing data systems to ensure business continuity, disaster recovery, and data protection compliance.
+
+## Requirements
+
+### 1. Backup Strategy
+
+#### 1.1 Database Backups
+```typescript
+// Backup configuration structure
+interface BackupConfig {
+  // Automated backups
+  automated: {
+    frequency: 'continuous' | 'hourly' | 'daily' | 'weekly';
+    retention: {
+      daily: number;    // Days to keep daily backups
+      weekly: number;   // Weeks to keep weekly backups
+      monthly: number;  // Months to keep monthly backups
+    };
+    storage: {
+      primary: 'cloud-storage';
+      secondary: 'offsite-storage';
+      encryption: 'AES-256';
+    };
+  };
+  
+  // Point-in-time recovery
+  pitr: {
+    enabled: boolean;
+    retention: number;  // Days
+    granularity: 'second' | 'minute';
+  };
+  
+  // Manual backup triggers
+  manual: {
+    beforeDeployment: boolean;
+    beforeMigration: boolean;
+    onDemand: boolean;
+  };
+}
+```
+
+#### 1.2 Application Data Backups
+```typescript
+// Application data backup configuration
+interface AppDataBackup {
+  // File storage backups
+  files: {
+    userUploads: {
+      frequency: 'hourly';
+      retention: 90;  // Days
+      versioning: true;
+    };
+    
+    systemFiles: {
+      frequency: 'daily';
+      retention: 30;
+    };
+  };
+  
+  // Configuration backups
+  config: {
+    envVars: {
+      frequency: 'on-change';
+      storage: 'encrypted-vault';
+    };
+    
+    secrets: {
+      frequency: 'on-change';
+      storage: 'secrets-manager';
+      versioning: true;
+    };
+  };
+  
+  // Code and infrastructure
+  code: {
+    repository: 'git';
+    mirroring: 'multiple-locations';
+    infraAsCode: 'version-controlled';
+  };
+}
+```
+
+### 2. Recovery Procedures
+
+#### 2.1 Recovery Time Objective (RTO)
+```typescript
+// Define RTO for different data types
+interface RTOTargets {
+  critical: {
+    database: '15 minutes';
+    authentication: '5 minutes';
+    payments: '15 minutes';
+  };
+  
+  important: {
+    apiServices: '30 minutes';
+    fileStorage: '1 hour';
+    search: '1 hour';
+  };
+  
+  standard: {
+    analytics: '4 hours';
+    reports: '8 hours';
+    logs: '24 hours';
+  };
+}
+
+// Recovery procedures must meet RTO targets
+async function validateRecoveryPlan(
+  component: string,
+  rto: RTOTargets
+): Promise<boolean> {
+  const target = getRTOTarget(component, rto);
+  const measuredTime = await simulateRecovery(component);
+  
+  if (measuredTime > target) {
+    throw new Error(
+      `Recovery time ${measuredTime} exceeds RTO ${target} for ${component}`
+    );
+  }
+  
+  return true;
+}
+```
+
+#### 2.2 Recovery Point Objective (RPO)
+```typescript
+// Define RPO for different data types
+interface RPOTargets {
+  critical: {
+    transactional: '0 seconds';  // Zero data loss
+    financial: '0 seconds';
+    userAuth: '1 minute';
+  };
+  
+  important: {
+    userData: '5 minutes';
+    apiLogs: '15 minutes';
+    metrics: '1 hour';
+  };
+  
+  standard: {
+    analytics: '1 hour';
+    reports: '24 hours';
+    archives: '7 days';
+  };
+}
+
+// Backup frequency must meet RPO targets
+function calculateBackupFrequency(
+  dataType: string,
+  rpo: RPOTargets
+): string {
+  const target = getRPOTarget(dataType, rpo);
+  
+  if (target === '0 seconds') return 'continuous';
+  if (target <= '5 minutes') return 'realtime';
+  if (target <= '1 hour') return 'frequent';
+  return 'standard';
+}
+```
+
+### 3. Disaster Recovery
+
+#### 3.1 Multi-Region Strategy
+```typescript
+// Multi-region disaster recovery configuration
+interface DRStrategy {
+  // Primary region
+  primary: {
+    region: 'us-east-1';
+    database: 'primary-rw';
+    storage: 'primary-bucket';
+  };
+  
+  // Failover region
+  failover: {
+    region: 'us-west-2';
+    database: 'replica-ro';
+    storage: 'replica-bucket';
+    replication: {
+      mode: 'async' | 'sync';
+      lag: '< 1 second';
+    };
+  };
+  
+  // Backup region
+  backup: {
+    region: 'eu-west-1';
+    storage: 'backup-bucket';
+    coldStorage: 'glacier';
+  };
+}
+
+// Automatic failover implementation
+async function initiateFailover(
+  reason: string
+): Promise<FailoverResult> {
+  console.log(`🚨 Initiating failover: ${reason}`);
+  
+  // 1. Verify failover region health
+  await verifyFailoverRegion();
+  
+  // 2. Stop writes to primary
+  await pausePrimaryWrites();
+  
+  // 3. Promote replica to primary
+  await promoteReplica();
+  
+  // 4. Update DNS/routing
+  await updateRouting();
+  
+  // 5. Resume operations
+  await resumeOperations();
+  
+  console.log('✅ Failover complete');
+  
+  return {
+    success: true,
+    newPrimary: 'us-west-2',
+    downtime: calculateDowntime()
+  };
+}
+```
+
+#### 3.2 Disaster Recovery Testing
+```typescript
+// Regular DR testing schedule
+interface DRTestPlan {
+  // Quarterly full DR tests
+  fullTest: {
+    frequency: 'quarterly';
+    scope: 'complete-failover';
+    duration: '4 hours';
+    participants: ['engineering', 'operations', 'leadership'];
+  };
+  
+  // Monthly partial tests
+  partialTest: {
+    frequency: 'monthly';
+    scope: 'component-failover';
+    duration: '1 hour';
+    components: ['database', 'storage', 'auth'];
+  };
+  
+  // Weekly backup validation
+  backupValidation: {
+    frequency: 'weekly';
+    scope: 'restore-test';
+    duration: '30 minutes';
+    sample: 'random-backup';
+  };
+}
+
+// Automated DR test execution
+async function runDRTest(
+  plan: DRTestPlan,
+  testType: 'full' | 'partial' | 'backup'
+): Promise<DRTestResult> {
+  const startTime = Date.now();
+  const results: TestResult[] = [];
+  
+  try {
+    // Execute test in isolated environment
+    results.push(await setupTestEnvironment());
+    results.push(await simulateDisaster());
+    results.push(await executeRecovery());
+    results.push(await validateRecovery());
+    
+    const duration = Date.now() - startTime;
+    
+    return {
+      success: true,
+      testType,
+      duration,
+      results,
+      meetsRTO: duration <= getRTOTarget(testType),
+      meetsRPO: validateDataLoss() <= getRPOTarget(testType)
+    };
+  } catch (error) {
+    console.error('❌ DR test failed:', error);
+    
+    return {
+      success: false,
+      testType,
+      duration: Date.now() - startTime,
+      results,
+      error
+    };
+  } finally {
+    await cleanupTestEnvironment();
+  }
+}
+```
+
+### 4. Backup Verification
+
+#### 4.1 Automated Backup Testing
+```typescript
+// Verify backups are restorable
+async function verifyBackup(
+  backupId: string
+): Promise<BackupVerification> {
+  console.log(`🔍 Verifying backup: ${backupId}`);
+  
+  // 1. Check backup integrity
+  const integrity = await checkBackupIntegrity(backupId);
+  if (!integrity.valid) {
+    throw new Error(`Backup ${backupId} failed integrity check`);
+  }
+  
+  // 2. Restore to test environment
+  const restoreResult = await restoreToTestEnv(backupId);
+  if (!restoreResult.success) {
+    throw new Error(`Backup ${backupId} failed restore test`);
+  }
+  
+  // 3. Validate data completeness
+  const validation = await validateRestoredData(restoreResult.envId);
+  if (!validation.complete) {
+    throw new Error(`Backup ${backupId} data incomplete`);
+  }
+  
+  // 4. Clean up test environment
+  await cleanupTestEnv(restoreResult.envId);
+  
+  console.log(`✅ Backup verified: ${backupId}`);
+  
+  return {
+    backupId,
+    verified: true,
+    integrityCheck: integrity,
+    restoreTest: restoreResult,
+    dataValidation: validation,
+    timestamp: new Date()
+  };
+}
+```
+
+#### 4.2 Backup Monitoring
+```typescript
+// Monitor backup health
+interface BackupMonitoring {
+  // Success rate tracking
+  metrics: {
+    successRate: number;      // Must be > 99.9%
+    avgDuration: number;      // Alert if > 2x baseline
+    avgSize: number;          // Alert if > 50% change
+    lastSuccess: Date;
+    lastFailure: Date | null;
+  };
+  
+  // Alerting thresholds
+  alerts: {
+    backupFailed: {
+      severity: 'critical';
+      notify: ['on-call', 'engineering-leads'];
+    };
+    
+    backupDelayed: {
+      severity: 'warning';
+      threshold: '15 minutes';
+      notify: ['on-call'];
+    };
+    
+    storageAlmostFull: {
+      severity: 'warning';
+      threshold: '80%';
+      notify: ['operations'];
+    };
+  };
+}
+
+// Real-time backup monitoring
+async function monitorBackups(): Promise<void> {
+  const metrics = await getBackupMetrics();
+  
+  // Check success rate
+  if (metrics.successRate < 0.999) {
+    await sendAlert({
+      severity: 'critical',
+      message: `Backup success rate below 99.9%: ${metrics.successRate * 100}%`,
+      metric: 'backup-success-rate',
+      value: metrics.successRate
+    });
+  }
+  
+  // Check last success time
+  const hoursSinceLastBackup = 
+    (Date.now() - metrics.lastSuccess.getTime()) / (1000 * 60 * 60);
+  
+  if (hoursSinceLastBackup > 1) {
+    await sendAlert({
+      severity: 'critical',
+      message: `No successful backup in ${hoursSinceLastBackup} hours`,
+      metric: 'backup-staleness',
+      value: hoursSinceLastBackup
+    });
+  }
+  
+  // Check storage capacity
+  const storageUsage = await getStorageUsage();
+  if (storageUsage.percentUsed > 80) {
+    await sendAlert({
+      severity: 'warning',
+      message: `Backup storage at ${storageUsage.percentUsed}%`,
+      metric: 'backup-storage',
+      value: storageUsage.percentUsed
+    });
+  }
+}
+```
+
+### 5. Data Retention
+
+#### 5.1 Retention Policies
+```typescript
+// Define retention policies by data type
+interface RetentionPolicy {
+  // Production data
+  production: {
+    transactional: {
+      retention: 'indefinite';
+      archiveAfter: 90;  // Days
+    };
+    
+    analytics: {
+      retention: 365;    // Days
+      aggregateAfter: 90;
+    };
+    
+    logs: {
+      retention: 90;
+      compressAfter: 7;
+    };
+  };
+  
+  // Backup data
+  backups: {
+    daily: {
+      retention: 7;      // Days
+    };
+    
+    weekly: {
+      retention: 28;     // Days (4 weeks)
+    };
+    
+    monthly: {
+      retention: 365;    // Days (1 year)
+    };
+    
+    yearly: {
+      retention: 2555;   // Days (7 years for compliance)
+    };
+  };
+  
+  // Compliance requirements
+  compliance: {
+    financialRecords: 2555;  // 7 years
+    auditLogs: 2555;         // 7 years
+    userData: 'user-controlled';
+  };
+}
+
+// Automated retention enforcement
+async function enforceRetention(
+  policy: RetentionPolicy
+): Promise<void> {
+  // Archive old data
+  await archiveOldData(policy.production);
+  
+  // Delete expired backups
+  await deleteExpiredBackups(policy.backups);
+  
+  // Verify compliance
+  await verifyComplianceRetention(policy.compliance);
+}
+```
+
+### 6. Documentation Requirements
+
+#### 6.1 Backup Runbooks
+```markdown
+# Backup & Recovery Runbooks
+
+## Daily Operations
+- [ ] Monitor backup success rate (> 99.9%)
+- [ ] Check backup storage capacity (< 80%)
+- [ ] Verify latest backup integrity
+- [ ] Review backup duration trends
+
+## Weekly Tasks
+- [ ] Restore test random backup
+- [ ] Review retention policy enforcement
+- [ ] Check multi-region replication lag
+- [ ] Update backup documentation
+
+## Monthly Tasks
+- [ ] Full DR test (component failover)
+- [ ] Review and update RTO/RPO targets
+- [ ] Capacity planning for backup storage
+- [ ] Audit backup access logs
+
+## Quarterly Tasks
+- [ ] Complete DR test (full failover)
+- [ ] Review disaster recovery procedures
+- [ ] Update DR contact information
+- [ ] Test backup restoration procedures
+```
+
+#### 6.2 Recovery Procedures
+```markdown
+# Recovery Procedures
+
+## Database Recovery
+
+### Scenario: Database Corruption
+1. **Assess Impact**
+   - Identify affected tables/data
+   - Determine last known good state
+   - Estimate data loss (RPO)
+
+2. **Initiate Recovery**
+   ```bash
+   # Stop application writes
+   ./scripts/maintenance-mode.sh enable
+   
+   # Restore from backup
+   ./scripts/restore-database.sh --backup-id <backup_id>
+   
+   # Verify restoration
+   ./scripts/verify-database.sh
+   ```
+
+3. **Validate Recovery**
+   - Check data integrity
+   - Verify application functionality
+   - Compare record counts
+   - Test critical workflows
+
+4. **Resume Operations**
+   ```bash
+   # Disable maintenance mode
+   ./scripts/maintenance-mode.sh disable
+   
+   # Monitor application health
+   ./scripts/monitor-health.sh
+   ```
+
+### Scenario: Complete Database Loss
+1. **Failover to Replica**
+   ```bash
+   # Promote replica to primary
+   ./scripts/promote-replica.sh --region us-west-2
+   
+   # Update DNS/routing
+   ./scripts/update-routing.sh --primary us-west-2
+   ```
+
+2. **Verify Failover**
+   - Test database connectivity
+   - Verify read/write operations
+   - Check replication status
+
+3. **Rebuild Primary**
+   - Provision new primary database
+   - Restore from backup
+   - Configure replication
+```
+
+## Tools & Documentation
+
+### Related Tools
+- `.cursor/tools/check-backups.sh` - Verify backup health and coverage
+- `.cursor/tools/test-recovery.sh` - Simulate disaster recovery
+- `.cursor/tools/calculate-rto-rpo.sh` - Calculate recovery metrics
+
+### Related Guides
+- `guides/Backup-Recovery-Complete-Guide.md` - Comprehensive backup guide
+- `guides/Disaster-Recovery-Playbook.md` - Step-by-step DR procedures
+
+### Related Rules
+- @208-database-operations.mdc - Database management standards
+- @224-secrets-management.mdc - Secrets backup procedures
+- @221-application-monitoring.mdc - Backup monitoring
+
+## Examples
+
+<example>
+**Good: Automated backup verification**
+
+```typescript
+// Verify every backup automatically
+async function createBackup(): Promise<Backup> {
+  const backup = await performBackup();
+  
+  // Immediate verification
+  const verification = await verifyBackup(backup.id);
+  if (!verification.verified) {
+    throw new Error('Backup verification failed');
+  }
+  
+  return backup;
+}
+```
+
+Why: Catches backup issues immediately, ensures restorability
+</example>
+
+<example>
+**Good: Multi-region disaster recovery**
+
+```typescript
+// Replicate to multiple regions
+const drConfig = {
+  primary: { region: 'us-east-1' },
+  failover: { 
+    region: 'us-west-2',
+    replication: 'sync',
+    autoFailover: true 
+  },
+  backup: { 
+    region: 'eu-west-1',
+    coldStorage: true 
+  }
+};
+```
+
+Why: Protects against regional outages, enables quick failover
+</example>
+
+<example type="invalid">
+**Bad: Manual backup verification**
+
+```typescript
+// TODO: Someone should test backups manually
+async function createBackup(): Promise<Backup> {
+  return await performBackup();
+}
+```
+
+Why: Manual processes fail, backups may not be restorable
+</example>
+
+<example type="invalid">
+**Bad: Single region, no failover**
+
+```typescript
+const drConfig = {
+  primary: { region: 'us-east-1' },
+  // No failover region configured
+};
+```
+
+Why: Regional outage causes complete service unavailability
+</example>
+
+## Compliance & Regulations
+
+### Data Protection Requirements
+- GDPR: Right to erasure, data portability
+- SOC 2: Backup and recovery procedures documented
+- HIPAA: Encrypted backups, audit trails
+- PCI-DSS: Backup retention, secure storage
+
+### Audit Requirements
+- Document all backup/recovery procedures
+- Log all backup operations
+- Track recovery time metrics
+- Maintain disaster recovery test records
+
+## Quick Start
+
+1. **Check current backup status**
+   ```bash
+   ./.cursor/tools/check-backups.sh
+   ```
+
+2. **Review backup configuration**
+   - Verify automated backups enabled
+   - Check retention policies
+   - Confirm multi-region replication
+
+3. **Test recovery procedures**
+   ```bash
+   ./.cursor/tools/test-recovery.sh --component database
+   ```
+
+4. **Document RTO/RPO targets**
+   - Define acceptable downtime
+   - Define acceptable data loss
+   - Verify backup frequency meets RPO
+
+## Success Metrics
+
+### Key Performance Indicators
+- Backup success rate: > 99.9%
+- Backup verification rate: 100%
+- RTO achievement: > 95%
+- RPO achievement: > 99%
+- DR test success rate: 100%
+
+### Continuous Improvement
+- Reduce backup duration over time
+- Improve restore speed
+- Minimize replication lag
+- Optimize storage costs

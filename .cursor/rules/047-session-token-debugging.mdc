@@ -1,0 +1,147 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Debug Auth0 session token issues with proper session parameter handling
+globs: "src/**/*.{ts,js}", "pages/api/**/*.{ts,js}"
+___
+
+# Session Token Debugging
+
+## Context
+- When debugging Auth0 authentication issues
+- When session/token decoding fails
+- When admin authentication is inconsistent
+
+## Requirements
+
+### CRITICAL: Session Parameter Rule
+- **ALWAYS** pass full session object to admin auth functions
+- **NEVER** pass only session.user - this breaks token decoding
+- **VERIFY** function signatures match actual calls
+
+### Common Bug Pattern
+```typescript
+// ❌ CRITICAL BUG - Missing session parameter
+function handler(req, res) {
+  const session = await auth0.getSession(req);
+  
+  // This will fail silently - no session parameter
+  logUserSession(session.user);
+  if (!isUserAdmin(session.user)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+}
+
+// ✅ CORRECT - Pass both user and session
+function handler(req, res) {
+  const session = await auth0.getSession(req);
+  
+  // This works - session parameter included
+  logUserSession(session.user, session);
+  if (!isUserAdmin(session.user, session)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+}
+```
+
+### Debug Steps
+1. **Check function signatures** - ensure all admin functions expect session parameter
+2. **Check function calls** - ensure all calls pass session parameter
+3. **Restart dev server** - changes to function signatures require restart
+4. **Check token structure** - use debug endpoints to verify token contents
+
+### Debug Endpoints
+Create these debug endpoints for troubleshooting:
+- `/api/debug-session.ts` - Basic session structure
+- `/api/debug-tokenset.ts` - Token decoding details
+- `/api/debug-session-structure.ts` - Complete session analysis
+
+## Reference Guide
+
+📖 **For complete debugging walkthrough:**
+See: `guides/auth0/Auth0-Management-API-Integration-Complete-Guide.md`
+
+The guide includes the exact bug we discovered and how to identify it.
+
+## Examples
+
+<example>
+// Correct function signature and implementation
+export function isUserAdmin(user: any, session?: any): boolean {
+  console.log('isUserAdmin called with:', { 
+    hasUser: !!user, 
+    hasSession: !!session,
+    userKeys: user ? Object.keys(user) : [],
+    sessionKeys: session ? Object.keys(session) : []
+  });
+  
+  // Session-based token decoding
+  if (session?.tokenSet?.idToken) {
+    try {
+      const decoded = jwt.decode(session.tokenSet.idToken);
+      const roles = decoded?.[`${process.env.AUTH0_AUDIENCE}/roles`];
+      if (roles?.includes('admin')) {
+        console.log('✅ Admin access granted via token roles');
+        return true;
+      }
+    } catch (error) {
+      console.log('Token decode error:', error);
+    }
+  }
+  
+  // Email fallback
+  const adminEmails = ['admin@example.com'];
+  if (adminEmails.includes(user?.email)) {
+    console.log('✅ Admin access granted via email fallback');
+    return true;
+  }
+  
+  console.log('❌ Admin access denied');
+  return false;
+}
+</example>
+
+<example type="invalid">
+// Missing session parameter - WILL NOT WORK
+export function isUserAdmin(user: any): boolean {
+  // This function can't decode tokens without session parameter
+  // Will only work with email fallback
+  const adminEmails = ['admin@example.com'];
+  return adminEmails.includes(user?.email);
+}
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Session management patterns
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Session validation
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate session configuration
+- **`.cursor/tools/check-env-vars.sh`** - Check session secrets
+- **`.cursor/tools/scan-secrets.sh`** - Detect exposed session tokens
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @019-auth0-integration.mdc - Auth0 session patterns
+- @046-session-validation.mdc - Session security (critical!)
+- @072-auth-security.mdc - Auth security standards
+- @140-troubleshooting-standards.mdc - Systematic debugging
+- @374-authentication-architecture-standards.mdc - Session architecture
+- @410-auth-debugging.mdc - Auth debugging workflows (critical!)
+
+### Quick Start
+1. **Validate:** `.cursor/tools/check-auth-config.sh` (session config)
+2. **Debug:** See @410-auth-debugging.mdc for systematic debugging
+3. **Follow:** `.cursor/docs/security-workflows.md#auth0-integration-workflow`
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH0_TROUBLESHOOTING_GUIDE.md`** - **CRITICAL:** Auth0 troubleshooting!
+- **`guides/AUTH0_DOS_AND_DONTS.md`** - Session/token best practices
+- **`guides/AUTH0_QUICK_REFERENCE.md`** - Quick token reference

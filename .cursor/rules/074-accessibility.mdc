@@ -1,0 +1,69 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply accessibility standards when implementing user interfaces to ensure inclusive experiences for all users
+globs: "src/components/**/*.{jsx,tsx}"
+___
+
+# Accessibility Standards
+
+## Semantic HTML
+- Use appropriate HTML elements for their intended purpose
+- Implement proper heading hierarchy (h1-h6)
+- Apply ARIA attributes only when native HTML semantics are insufficient
+- Use landmark regions (main, nav, footer, etc.) appropriately
+
+## Keyboard Navigation
+- Ensure all interactive elements are keyboard accessible
+- Implement logical tab order for form elements
+- Create appropriate focus styles for interactive elements
+- Use focus trapping for modal interfaces
+
+## Screen Reader Support
+- Provide alternative text for images and icons
+- Implement proper form labels for all inputs
+- Use aria-live regions for dynamic content updates
+- Test with screen readers during development
+
+## Color and Contrast
+- Maintain minimum contrast ratios (4.5:1 for normal text, 3:1 for large text)
+- Never use color alone to convey information
+- Implement high contrast mode support
+- Test color blindness scenarios
+
+## Testing Requirements
+- Include accessibility tests in component test suites
+- Use automated testing tools (jest-axe, Lighthouse)
+- Conduct manual keyboard navigation testing
+- Document accessibility considerations for complex components
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Accessibility patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Comprehensive Guides
+- **`guides/Component-Library-Guide.md`** - Component accessibility patterns
+
+### Tools (Future)
+📅 **Planned Tools:**
+- `.cursor/tools/check-accessibility.sh` (planned) - **CRITICAL:** A11y validation tool!
+
+📅 **Planned Guides:**
+- `guides/Accessibility-Implementation-Complete-Guide.md` (planned) - Comprehensive A11y guide
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @030-visual-design-system.mdc - Visual accessibility
+- @042-ui-component-architecture.mdc - Component accessibility
+- @054-accessibility-requirements.mdc - **PRIMARY:** Core accessibility requirements
+- @055-button-transparency-prevention.mdc - Button accessibility
+
+### Quick Start
+1. **Primary:** See @054-accessibility-requirements.mdc (main A11y rule)
+2. **WCAG:** Follow WCAG 2.1 AA standards
+3. **Test:** Screen readers and keyboard navigation

@@ -1,0 +1,332 @@
+---
+description: Use when implementing logging in any part of the application to ensure consistent, secure, and informative logging
+globs: "**/*.ts, **/*.tsx"
+---
+
+# Logging Standards
+
+## Context
+
+- Proper logging is critical for debugging, monitoring, and security
+- Inconsistent logging leads to missing information or security risks
+- Standard patterns make logs easier to parse and analyze
+- Different environments have different logging requirements
+
+## Requirements
+
+### Logger API Usage
+
+- Use the `logger` instance from `@/lib/logger` for all logging
+- Always provide a meaningful message string as the first argument
+- Optionally provide a context object as the second argument
+- Never include sensitive data in log messages or context objects
+
+```typescript
+// Correct logger usage:
+logger.info("User login successful", { userId, orgId });
+
+// Incorrect usage - passing error object directly:
+logger.error("Error occurred", error); // ❌ WRONG
+
+// Correct error logging:
+logger.error(`Error occurred: ${error.message}`, {
+  error: error.message,
+  stack: error.stack,
+  code: error.code,
+}); // ✅ RIGHT
+```
+
+### Log Levels
+
+- **error**: Use for exceptions and critical issues that affect functionality
+- **warn**: Use for concerning but non-critical issues
+- **info**: Use for significant application events
+- **debug**: Use for details helpful during development
+
+### Structured Logging
+
+- Always use structured context objects to provide additional details
+- Follow the `LogContext` interface for consistent structure
+- Include relevant identifiers (userId, orgId, correlationId)
+- Format nested objects and arrays consistently
+
+```typescript
+interface LogContext {
+  correlationId?: string;
+  orgId?: string;
+  userId?: string;
+  [key: string]: any;
+}
+```
+
+### Sensitive Data Handling
+
+- Never log passwords, tokens, or API keys
+- Redact personal identifiable information (PII)
+- Use the sanitizeLogData utility for automatic redaction
+- Follow the SENSITIVE_FIELDS list for consistent redaction
+
+```typescript
+// Fields considered sensitive
+const SENSITIVE_FIELDS = [
+  "password",
+  "token",
+  "secret",
+  "credential",
+  "apiKey",
+  "creditCard",
+  "ssn",
+  "socialSecurity",
+  "dob",
+];
+```
+
+## Implementation Examples
+
+### Basic Logging
+
+```typescript
+import { logger } from "@/lib/logger";
+
+// Good - Simple informational log
+logger.info("User registration complete");
+
+// Good - Log with context
+logger.info("Document created", {
+  documentId: "doc-123",
+  orgId: "org-456",
+});
+
+// Bad - Missing context
+logger.info("Document created"); // Missing documentId
+
+// Bad - Sensitive data in log
+logger.info(`User ${email} registered with password ${password}`); // ❌ NEVER do this
+```
+
+### Error Logging
+
+```typescript
+// Good - Proper error logging
+try {
+  // Operation that might fail
+} catch (error) {
+  logger.error(`Operation failed: ${error.message}`, {
+    error: error.message,
+    code: error.code,
+    operationId: "op-123",
+  });
+}
+
+// Bad - Direct error object as second argument
+try {
+  // Operation
+} catch (error) {
+  logger.error("Operation failed", error); // ❌ WRONG FORMAT
+}
+
+// Good - Error in API route
+export async function POST(request: Request) {
+  try {
+    // API implementation
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    logger.error(`API error: ${errorMessage}`);
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
+  }
+}
+```
+
+### Context Object Usage
+
+```typescript
+// Good - Proper context object with typing
+const logContext: LogContext = {
+  userId: user.id,
+  orgId: user.orgId,
+  action: "profile_update",
+  changes: ["email", "name"],
+};
+logger.info("User profile updated", logContext);
+
+// Bad - Inconsistent context structure
+logger.info("User profile updated", {
+  user: userId, // inconsistent naming
+  organization: orgId, // inconsistent naming
+  what_changed: ["email", "name"], // inconsistent casing
+});
+```
+
+### Correlation IDs for Request Tracing
+
+```typescript
+// Good - Using correlation ID for request tracing
+export async function handler(req: Request) {
+  const correlationId = req.headers.get("x-correlation-id") || uuidv4();
+
+  logger.info("Request received", {
+    path: req.url,
+    method: req.method,
+    correlationId,
+  });
+
+  try {
+    // Handle request
+    logger.info("Request processed", { correlationId });
+    return new Response("Success");
+  } catch (error) {
+    logger.error(`Request failed: ${error.message}`, {
+      correlationId,
+      error: error.message,
+    });
+    return new Response("Error", { status: 500 });
+  }
+}
+```
+
+## Common Patterns
+
+### API Request Logging
+
+```typescript
+// At the start of request handling
+logger.info(`${method} ${path} request received`, {
+  correlationId,
+  body: sanitizeLogData(requestBody),
+});
+
+// For successful responses
+logger.info(`${method} ${path} request successful`, {
+  correlationId,
+  responseTime: Date.now() - startTime,
+});
+
+// For errors
+logger.error(`${method} ${path} request failed`, {
+  correlationId,
+  error: errorMessage,
+  code: statusCode,
+});
+```
+
+### Application Event Logging
+
+```typescript
+// For state changes
+logger.info("Entity state changed", {
+  entityId,
+  fromState,
+  toState,
+  triggeredBy: userId,
+});
+
+// For batched operations
+logger.info("Batch operation completed", {
+  operationType,
+  itemCount,
+  successCount,
+  errorCount,
+});
+```
+
+## Integration with Other Rules
+
+- Supports [131-error-handling.mdc](mdc:131-error-handling.mdc) for error reporting
+- Complements [140-troubleshooting-standards.mdc](mdc:140-troubleshooting-standards.mdc)
+- Adheres to [010-security-compliance.mdc](mdc:010-security-compliance.mdc) for sensitive data
+
+## Dependencies
+
+- Related rules: [130-error-handling.mdc](mdc:130-error-handling.mdc), [010-security-compliance.mdc](mdc:010-security-compliance.mdc)
+- Required packages: winston or pino for server-side logging
+- External standards: GDPR, CCPA, and other privacy regulations for logging user data
+
+## Testing Guidelines
+
+- Verify log messages are clear and include necessary context
+- Test that sensitive data is properly sanitized in logs
+- Ensure correlation IDs are propagated through all system layers
+- Verify logs are properly formatted for consumption by monitoring tools
+- Test log rotation and retention policies
+- Validate logs can be used to trace through complex operations
+- Compare logs across environments to ensure consistency
+
+## Implementation Checklist
+
+- [ ] Log Levels: Define and consistently use appropriate log levels across the application
+- [ ] Structured Format: Implement structured logging with standardized fields
+- [ ] Context Enrichment: Include request ID, user ID, and other context in all logs
+- [ ] Correlation IDs: Generate and propagate correlation IDs across system boundaries
+- [ ] Sensitive Data: Ensure PII and credentials are never logged in plain text
+- [ ] Environment Configuration: Configure different logging behavior for dev/prod environments
+- [ ] Performance Impact: Monitor and optimize logging performance impact
+- [ ] Storage & Rotation: Implement appropriate log storage, rotation, and retention policies
+
+## See Also
+
+### Related Rules
+
+**Error Handling & Monitoring**:
+
+- @090-error-handling.mdc - Error classes and patterns
+- @130-error-handling.mdc - User-facing error handling
+- @135-error-monitoring-observability.mdc - Error monitoring with Sentry/Datadog
+- @139-error-context-debugging.mdc - Error context capture
+- @140-troubleshooting-standards.mdc - Troubleshooting procedures
+
+**Operations & Monitoring**:
+
+- @221-application-monitoring.mdc - Application monitoring
+- @222-metrics-alerting.mdc - Metrics and alerting
+- @210-operations-incidents.mdc - Incident response
+
+**Security**:
+
+- @010-security-compliance.mdc - Security compliance and PII handling
+- @011-env-var-security.mdc - Environment variable security
+
+### Tools & Documentation
+
+**Monitoring Tools**:
+
+- **`.cursor/tools/analyze-logs.sh`** - Analyze log patterns
+  ```bash
+  ./.cursor/tools/analyze-logs.sh --last 24h
+  # Shows: Error rates, slow operations, patterns
+  ```
+
+**Documentation**:
+
+- **`.cursor/docs/ai-workflows.md`** - Log analysis workflows
+
+### Comprehensive Guides
+
+**Essential Guides**:
+
+- **`guides/Production-Monitoring-Complete-Guide.md`** ⭐ - Complete monitoring setup
+- **`guides/Error-Handling-Complete-Guide.md`** - Error handling strategy
+
+### Quick Start - Logging
+
+```typescript
+// 1. Initialize structured logger
+const logger = winston.createLogger({
+  /* config */
+});
+
+// 2. Add correlation IDs
+logger.info("Operation started", { requestId, userId });
+
+// 3. Log with context
+logger.error("Operation failed", { error, context });
+
+// 4. Sanitize sensitive data
+logger.info("User login", { email: sanitize(email) });
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P0 (Required)  
+**Last Updated**: November 20, 2025

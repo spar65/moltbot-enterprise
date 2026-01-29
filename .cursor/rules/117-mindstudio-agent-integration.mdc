@@ -1,0 +1,301 @@
+---
+
+description: Use when integrating MindStudio AI agents to ensure secure, consistent, and maintainable implementations
+globs: "src/\*_/_.{js,jsx,ts,tsx}"
+
+---
+
+# MindStudio Agent Integration Standards
+
+## Context
+
+- MindStudio agents act as serverless AI functions that can be invoked via REST API or NPM package
+- Proper integration ensures type safety, security, and enterprise-ready scalability
+- Agents should be treated as external services requiring proper error handling and authentication
+- Multi-tenant applications must maintain organization isolation when calling AI agents
+
+## Requirements
+
+### Authentication and Security
+
+- **REQUIRED**: Store API keys in environment variables, never hardcode or commit to version control
+- **REQUIRED**: Use `process.env.MINDSTUDIO_KEY` or similar environment variable naming
+- **REQUIRED**: Validate API key on client initialization and handle 401 errors appropriately
+- **REQUIRED**: Implement API key rotation capabilities for production environments
+- **REQUIRED**: Use HTTPS for all API communications (default with MindStudio API)
+
+### Integration Method Selection
+
+- **PREFERRED**: Use NPM package (`mindstudio`) over direct REST API calls for type safety
+- **REQUIRED**: Run `npx mindstudio sync` after any agent changes to update type definitions
+- **REQUIRED**: Commit `.mindstudio.json` to version control for team consistency
+- **ACCEPTABLE**: Use direct REST API only when NPM package is not suitable for the environment
+- **REQUIRED**: Document the reason when choosing REST API over NPM package
+
+### Variable Injection and Configuration
+
+- **REQUIRED**: Use `{{$launchVariables->VARIABLE_NAME}}` syntax in agent prompts for API-passed variables
+- **REQUIRED**: Validate all input variables before sending to agents
+- **REQUIRED**: Use TypeScript interfaces to define expected input/output schemas
+- **REQUIRED**: Include organization context in multi-tenant applications
+- **REQUIRED**: Sanitize user inputs before passing to agents to prevent injection attacks
+
+### Agent Lifecycle Management
+
+- **REQUIRED**: Ensure agents are published before attempting API integration
+- **REQUIRED**: Test agents in MindStudio platform before programmatic integration
+- **REQUIRED**: Version control agent configurations and document changes
+- **REQUIRED**: Implement health checks for critical agent dependencies
+- **REQUIRED**: Monitor agent usage and billing costs in production
+
+## Examples
+
+<example>
+// Good: Secure NPM package integration with environment variables
+import { MindStudio, MindStudioError } from 'mindstudio';
+
+// Initialize client with environment variable
+const client = new MindStudio(process.env.MINDSTUDIO_KEY);
+
+if (!process.env.MINDSTUDIO_KEY) {
+throw new Error('MINDSTUDIO_KEY environment variable is required');
+}
+
+// Type-safe agent invocation with input validation
+interface ContentGenerationInput {
+prompt: string;
+organizationId: string;
+maxTokens?: number;
+}
+
+async function generateContent(input: ContentGenerationInput): Promise<string> {
+// Validate inputs
+if (!input.prompt || input.prompt.trim().length === 0) {
+throw new Error('Prompt is required and cannot be empty');
+}
+
+if (!input.organizationId) {
+throw new Error('Organization ID is required for multi-tenant isolation');
+}
+
+try {
+const { result, billingCost } = await client.workers.ContentGenerator.generateText({
+prompt: input.prompt.trim(),
+organizationId: input.organizationId,
+maxTokens: input.maxTokens || 1000
+});
+
+    // Log billing cost for monitoring
+    console.log(`Content generation cost: $${billingCost}`);
+
+    return result;
+
+} catch (error) {
+if (error instanceof MindStudioError) {
+// Handle agent-specific errors
+throw new Error(`Content generation failed: ${error.message}`);
+} else {
+// Handle API/network errors
+throw new Error(`MindStudio API error: ${error.message}`);
+}
+}
+}
+</example>
+
+<example>
+// Good: REST API integration with proper error handling
+async function callAgentViaAPI(appId: string, variables: object, organizationId: string) {
+  const apiKey = process.env.MINDSTUDIO_KEY;
+  
+  if (!apiKey) {
+    throw new Error('MINDSTUDIO_KEY environment variable is required');
+  }
+
+try {
+const response = await fetch('https://api.mindstudio.ai/developer/v2/apps/run', {
+method: 'POST',
+headers: {
+'Authorization': `Bearer ${apiKey}`,
+'Content-Type': 'application/json',
+},
+body: JSON.stringify({
+appId,
+variables: {
+...variables,
+organizationId // Include tenant context
+},
+includeBillingCost: true
+})
+});
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Invalid or expired API key');
+      } else if (response.status === 400) {
+        const errorData = await response.json();
+        throw new Error(`Invalid request: ${errorData.error}`);
+      } else {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+    }
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(`Agent execution failed: ${data.error?.message || 'Unknown error'}`);
+    }
+
+    // Log billing cost for monitoring
+    if (data.billingCost) {
+      console.log(`Agent execution cost: $${data.billingCost}`);
+    }
+
+    return data.result;
+
+} catch (error) {
+console.error('MindStudio API call failed:', error);
+throw error;
+}
+}
+</example>
+
+<example>
+// Good: Agent health check and initialization
+async function initializeMindStudioClient(): Promise<MindStudio> {
+  const apiKey = process.env.MINDSTUDIO_KEY;
+  
+  if (!apiKey) {
+    throw new Error('MINDSTUDIO_KEY environment variable is required');
+  }
+
+const client = new MindStudio(apiKey);
+
+// Test API connectivity and key validity
+try {
+await client.run({
+workerId: 'test-worker-id',
+workflow: 'healthCheck',
+variables: { test: true }
+});
+
+    console.log('MindStudio client initialized successfully');
+    return client;
+
+} catch (error) {
+if (error.message?.includes('401')) {
+throw new Error('Invalid MindStudio API key. Please check your MINDSTUDIO_KEY environment variable.');
+}
+
+    console.warn('MindStudio health check failed, but client initialized:', error.message);
+    return client;
+
+}
+}
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Hardcoded API keys
+const client = new MindStudio('ms-12345-hardcoded-key');
+
+// ❌ AVOID: Missing input validation
+async function generateContent(prompt: string) {
+// No validation of prompt
+const result = await client.workers.ContentGenerator.generateText({ prompt });
+return result;
+}
+
+// ❌ AVOID: No error handling
+async function callAgent() {
+const result = await client.workers.MyAgent.process({ input: 'test' });
+// No try/catch, no error handling
+return result.result;
+}
+
+// ❌ AVOID: Missing organization context in multi-tenant app
+async function generateUserContent(userId: string, prompt: string) {
+// Missing organizationId - potential data leakage
+return await client.workers.ContentGenerator.generateText({
+userId,
+prompt
+});
+}
+
+// ❌ AVOID: Direct API calls without proper structure
+async function badAPICall() {
+const response = await fetch('https://api.mindstudio.ai/developer/v2/apps/run', {
+method: 'POST',
+body: JSON.stringify({ appId: 'test' })
+// Missing headers, authentication, error handling
+});
+
+return response.json(); // No error checking
+}
+</example>
+
+## Integration Checklist
+
+- [ ] API key stored in environment variables
+- [ ] NPM package installed and types synced (`npx mindstudio sync`)
+- [ ] Input validation implemented for all agent calls
+- [ ] Error handling covers both API and workflow failures
+- [ ] Organization context included for multi-tenant applications
+- [ ] Billing cost monitoring implemented
+- [ ] Agent health checks implemented for critical workflows
+- [ ] Documentation updated with agent integration patterns
+
+## Performance Considerations
+
+- Cache agent responses when appropriate to reduce API calls and costs
+- Implement request batching for multiple similar operations
+- Use async callbacks for long-running agent workflows (>30 seconds)
+- Monitor and set appropriate timeouts for agent calls
+- Consider implementing circuit breakers for critical agent dependencies
+
+## Security Considerations
+
+- Never log API keys or sensitive variables passed to agents
+- Sanitize all user inputs before sending to agents
+- Implement rate limiting to prevent abuse
+- Monitor for unusual usage patterns that might indicate security issues
+- Regularly rotate API keys and update environment configurations
+
+## Integration with Other Rules
+
+- Supports [025-multi-tenancy.mdc](mdc:025-multi-tenancy.mdc) for organization isolation
+- Complements [060-api-standards.mdc](mdc:060-api-standards.mdc) for consistent API patterns
+- Works with [130-error-handling.mdc](mdc:130-error-handling.mdc) for proper error management
+- Aligns with [011-env-var-security.mdc](mdc:011-env-var-security.mdc) for secure configuration
+
+## See Also
+
+### Related MindStudio Rules (Complete Domain)
+- @115-mindstudio-integration.mdc - **CRITICAL:** Core MindStudio API integration
+- @118-mindstudio-type-safety.mdc - **CRITICAL:** Type safety with `npx mindstudio sync`
+- @119-mindstudio-error-handling.mdc - **CRITICAL:** Error handling and retry logic
+- @120-mindstudio-orchestration.mdc - Multi-agent coordination patterns
+- @121-mindstudio-testing.mdc - **CRITICAL:** Testing AI agent integrations
+
+### Related Domain Rules
+- @011-env-var-security.mdc - **CRITICAL:** Environment variable security
+- @025-multi-tenancy.mdc - Organization isolation patterns
+- @060-api-standards.mdc - API design standards
+- @069-database-resilience-patterns.mdc - Retry and circuit breaker patterns
+- @110-api-client-standards.mdc - API client adapter patterns
+- @221-application-monitoring.mdc - Monitoring AI agent calls
+
+### Tools & Documentation
+- **`npx mindstudio sync`** - Generate TypeScript types from agents
+- **`.cursor/tools/check-env-vars.sh`** - Validate MindStudio API keys
+- **`.cursor/docs/ai-workflows.md`** - AI integration workflows
+
+### Comprehensive Guides
+- **`guides/MindStudio-Integration-Complete-Guide.md`** ⭐ **Essential** - Complete integration guide
+- **`guides/AI-Agent-Orchestration-Guide.md`** - "Dragon Orchestra" patterns
+
+### Quick Start
+1. **Install**: `npm install mindstudio`
+2. **Configure**: Set `MINDSTUDIO_KEY` in `.env`
+3. **Sync**: Run `npx mindstudio sync`
+4. **Implement**: Use typed client with organization context
+5. **Error handling**: See @119-mindstudio-error-handling.mdc
+6. **Test**: See @121-mindstudio-testing.mdc

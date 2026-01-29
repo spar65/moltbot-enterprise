@@ -1,0 +1,387 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply database security standards when implementing database operations to prevent SQL injection, protect sensitive data, and enforce proper access controls
+globs: "src/**/*.{ts,tsx}, prisma/schema.prisma, migrations/**/*.sql"
+___
+
+# Database Security Standards
+
+## Context
+
+Database security is critical for protecting sensitive data and preventing unauthorized access. These standards ensure proper security practices are followed when implementing database operations, from SQL query construction to access control and sensitive data handling.
+
+## Requirements
+
+### SQL Injection Prevention
+
+- All user-provided inputs MUST be parameterized when used in SQL queries
+- String concatenation MUST NEVER be used to build SQL queries with user input
+- ORM methods with automatic parameterization SHOULD be preferred over raw queries
+- When raw queries are necessary, they MUST use parameterized queries
+- Input validation MUST be performed before using values in database operations
+
+### Multi-Tenant Data Isolation
+
+- All data access MUST include tenant context (`organizationId`) for proper isolation
+- Row-level security policies SHOULD be implemented at the database level when possible
+- Cross-tenant operations MUST be explicitly authorized and audited
+- Database roles and permissions SHOULD enforce tenant boundaries
+- Data exported from the database MUST maintain tenant isolation
+
+### Sensitive Data Protection
+
+- Sensitive data MUST be encrypted at rest and in transit
+- Personal Identifiable Information (PII) MUST be stored securely
+- Database backups containing sensitive data MUST be encrypted
+- Data access for sensitive fields MUST be restricted and audited
+- Data masking SHOULD be implemented for non-production environments
+
+### Authentication and Authorization
+
+- Database connections MUST use strong authentication
+- Database credentials MUST NOT be stored in version control
+- Database users MUST follow principle of least privilege
+- Connection strings MUST be stored as secured environment variables
+- Database roles SHOULD be used to separate access levels
+
+### Audit and Logging
+
+- Database operations affecting sensitive data MUST be logged
+- Failed authentication attempts MUST be monitored
+- Unusual query patterns MUST trigger alerts
+- Audit logs MUST be protected from tampering
+- Logging MUST NOT include sensitive data or credentials
+
+## Examples
+
+<example>
+// Safe parameterized query with Prisma
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+async function findUserByEmail(email: string, organizationId: string) {
+  // Safe: Uses parameterized query with proper tenant isolation
+  return await prisma.user.findFirst({
+    where: {
+      email,
+      organizationId // Multi-tenancy enforcement
+    }
+  });
+}
+</example>
+
+<example>
+// Safe raw query with parameters
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+async function searchUsersByName(searchTerm: string, organizationId: string) {
+  // Safe: Uses parameters with $1, $2 syntax
+  const users = await prisma.$queryRaw`
+    SELECT id, name, email 
+    FROM "User" 
+    WHERE name ILIKE ${`%${searchTerm}%`}
+    AND "organizationId" = ${organizationId}
+    LIMIT 50
+  `;
+  
+  return users;
+}
+</example>
+
+<example>
+// Row-level security implementation
+-- migrations/20250601_add_rls_policies.sql
+
+-- Enable row level security
+ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Project" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Task" ENABLE ROW LEVEL SECURITY;
+
+-- Create policies that enforce tenant isolation
+CREATE POLICY tenant_isolation_policy ON "User"
+  USING ("organizationId" = current_setting('app.current_tenant_id')::uuid);
+  
+CREATE POLICY tenant_isolation_policy ON "Project"
+  USING ("organizationId" = current_setting('app.current_tenant_id')::uuid);
+  
+CREATE POLICY tenant_isolation_policy ON "Task"
+  USING ("organizationId" = current_setting('app.current_tenant_id')::uuid);
+
+-- Function to set tenant context
+CREATE OR REPLACE FUNCTION set_tenant_context(tenant_id uuid)
+RETURNS void AS $$
+BEGIN
+  PERFORM set_config('app.current_tenant_id', tenant_id::text, false);
+END;
+$$ LANGUAGE plpgsql;
+</example>
+
+<example>
+// Middleware to set tenant context
+import { NextApiRequest, NextApiResponse } from 'next';
+import { prisma } from '../lib/prisma';
+
+export async function withTenantContext(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  next: () => Promise<void>
+) {
+  try {
+    const organizationId = req.headers['x-organization-id'] as string;
+    
+    if (!organizationId) {
+      return res.status(400).json({ error: 'Missing organization context' });
+    }
+    
+    // Verify user has access to this organization
+    const hasAccess = await verifyOrganizationAccess(
+      req.auth.userId,
+      organizationId
+    );
+    
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    
+    // Set database tenant context
+    await prisma.$executeRaw`SELECT set_tenant_context(${organizationId}::uuid)`;
+    
+    // Continue with the request
+    await next();
+  } catch (error) {
+    console.error('Tenant context error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function verifyOrganizationAccess(userId: string, organizationId: string) {
+  const membership = await prisma.userOrganization.findFirst({
+    where: {
+      userId,
+      organizationId
+    }
+  });
+  
+  return !!membership;
+}
+</example>
+
+<example>
+// Sensitive data handling
+import { PrismaClient } from '@prisma/client';
+import { encrypt, decrypt } from '../utils/encryption';
+
+const prisma = new PrismaClient();
+
+async function storePaymentMethod(
+  userId: string,
+  organizationId: string,
+  paymentMethodData: PaymentMethodData
+) {
+  // Encrypt sensitive data before storing
+  const encryptedData = encrypt(JSON.stringify({
+    cardNumber: paymentMethodData.cardNumber,
+    cvv: paymentMethodData.cvv
+  }));
+  
+  // Store only non-sensitive and encrypted data
+  return await prisma.paymentMethod.create({
+    data: {
+      userId,
+      organizationId,
+      type: paymentMethodData.type,
+      lastFour: paymentMethodData.cardNumber.slice(-4),
+      expiryMonth: paymentMethodData.expiryMonth,
+      expiryYear: paymentMethodData.expiryYear,
+      encryptedData,
+      isDefault: paymentMethodData.isDefault || false
+    }
+  });
+}
+
+async function getPaymentMethod(
+  paymentMethodId: string,
+  organizationId: string
+) {
+  // Retrieve payment method with tenant isolation
+  const paymentMethod = await prisma.paymentMethod.findFirst({
+    where: {
+      id: paymentMethodId,
+      organizationId
+    }
+  });
+  
+  if (!paymentMethod) {
+    return null;
+  }
+  
+  // Only decrypt when necessary
+  const decryptedData = JSON.parse(decrypt(paymentMethod.encryptedData));
+  
+  // Mask sensitive data for display
+  return {
+    ...paymentMethod,
+    cardNumber: `**** **** **** ${paymentMethod.lastFour}`,
+    encryptedData: undefined, // Don't expose encrypted data
+    decryptedData: undefined, // Don't expose decrypted data
+  };
+}
+</example>
+
+<example>
+// Audit logging for sensitive operations
+import { PrismaClient } from '@prisma/client';
+import { logger } from '../utils/logger';
+
+const prisma = new PrismaClient();
+
+async function updateUserRole(
+  adminUserId: string,
+  targetUserId: string,
+  organizationId: string,
+  newRole: string
+) {
+  // Perform the update with tenant isolation
+  const updatedUser = await prisma.user.update({
+    where: {
+      id: targetUserId,
+      organizationId
+    },
+    data: {
+      role: newRole
+    }
+  });
+  
+  // Log the sensitive operation
+  logger.audit({
+    action: 'user.role.update',
+    performedBy: adminUserId,
+    targetUser: targetUserId,
+    organizationId,
+    oldRole: updatedUser.role,
+    newRole,
+    timestamp: new Date()
+  });
+  
+  return updatedUser;
+}
+</example>
+
+<example type="invalid">
+// ❌ AVOID: SQL injection vulnerability with string concatenation
+function searchUsers(searchTerm) {
+  // VULNERABLE: Direct string concatenation
+  const query = `
+    SELECT * FROM users 
+    WHERE name LIKE '%${searchTerm}%' 
+    OR email LIKE '%${searchTerm}%'
+  `;
+  
+  return db.query(query);
+}
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Missing tenant isolation
+async function getAllProjects() {
+  // VULNERABLE: No tenant isolation
+  return await prisma.project.findMany();
+}
+
+// ❌ AVOID: Insufficient tenant validation
+async function getProject(projectId, organizationId) {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId }
+  });
+  
+  // VULNERABLE: Validates tenant after retrieval
+  if (project && project.organizationId === organizationId) {
+    return project;
+  }
+  
+  return null;
+}
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Storing sensitive data in plaintext
+async function createUser(userData) {
+  // VULNERABLE: Storing sensitive data without encryption
+  return await prisma.user.create({
+    data: {
+      name: userData.name,
+      email: userData.email,
+      password: userData.password, // Plaintext password
+      ssn: userData.ssn, // Plaintext SSN
+      creditCard: userData.creditCard // Plaintext credit card
+    }
+  });
+}
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Hardcoded database credentials
+const connection = mysql.createConnection({
+  host: 'localhost',
+  user: 'root',
+  password: 'password123', // VULNERABLE: Hardcoded credentials
+  database: 'app_db'
+});
+</example>
+
+## Measuring Compliance
+
+- Static analysis to detect SQL injection vulnerabilities
+- Regular security audits of database access patterns
+- Dynamic testing with security tools
+- Review of tenant isolation implementation
+- Monitoring for unusual database access patterns
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#schema-first-development`** - Secure schema patterns
+- **`.cursor/docs/security-workflows.md`** - Security workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check security-related fields (Hash, organizationId)
+- **`.cursor/tools/scan-secrets.sh`** - Scan for hardcoded secrets
+
+### Comprehensive Guides
+- **`guides/Database-Error-Classification-Guide.md`** - **CRITICAL:** Secure error handling!
+- **`guides/Database-Resilience-Guide.md`** - Security resilience patterns
+- **`guides/Database-Schema-Guide.md`** - Secure schema design
+
+### Prisma Security Features
+- **`app/prisma/migrations/immutability-triggers.sql`** - **CRITICAL:** Prevents unauthorized modifications!
+- **`app/prisma/migrations/verify-triggers.sql`** - Trigger verification
+
+### Related Rules
+- **@002-rule-application.mdc** - Source of Truth Hierarchy
+- **@010-security-compliance.mdc** - **CRITICAL:** General security standards!
+- **@011-env-var-security.mdc** - **CRITICAL:** Secure database credentials!
+- **@012-api-security.mdc** - **CRITICAL:** API/database security integration!
+- **@025-multi-tenancy.mdc** - **CRITICAL:** Tenant isolation (security!)
+- **@046-session-validation.mdc** - Session-based authorization
+- **@072-auth-security.mdc** - Authentication patterns for database access
+- **@081-data-versioning-standards.mdc** - Audit trails and data versioning
+- **@220-security-monitoring.mdc** - Monitoring database security events
+- **@310-security-headers.mdc** - Preventing XSS/injection attacks
+- @061-database-integration.mdc - Secure integration patterns
+- @066-database-migration-standards.mdc - Secure migrations
+- @208-database-operations.mdc - Database operations and backups
+- @020-payment-security.mdc - Payment data security
+
+### Quick Start
+1. **Schema Security:** Use immutability triggers for sensitive data
+2. **Multi-Tenancy:** ALWAYS scope by organizationId (@025-multi-tenancy.mdc)
+3. **Error Handling:** Follow `guides/Database-Error-Classification-Guide.md`
+4. **Secrets:** NEVER hardcode, use environment variables (@011-env-var-security.mdc)

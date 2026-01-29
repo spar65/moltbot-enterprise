@@ -1,0 +1,800 @@
+---
+description: "Apply API client standards when implementing third-party service integrations to ensure consistency, reliability, and maintainability"
+globs: "src/lib/api/**/*.{ts,tsx,js,jsx}, src/services/**/*.{ts,tsx,js,jsx}, src/integrations/**/*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+
+# API Client Standards for Third-Party Integrations
+
+**Priority**: P1 (Important)  
+**Domain**: Architecture & Patterns  
+**Applies To**: Third-party API integrations (Stripe, Auth0, external APIs)
+
+---
+
+## Context
+
+Third-party API integrations are critical touch points in modern applications, but they often suffer from:
+- Inconsistent error handling across services
+- Duplicate retry/timeout logic
+- Lack of type safety for responses
+- Difficult-to-test code
+- Poor logging and observability
+- Configuration scattered across the codebase
+
+**This rule establishes standards for building consistent, reliable, and maintainable API clients.**
+
+---
+
+## Core Requirements
+
+### 1. API Client Adapter Pattern
+
+#### Standardized Base Client
+
+All third-party API clients MUST use a standardized adapter pattern:
+
+**Base Client Interface:**
+```typescript
+// src/lib/api/base-client.ts
+
+export interface ApiClientConfig {
+  baseUrl: string;
+  apiKey: string;
+  timeout?: number;
+  retryAttempts?: number;
+  retryDelay?: number;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: ApiError;
+  metadata: {
+    requestId: string;
+    timestamp: Date;
+    duration: number;
+  };
+}
+
+export interface ApiError {
+  code: string;
+  message: string;
+  statusCode?: number;
+  retryable: boolean;
+  details?: Record<string, unknown>;
+}
+
+export abstract class BaseApiClient {
+  protected config: ApiClientConfig;
+  protected logger: Logger;
+  
+  constructor(config: ApiClientConfig) {
+    this.config = this.validateConfig(config);
+    this.logger = createLogger(`api:${this.constructor.name}`);
+  }
+  
+  protected abstract validateConfig(config: ApiClientConfig): ApiClientConfig;
+  
+  protected async request<T>(
+    method: string,
+    endpoint: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<T>> {
+    // Standardized request logic with retry, timeout, logging
+  }
+  
+  protected handleError(error: unknown): ApiError {
+    // Consistent error mapping
+  }
+}
+```
+
+#### Service-Specific Adapters
+
+**Example:**
+```typescript
+// src/lib/api/stripe-client.ts
+
+import { BaseApiClient, ApiResponse } from './base-client';
+import type { Stripe } from 'stripe';
+
+export class StripeClient extends BaseApiClient {
+  private stripe: Stripe;
+  
+  constructor() {
+    super({
+      baseUrl: 'https://api.stripe.com',
+      apiKey: env.STRIPE_SECRET_KEY,
+      timeout: 30000,
+      retryAttempts: 3,
+      retryDelay: 1000,
+    });
+    
+    this.stripe = new Stripe(this.config.apiKey, {
+      apiVersion: '2023-10-16',
+      timeout: this.config.timeout,
+    });
+  }
+  
+  async createPaymentIntent(
+    params: CreatePaymentIntentParams
+  ): Promise<ApiResponse<Stripe.PaymentIntent>> {
+    return this.request('POST', '/v1/payment_intents', {
+      body: params,
+      transform: (response) => this.stripe.paymentIntents.create(params),
+    });
+  }
+  
+  protected validateConfig(config: ApiClientConfig): ApiClientConfig {
+    if (!config.apiKey.startsWith('sk_')) {
+      throw new Error('Invalid Stripe API key format');
+    }
+    return config;
+  }
+}
+```
+
+---
+
+### 2. Error Handling Standardization
+
+#### Consistent Error Mapping
+
+All API clients MUST map external errors to a consistent internal format:
+
+```typescript
+// src/lib/api/errors.ts
+
+export enum ApiErrorCode {
+  // Network errors
+  NETWORK_ERROR = 'NETWORK_ERROR',
+  TIMEOUT = 'TIMEOUT',
+  
+  // Authentication errors
+  UNAUTHORIZED = 'UNAUTHORIZED',
+  FORBIDDEN = 'FORBIDDEN',
+  INVALID_API_KEY = 'INVALID_API_KEY',
+  
+  // Rate limiting
+  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
+  
+  // Validation
+  INVALID_REQUEST = 'INVALID_REQUEST',
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  
+  // Server errors
+  SERVER_ERROR = 'SERVER_ERROR',
+  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
+  
+  // Unknown
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR',
+}
+
+export class ApiError extends Error {
+  constructor(
+    public code: ApiErrorCode,
+    message: string,
+    public statusCode?: number,
+    public retryable: boolean = false,
+    public details?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+  
+  static fromStripeError(error: Stripe.StripeError): ApiError {
+    const retryable = error.type === 'StripeConnectionError' || 
+                     error.statusCode === 429 ||
+                     (error.statusCode && error.statusCode >= 500);
+    
+    return new ApiError(
+      this.mapStripeErrorCode(error.type),
+      error.message,
+      error.statusCode,
+      retryable,
+      { raw: error }
+    );
+  }
+  
+  private static mapStripeErrorCode(type: string): ApiErrorCode {
+    // Map Stripe-specific errors to standard codes
+    const mapping: Record<string, ApiErrorCode> = {
+      'StripeConnectionError': ApiErrorCode.NETWORK_ERROR,
+      'StripeAuthenticationError': ApiErrorCode.UNAUTHORIZED,
+      'StripeRateLimitError': ApiErrorCode.RATE_LIMIT_EXCEEDED,
+      'StripeInvalidRequestError': ApiErrorCode.INVALID_REQUEST,
+      'StripeAPIError': ApiErrorCode.SERVER_ERROR,
+    };
+    return mapping[type] || ApiErrorCode.UNKNOWN_ERROR;
+  }
+}
+```
+
+#### Error Handling Per Error Type
+
+```typescript
+protected async requestWithRetry<T>(
+  fn: () => Promise<T>
+): Promise<ApiResponse<T>> {
+  let lastError: ApiError | null = null;
+  
+  for (let attempt = 0; attempt <= this.config.retryAttempts; attempt++) {
+    try {
+      const data = await fn();
+      return { success: true, data, metadata: this.getMetadata() };
+    } catch (error) {
+      lastError = this.handleError(error);
+      
+      // Don't retry non-retryable errors
+      if (!lastError.retryable || attempt === this.config.retryAttempts) {
+        break;
+      }
+      
+      // Exponential backoff
+      const delay = this.config.retryDelay * Math.pow(2, attempt);
+      await this.sleep(delay);
+      
+      this.logger.warn(`Retrying request (attempt ${attempt + 1})`, {
+        error: lastError,
+      });
+    }
+  }
+  
+  return { success: false, error: lastError!, metadata: this.getMetadata() };
+}
+```
+
+---
+
+### 3. Type Safety for API Responses
+
+#### Define Request/Response Types
+
+```typescript
+// src/lib/api/types/stripe.ts
+
+import type { Stripe } from 'stripe';
+
+// Request types
+export interface CreatePaymentIntentParams {
+  amount: number;
+  currency: string;
+  paymentMethodId: string;
+  customerId?: string;
+  metadata?: Record<string, string>;
+}
+
+export interface CreateSubscriptionParams {
+  customerId: string;
+  priceId: string;
+  paymentMethodId: string;
+  trialDays?: number;
+}
+
+// Response types (use library types when available)
+export type PaymentIntent = Stripe.PaymentIntent;
+export type Subscription = Stripe.Subscription;
+export type Customer = Stripe.Customer;
+
+// Transform types for internal use
+export interface PaymentIntentSummary {
+  id: string;
+  amount: number;
+  currency: string;
+  status: 'succeeded' | 'processing' | 'failed';
+  createdAt: Date;
+}
+
+export function toPaymentIntentSummary(pi: PaymentIntent): PaymentIntentSummary {
+  return {
+    id: pi.id,
+    amount: pi.amount,
+    currency: pi.currency,
+    status: pi.status as PaymentIntentSummary['status'],
+    createdAt: new Date(pi.created * 1000),
+  };
+}
+```
+
+#### Runtime Validation (Optional but Recommended)
+
+```typescript
+import { z } from 'zod';
+
+const PaymentIntentResponseSchema = z.object({
+  id: z.string().startsWith('pi_'),
+  amount: z.number().positive(),
+  currency: z.string().length(3),
+  status: z.enum(['succeeded', 'processing', 'failed']),
+  created: z.number(),
+});
+
+export async function createPaymentIntent(
+  params: CreatePaymentIntentParams
+): Promise<ApiResponse<PaymentIntent>> {
+  const response = await this.request('POST', '/v1/payment_intents', { body: params });
+  
+  // Validate response shape (catches API version mismatches)
+  if (response.success && response.data) {
+    try {
+      PaymentIntentResponseSchema.parse(response.data);
+    } catch (error) {
+      this.logger.error('Invalid API response shape', { error, data: response.data });
+      throw new ApiError(
+        ApiErrorCode.VALIDATION_ERROR,
+        'API returned unexpected response format',
+        undefined,
+        false,
+        { validationError: error }
+      );
+    }
+  }
+  
+  return response;
+}
+```
+
+---
+
+### 4. Configuration Management
+
+#### Centralized Configuration
+
+```typescript
+// src/config/api-clients.ts
+
+import { z } from 'zod';
+
+const ApiClientConfigSchema = z.object({
+  stripe: z.object({
+    apiKey: z.string().startsWith('sk_'),
+    webhookSecret: z.string().startsWith('whsec_'),
+    timeout: z.number().default(30000),
+  }),
+  
+  auth0: z.object({
+    domain: z.string().url(),
+    clientId: z.string(),
+    clientSecret: z.string(),
+    audience: z.string().url(),
+  }),
+  
+  // Other services...
+});
+
+export type ApiClientConfig = z.infer<typeof ApiClientConfigSchema>;
+
+export function getApiClientConfig(): ApiClientConfig {
+  return ApiClientConfigSchema.parse({
+    stripe: {
+      apiKey: env.STRIPE_SECRET_KEY,
+      webhookSecret: env.STRIPE_WEBHOOK_SECRET,
+      timeout: env.STRIPE_TIMEOUT ? parseInt(env.STRIPE_TIMEOUT) : 30000,
+    },
+    auth0: {
+      domain: env.AUTH0_DOMAIN,
+      clientId: env.AUTH0_CLIENT_ID,
+      clientSecret: env.AUTH0_CLIENT_SECRET,
+      audience: env.AUTH0_AUDIENCE,
+    },
+  });
+}
+```
+
+---
+
+### 5. Logging & Instrumentation
+
+#### Structured Logging
+
+```typescript
+protected async request<T>(
+  method: string,
+  endpoint: string,
+  options?: RequestOptions
+): Promise<ApiResponse<T>> {
+  const requestId = generateRequestId();
+  const startTime = Date.now();
+  
+  this.logger.info('API request started', {
+    requestId,
+    method,
+    endpoint,
+    service: this.constructor.name,
+  });
+  
+  try {
+    const response = await this.executeRequest<T>(method, endpoint, options);
+    const duration = Date.now() - startTime;
+    
+    this.logger.info('API request succeeded', {
+      requestId,
+      duration,
+      statusCode: response.statusCode,
+    });
+    
+    return {
+      success: true,
+      data: response.data,
+      metadata: { requestId, timestamp: new Date(), duration },
+    };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const apiError = this.handleError(error);
+    
+    this.logger.error('API request failed', {
+      requestId,
+      duration,
+      error: apiError,
+    });
+    
+    return {
+      success: false,
+      error: apiError,
+      metadata: { requestId, timestamp: new Date(), duration },
+    };
+  }
+}
+```
+
+#### Metrics Integration
+
+```typescript
+// src/lib/api/metrics.ts
+
+import { Counter, Histogram } from 'prom-client';
+
+export const apiRequestDuration = new Histogram({
+  name: 'api_request_duration_seconds',
+  help: 'Duration of API requests in seconds',
+  labelNames: ['service', 'method', 'endpoint', 'status'],
+});
+
+export const apiRequestTotal = new Counter({
+  name: 'api_request_total',
+  help: 'Total number of API requests',
+  labelNames: ['service', 'method', 'endpoint', 'status'],
+});
+
+// Usage in BaseApiClient
+protected recordMetrics(
+  method: string,
+  endpoint: string,
+  status: 'success' | 'error',
+  duration: number
+) {
+  const labels = {
+    service: this.constructor.name,
+    method,
+    endpoint,
+    status,
+  };
+  
+  apiRequestDuration.observe(labels, duration / 1000);
+  apiRequestTotal.inc(labels);
+}
+```
+
+---
+
+### 6. Mock & Stub Patterns for Development
+
+#### Test Doubles
+
+```typescript
+// src/lib/api/__mocks__/stripe-client.ts
+
+export class MockStripeClient extends BaseApiClient {
+  private mockData: Map<string, any> = new Map();
+  
+  async createPaymentIntent(
+    params: CreatePaymentIntentParams
+  ): Promise<ApiResponse<PaymentIntent>> {
+    // Simulate network delay
+    await this.sleep(100);
+    
+    // Return mock data
+    return {
+      success: true,
+      data: {
+        id: `pi_mock_${Date.now()}`,
+        amount: params.amount,
+        currency: params.currency,
+        status: 'succeeded',
+        created: Math.floor(Date.now() / 1000),
+      } as PaymentIntent,
+      metadata: this.getMetadata(),
+    };
+  }
+  
+  setMockResponse(method: string, data: any) {
+    this.mockData.set(method, data);
+  }
+  
+  setMockError(method: string, error: ApiError) {
+    this.mockData.set(method, { error });
+  }
+}
+```
+
+#### Development Mode Toggle
+
+```typescript
+// src/lib/api/client-factory.ts
+
+export function createStripeClient(): StripeClient {
+  if (env.NODE_ENV === 'test') {
+    return new MockStripeClient();
+  }
+  
+  if (env.USE_MOCK_API === 'true') {
+    return new MockStripeClient();
+  }
+  
+  return new StripeClient();
+}
+```
+
+---
+
+## Implementation Guidelines
+
+### Directory Structure
+
+```
+src/
+├── lib/
+│   └── api/
+│       ├── base-client.ts         # Base adapter class
+│       ├── errors.ts              # Error types and mapping
+│       ├── metrics.ts             # Metrics instrumentation
+│       ├── stripe-client.ts       # Stripe adapter
+│       ├── auth0-client.ts        # Auth0 adapter
+│       ├── __mocks__/             # Test doubles
+│       │   ├── stripe-client.ts
+│       │   └── auth0-client.ts
+│       └── types/                 # Request/response types
+│           ├── stripe.ts
+│           └── auth0.ts
+├── config/
+│   └── api-clients.ts             # Centralized config
+└── services/
+    ├── payment-service.ts         # Business logic (uses adapters)
+    └── auth-service.ts
+```
+
+### Best Practices
+
+1. **Separation of Concerns**
+   - API clients handle HTTP communication
+   - Services contain business logic
+   - Never mix business logic in API clients
+
+2. **Consistent Naming**
+   - Clients: `{Service}Client` (e.g., `StripeClient`)
+   - Methods: Match API endpoints where possible
+   - Types: Clear request/response distinction
+
+3. **Documentation**
+   - JSDoc comments on all public methods
+   - Link to official API documentation
+   - Document retry behavior and error codes
+
+4. **Testing**
+   - Unit tests with mocks for client methods
+   - Integration tests with test environments (see @330)
+   - Error scenario testing
+
+---
+
+## Examples
+
+### Complete Stripe Client Example
+
+<example>
+```typescript
+// src/lib/api/stripe-client.ts
+
+import { BaseApiClient, ApiResponse, ApiError, ApiErrorCode } from './base-client';
+import Stripe from 'stripe';
+import type { CreatePaymentIntentParams, PaymentIntent } from './types/stripe';
+
+export class StripeClient extends BaseApiClient {
+  private stripe: Stripe;
+  
+  constructor() {
+    super({
+      baseUrl: 'https://api.stripe.com',
+      apiKey: env.STRIPE_SECRET_KEY,
+      timeout: 30000,
+      retryAttempts: 3,
+      retryDelay: 1000,
+    });
+    
+    this.stripe = new Stripe(this.config.apiKey, {
+      apiVersion: '2023-10-16',
+      timeout: this.config.timeout,
+      maxNetworkRetries: 0, // We handle retries ourselves
+    });
+  }
+  
+  /**
+   * Create a payment intent
+   * @see https://stripe.com/docs/api/payment_intents/create
+   */
+  async createPaymentIntent(
+    params: CreatePaymentIntentParams
+  ): Promise<ApiResponse<PaymentIntent>> {
+    return this.requestWithRetry(async () => {
+      try {
+        const paymentIntent = await this.stripe.paymentIntents.create({
+          amount: params.amount,
+          currency: params.currency,
+          payment_method: params.paymentMethodId,
+          customer: params.customerId,
+          metadata: params.metadata,
+          confirm: true,
+        });
+        
+        return paymentIntent;
+      } catch (error) {
+        throw ApiError.fromStripeError(error as Stripe.StripeError);
+      }
+    });
+  }
+  
+  protected validateConfig(config: ApiClientConfig): ApiClientConfig {
+    if (!config.apiKey.startsWith('sk_')) {
+      throw new Error('Invalid Stripe API key format');
+    }
+    return config;
+  }
+}
+```
+</example>
+
+### Service Using Client
+
+<example>
+```typescript
+// src/services/payment-service.ts
+
+import { StripeClient } from '@/lib/api/stripe-client';
+import { ApiErrorCode } from '@/lib/api/errors';
+
+export class PaymentService {
+  private stripeClient: StripeClient;
+  
+  constructor() {
+    this.stripeClient = new StripeClient();
+  }
+  
+  async processPayment(userId: string, amount: number, paymentMethodId: string) {
+    // Business logic here
+    const customer = await this.getOrCreateCustomer(userId);
+    
+    // Use API client
+    const result = await this.stripeClient.createPaymentIntent({
+      amount,
+      currency: 'usd',
+      paymentMethodId,
+      customerId: customer.id,
+      metadata: { userId },
+    });
+    
+    // Handle result
+    if (!result.success) {
+      // Business logic for handling errors
+      if (result.error?.code === ApiErrorCode.RATE_LIMIT_EXCEEDED) {
+        throw new Error('Too many payment attempts. Please try again later.');
+      }
+      
+      if (result.error?.code === ApiErrorCode.INVALID_REQUEST) {
+        throw new Error('Invalid payment information.');
+      }
+      
+      throw new Error('Payment processing failed. Please try again.');
+    }
+    
+    // Save to database, send notifications, etc.
+    await this.savePaymentRecord(result.data!);
+    
+    return result.data;
+  }
+}
+```
+</example>
+
+---
+
+## Security Considerations
+
+- API keys MUST be stored in environment variables (see @011-env-var-security.mdc)
+- Never log sensitive data (API keys, payment details, tokens)
+- Use HTTPS for all external API calls
+- Validate SSL certificates (don't disable verification)
+- Implement request signing where supported
+- Rotate API keys regularly (see @224-secrets-management.mdc)
+
+---
+
+## See Also
+
+### Related Core Rules
+- @003-do-no-harm.mdc - **CORE RULE:** File and data safety
+
+### Related Domain Rules
+- @011-env-var-security.mdc - **CRITICAL:** Environment variable security
+- @013-dependency-auditing.mdc - Dependency security scanning
+- @069-database-resilience-patterns.mdc - **CRITICAL:** Retry, circuit breaker, fallback patterns
+- @221-application-monitoring.mdc - Metrics and monitoring
+- @222-metrics-alerting.mdc - Alerting configuration
+- @330-third-party-integration-testing.mdc - **CRITICAL:** Integration testing (321 lines!)
+
+### Service-Specific Rules
+- @020-stripe-integration.mdc - Stripe-specific patterns
+- @019-auth0-integration.mdc - Auth0-specific patterns
+- @115-mindstudio-integration.mdc - MindStudio-specific patterns
+
+### Tools & Documentation
+- **`.cursor/tools/check-env-vars.sh`** - Validate API keys
+- **`.cursor/tools/scan-secrets.sh`** - Detect hardcoded secrets
+- **`.cursor/docs/ai-workflows.md`** - Integration workflows
+
+### Comprehensive Guides
+- **`guides/Third-Party-Integration-Guide.md`** ⭐ **Essential** - Complete integration patterns
+- **`guides/Error-Handling-Complete-Guide.md`** - Error handling strategies
+- **`guides/Monitoring-Complete-Guide.md`** - Monitoring and observability
+
+### Quick Start
+
+```typescript
+// 1. Create base client (once per project)
+import { BaseApiClient } from '@/lib/api/base-client';
+
+// 2. Create service-specific client
+export class MyServiceClient extends BaseApiClient {
+  constructor() {
+    super({
+      baseUrl: env.SERVICE_URL,
+      apiKey: env.SERVICE_API_KEY,
+      timeout: 30000,
+      retryAttempts: 3,
+    });
+  }
+  
+  async callApi() {
+    return this.requestWithRetry(async () => {
+      // API call here
+    });
+  }
+}
+
+// 3. Use in services
+const client = new MyServiceClient();
+const result = await client.callApi();
+
+if (!result.success) {
+  // Handle error
+}
+```
+
+### When to Use This Rule
+
+- ✅ When integrating with third-party APIs
+- ✅ When building API client libraries
+- ✅ When standardizing error handling
+- ✅ When implementing retry logic
+
+### Do NOT Use for
+
+- ❌ Internal API calls (use direct fetch)
+- ❌ Database operations (use @065-database-access-patterns.mdc)
+- ❌ Authentication flows (use @072-auth-security.mdc)
+
+---
+
+**Last Updated**: 2024-11-20  
+**Status**: ✅ NEW (replaces 110-integration-dependencies.mdc)  
+**Priority**: P1 (Important)

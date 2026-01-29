@@ -1,0 +1,276 @@
+---
+description: VERIFY actual infrastructure configuration matches documentation when TRIGGER making deployment changes or structural modifications to OUTCOME prevent deployment failures from configuration gaps
+globs: "**/*.{ts,tsx,js,jsx,json,yml,yaml,sh,bash}, **/.github/workflows/*.yml, **/vercel.json, **/next.config.*"
+---
+
+# Infrastructure Verification Standards
+
+## Context
+
+- Documentation may describe ideal state, but actual configuration may differ
+- Structural changes (like flattening directories) can break undocumented dependencies
+- Deployment tools and scripts may reference paths that no longer exist
+- CI/CD pipelines may be documented but not actually implemented
+- Environment variables may be documented but not configured in production
+- **Critical Lesson**: Always verify what's ACTUALLY configured, not just what's documented
+
+## Requirements
+
+### Mandatory Pre-Change Verification
+
+- **REQUIRED**: Before making major structural changes, verify all affected systems
+- **REQUIRED**: Before deploying, verify actual configuration matches documentation
+- **REQUIRED**: Check that tools, scripts, and workflows actually exist and work
+- **FORBIDDEN**: Assuming documentation matches reality without verification
+
+### Structural Change Impact Analysis
+
+When making major structural changes (e.g., flattening directory structure):
+
+1. **REQUIRED**: Search codebase for all path references
+
+   ```bash
+   # Find all references to old structure
+   grep -r "app/" --include="*.{ts,tsx,js,jsx,sh,yml,yaml}" . | grep -v node_modules
+   ```
+
+2. **REQUIRED**: Check all affected systems:
+
+   - GitHub Actions workflows
+   - Deployment scripts
+   - Build scripts
+   - Test configurations
+   - CI/CD pipelines
+   - Documentation references
+
+3. **REQUIRED**: Verify tools still work after changes
+
+   ```bash
+   # Test each tool
+   ./.cursor/tools/pre-deployment-check.sh
+   ./.cursor/tools/validate-deployment.sh
+   ```
+
+4. **REQUIRED**: Create backup branch before structural changes
+   ```bash
+   git checkout -b backup/before-[change-description]
+   git checkout main
+   ```
+
+### Deployment Infrastructure Verification
+
+Before any deployment, verify:
+
+1. **REQUIRED**: Check what's actually configured in Vercel Dashboard
+
+   ```bash
+   # List actual environment variables
+   vercel env ls
+
+   # Compare with documentation requirements
+   # guides/Vercel-Deployment-Guide.md
+   ```
+
+2. **REQUIRED**: Verify CI/CD pipelines actually exist
+
+   ```bash
+   # Check if workflows exist
+   ls -la .github/workflows/
+
+   # Don't assume they exist just because docs mention them
+   ```
+
+3. **REQUIRED**: Test deployment tools
+
+   ```bash
+   # Run pre-deployment check
+   ./.cursor/tools/pre-deployment-check.sh
+
+   # Fix any failures BEFORE deploying
+   ```
+
+4. **REQUIRED**: Verify monitoring is actually configured
+   - Check Vercel Analytics is enabled
+   - Verify error tracking is set up
+   - Confirm alerting is configured
+
+### Documentation vs Reality Gap Detection
+
+- **REQUIRED**: When documentation references tools/scripts, verify they exist
+- **REQUIRED**: When documentation references CI/CD, verify workflows exist
+- **REQUIRED**: When documentation references monitoring, verify it's configured
+- **REQUIRED**: Document gaps between documentation and reality
+
+## Examples
+
+<example>
+// ✅ CORRECT - Verify before trusting documentation
+async function verifyDeploymentInfrastructure() {
+  // 1. Check if CI/CD workflow actually exists
+  const workflowExists = await fs.exists('.github/workflows/ci-cd.yml');
+  if (!workflowExists) {
+    console.warn('⚠️ CI/CD workflow documented but not implemented!');
+  }
+  
+  // 2. Verify environment variables are actually set
+  const envVars = await exec('vercel env ls');
+  const requiredVars = ['DATABASE_URL', 'AUTH_SECRET', 'ANTHROPIC_API_KEY'];
+  const missing = requiredVars.filter(v => !envVars.includes(v));
+  if (missing.length > 0) {
+    throw new Error(`Missing env vars: ${missing.join(', ')}`);
+  }
+  
+  // 3. Test deployment tools
+  const toolCheck = await exec('./.cursor/tools/pre-deployment-check.sh');
+  if (toolCheck.exitCode !== 0) {
+    throw new Error('Pre-deployment check failed!');
+  }
+}
+</example>
+
+<example type="invalid">
+// ❌ WRONG - Trusting documentation blindly
+// "The guide says CI/CD is set up, so it must be working"
+// "The docs say monitoring is configured, so we're good"
+// "The tools are documented, so they must work"
+
+// ❌ WRONG - Making structural changes without impact analysis
+git mv app/\* .
+
+# Didn't check GitHub Actions workflows
+
+# Didn't check deployment scripts
+
+# Didn't verify tools still work
+
+</example>
+
+## Implementation Checklist
+
+### Before Major Structural Changes
+
+- [ ] Search codebase for all path references
+- [ ] Check GitHub Actions workflows for path dependencies
+- [ ] Verify deployment scripts work
+- [ ] Test all tools that might be affected
+- [ ] Create backup branch
+- [ ] Document what will change
+- [ ] Plan rollback procedure
+
+### Before Deployment
+
+- [ ] Run `vercel env ls` and compare with documentation
+- [ ] Verify CI/CD workflows actually exist (if documented)
+- [ ] Check monitoring is actually configured
+- [ ] Test deployment tools (`pre-deployment-check.sh`)
+- [ ] Verify security settings in Vercel Dashboard
+- [ ] Document any gaps found
+
+### After Structural Changes
+
+- [ ] Update all affected files
+- [ ] Test all tools
+- [ ] Update documentation to reflect new structure
+- [ ] Verify CI/CD still works
+- [ ] Test deployment process end-to-end
+
+## See Also
+
+### Related Rules
+
+- @205-vercel-structural-constraints.mdc - **CRITICAL** Vercel structural requirements and limitations
+- @003-do-no-harm.mdc - **CRITICAL**: Core safety principle
+- @200-deployment-infrastructure.mdc - Deployment infrastructure standards
+- @201-vercel-deployment-standards.mdc - Vercel deployment best practices
+- @202-vercel-production-gotchas.mdc - Vercel-specific runtime gotchas
+- @203-production-deployment-safety.mdc - **CRITICAL**: Pre-deployment validation
+- @204-vercel-build-environment-variables.mdc - Environment variable safety
+- @208-database-operations.mdc - Database safety standards
+- @221-application-monitoring.mdc - Monitoring requirements
+- @224-secrets-management.mdc - Environment variable management
+
+### Tools & Documentation
+
+- **`.cursor/tools/pre-deployment-check.sh`** - Comprehensive pre-deployment validation
+
+```bash
+./.cursor/tools/pre-deployment-check.sh
+# Validates: Git, build scripts, security, tests, database, infrastructure
+```
+
+- **`.cursor/tools/validate-deployment.sh`** - Post-deployment health check
+
+```bash
+./.cursor/tools/validate-deployment.sh https://yourdomain.com
+# Validates: Site availability, security headers, API health, database connectivity
+```
+
+- **`.cursor/tools/check-infrastructure.sh`** - Infrastructure health verification
+
+```bash
+./.cursor/tools/check-infrastructure.sh
+# Checks: External services, rate limits, monitoring, infrastructure readiness
+```
+
+- **`docs/DEPLOYMENT-INFRASTRUCTURE-GAPS.md`** - Gap analysis template
+
+### Comprehensive Guides
+
+- **`guides/Deployment-Workflow-Complete-Guide.md`** ⭐ **Essential** - Complete deployment workflow
+- **`guides/Infrastructure-Verification-Guide.md`** ⭐ **NEW** - How to verify infrastructure matches documentation
+- **`guides/Incident-Response-Complete-Guide.md`** - Emergency response procedures
+
+### Quick Start - Infrastructure Verification Checklist
+
+```bash
+# 0. CRITICAL: Verify Vercel structural compatibility
+./.cursor/tools/verify-infrastructure-reality.sh
+# Checks: Structure, vercel.json conflicts, middleware Edge compatibility
+
+# 1. Verify CI/CD exists (if documented)
+ls -la .github/workflows/ci-cd.yml || echo "⚠️ CI/CD documented but not implemented"
+
+# 2. Verify environment variables
+vercel env ls | grep -E "DATABASE_URL|AUTH_SECRET" || echo "⚠️ Missing required env vars"
+
+# 3. Test deployment tools
+./.cursor/tools/pre-deployment-check.sh || echo "❌ Pre-deployment check failed"
+
+# 4. Verify monitoring
+# Check Vercel Dashboard → Analytics (should be enabled)
+# Check error tracking (Sentry, etc.) is configured
+
+# 5. Document any gaps found
+# Update docs/DEPLOYMENT-INFRASTRUCTURE-GAPS.md
+```
+
+---
+
+## When to Use This Rule
+
+- ✅ Before making major structural changes (directory moves, refactoring)
+- ✅ Before any production deployment
+- ✅ When documentation references infrastructure that may not exist
+- ✅ When setting up new deployment infrastructure
+- ✅ After discovering gaps between documentation and reality
+- ✅ When troubleshooting deployment failures
+
+---
+
+## Critical Lessons Learned
+
+**From Structure Flattening Experience (Dec 9, 2025)**:
+
+1. **Documentation ≠ Implementation**: Comprehensive deployment guides existed, but CI/CD pipeline was never actually created
+2. **Path References Are Everywhere**: Structural changes break GitHub Actions, scripts, tools, and documentation
+3. **Tools May Have Hidden Dependencies**: Even tools with fallbacks (`cd app || cd .`) should be updated for clarity
+4. **Environment Variables Need Verification**: Don't assume they're configured just because docs list them
+5. **Monitoring Is Often Missing**: Documentation describes monitoring, but it's rarely actually configured
+
+**Prevention**: Always verify before trusting, always test after changes, always document gaps.
+
+---
+
+**Last Updated**: December 9, 2025  
+**Status**: ✅ Core Rule (200-series)  
+**Priority**: P0 (REQUIRED)

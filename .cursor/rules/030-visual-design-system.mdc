@@ -1,0 +1,279 @@
+---
+description: Use when implementing UI components to ensure visual consistency with AgentMinder's design system and "vibe coding" principles
+globs: "**/*.{css,scss,tsx,jsx,module.css}, **/components/**/*.{ts,tsx,js,jsx}"
+---
+
+# Visual Design System & Vibe Coding
+
+## Context
+- AgentMinder has a distinct visual identity that combines modern SaaS aesthetics with a professional enterprise feel
+- The platform needs to maintain visual consistency while supporting organization-specific branding
+- "Vibe coding" focuses on the emotional and experiential aspects of UI implementation
+- Components must be accessible and responsive across devices
+- The application supports multiple user roles with context-specific visual treatments
+
+## Requirements
+
+### Color System
+
+- **REQUIRED**: Use CSS variables for all color values rather than hardcoded colors
+- **REQUIRED**: Apply appropriate color variables based on context (platform vs. organization)
+- Use the correct semantic color variables based on the element's purpose
+- Maintain sufficient contrast ratios for accessibility
+- Include appropriate hover, focus, and active states for interactive elements
+
+```tsx
+// GOOD: Using color variables from the system
+<Button 
+  variant="primary" 
+  className="bg-platform-primary hover:bg-platform-primary-dark"
+>
+  Submit
+</Button>
+
+// BAD: Hardcoding colors
+<Button style={{ backgroundColor: '#0F52BA', color: 'white' }}>
+  Submit
+</Button>
+```
+
+#### Platform & Organization Colors
+- **Platform**: `--platform-primary`, `--platform-primary-light`, `--platform-primary-dark`
+- **Organization**: `--org-primary`, `--org-primary-light`, `--org-primary-dark`
+- **Contextual**: Use `.platform-context` or `.org-context` wrapper classes to apply appropriate context
+
+```tsx
+// GOOD: Using appropriate context classes
+<div className="platform-context">
+  <Button variant="primary">Platform Action</Button>
+</div>
+
+<div className="org-context">
+  <Button variant="primary">Organization Action</Button>
+</div>
+```
+
+#### Status Colors
+- **Success**: `--success-color` for positive confirmations and successful operations
+- **Warning**: `--warning-color` for cautionary information and warnings
+- **Error**: `--error-color` for errors, failures, and destructive actions
+- **Info**: `--info-color` for informational notifications
+- Always pair color with text or icons to ensure accessibility
+
+### Typography
+
+- **REQUIRED**: Use the typography classes for consistent text styling
+- Follow the established type scale for consistent sizing
+- Maintain proper text hierarchy with appropriate heading levels
+- Use consistent line heights and letter spacing
+- Apply proper font weights for emphasis and hierarchy
+
+```tsx
+// GOOD: Using typography classes
+<h1 className="text-2xl font-medium leading-tight">Dashboard</h1>
+<p className="text-base leading-normal">Welcome to your workspace.</p>
+
+// BAD: Inline font styling
+<h1 style={{ fontSize: '32px', fontWeight: 500 }}>Dashboard</h1>
+```
+
+#### Text Hierarchy
+- **Headings**: Use proper heading elements (`h1`-`h6`) with appropriate classes
+- **Body Text**: Use the base text size for main content
+- **Small Text**: Use smaller sizes for supporting information
+- **Emphasis**: Use font weight rather than italic or underline for emphasis
+- Maintain consistent heading structures across similar pages
+
+### Spacing & Layout
+
+- **REQUIRED**: Use the spacing system for margins, padding, and gaps
+- Implement consistent component spacing across the application
+- Maintain proper spacing between related and unrelated elements
+- Use appropriate container widths for different viewport sizes
+- Apply vertical rhythm principles for content layout
+
+```tsx
+// GOOD: Using spacing classes
+<div className="p-4 mb-6 space-y-4">
+  <Card className="px-4 py-3" />
+</div>
+
+// BAD: Hardcoded pixel values
+<div style={{ padding: '16px', marginBottom: '24px' }}>
+  <Card style={{ padding: '16px 12px' }} />
+</div>
+```
+
+#### Grid System
+- Use the grid system for complex layouts
+- Implement responsive columns appropriate for content
+- Maintain consistent gutters between columns
+- Use container constraints for content width
+- Apply appropriate breakpoints for layout changes
+
+### Component Styling
+
+- **REQUIRED**: Follow established patterns for common components
+- Maintain consistent styling for similar components
+- Use appropriate variants for different contexts
+- Apply proper interaction states (hover, focus, active)
+- Ensure components adapt appropriately to different viewport sizes
+
+```tsx
+// GOOD: Consistent card styling
+<Card className="bg-white rounded-lg shadow-sm p-4">
+  <CardHeader>
+    <CardTitle>Card Title</CardTitle>
+  </CardHeader>
+  <CardContent>Content goes here</CardContent>
+  <CardFooter>
+    <Button variant="primary">Action</Button>
+  </CardFooter>
+</Card>
+```
+
+#### Button Variants
+- **Primary**: Main actions, use sparingly
+- **Secondary**: Alternative actions, can be used more freely
+- **Outline**: Less prominent actions
+- **Ghost**: Minimal visual impact for secondary actions
+- **Destructive**: Dangerous or irreversible actions
+
+### Vibe Coding Principles
+
+- **REQUIRED**: Design for how the interface feels, not just how it looks
+- Balance aesthetics with usability and accessibility
+- Use subtle animations to enhance the user experience
+- Create layouts that "breathe" with appropriate whitespace
+- Design for different states (empty, loading, error, success)
+
+```tsx
+// GOOD: Thoughtful state representation
+function SubmitButton({ isLoading, isDisabled }) {
+  return (
+    <button
+      type="submit"
+      disabled={isLoading || isDisabled}
+      className={cn(
+        "relative px-4 py-2 rounded-md font-medium transition-colors",
+        isDisabled 
+          ? "bg-muted text-muted-foreground cursor-not-allowed" 
+          : isLoading 
+            ? "bg-primary text-primary-foreground" 
+            : "bg-primary text-primary-foreground hover:bg-primary/90"
+      )}
+    >
+      {isLoading && (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <Spinner className="h-5 w-5 text-primary-foreground" />
+        </span>
+      )}
+      <span className={isLoading ? "opacity-0" : ""}>Submit</span>
+    </button>
+  );
+}
+```
+
+#### Animation & Motion
+- Use subtle animations for state changes
+- Apply consistent timing and easing across similar interactions
+- Avoid excessive or distracting animations
+- Respect user preferences for reduced motion
+- Use animation to reinforce user actions
+
+### Responsive Design
+
+- **REQUIRED**: Design components to work across all supported viewport sizes
+- Implement mobile-first responsive layouts
+- Use appropriate breakpoints for layout changes
+- Ensure touch targets are appropriately sized for mobile
+- Test designs at various viewport sizes
+
+```tsx
+// GOOD: Responsive design approach
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+  {items.map(item => (
+    <Card key={item.id}>Card content</Card>
+  ))}
+</div>
+```
+
+#### Viewport Breakpoints
+- **xs**: < 576px (Mobile phones)
+- **sm**: ≥ 576px (Large phones, small tablets)
+- **md**: ≥ 768px (Tablets)
+- **lg**: ≥ 992px (Small laptops)
+- **xl**: ≥ 1200px (Large laptops, desktops)
+
+### Accessibility Considerations
+
+- **REQUIRED**: Ensure sufficient color contrast for all text
+- **REQUIRED**: Don't rely on color alone to convey information
+- Provide focus indicators for keyboard navigation
+- Support screen readers with appropriate ARIA attributes
+- Ensure content is perceivable when zoomed
+
+```tsx
+// GOOD: Accessible button with proper labeling
+<Button 
+  aria-label="Delete item"
+  variant="destructive"
+>
+  <Trash2 className="h-4 w-4 mr-2" />
+  <span>Delete</span>
+</Button>
+```
+
+## Dependencies
+- Related rules: [015-white-labeling.mdc](mdc:015-white-labeling.mdc), [050-css-architecture.mdc](mdc:050-css-architecture.mdc)
+- Required packages: tailwindcss, @radix-ui components, shadcn/ui
+- External standards: WCAG 2.1 AA for accessibility
+
+## Testing Guidelines
+- Verify component appearance across all breakpoints
+- Confirm appropriate color usage for both platform and organization contexts
+- Test color contrast using automated tools
+- Verify proper keyboard navigation and focus management
+- Check interactions with browser zoom and high contrast modes
+
+## Implementation Checklist
+
+- [ ] Colors: Use CSS variables for all colors, with proper context awareness
+- [ ] Typography: Follow the type scale and hierarchy consistently
+- [ ] Spacing: Apply spacing system for margins, padding, and layout
+- [ ] Components: Implement consistent styling for component variants
+- [ ] Interactions: Design proper hover, focus, and active states
+- [ ] Animation: Use subtle animations that support user interactions
+- [ ] Responsiveness: Test designs at all supported viewport sizes
+- [ ] Accessibility: Ensure sufficient contrast and screen reader support
+``` 
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - UI/UX development patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Comprehensive Guides
+- **`guides/Component-Library-Guide.md`** - Component development patterns
+- **`guides/development/Build-Multi-Step-Wizards-Complete-Guide.md`** - Multi-step UI patterns
+- **`guides/Next.js-Architecture-Guide.md`** - Next.js UI architecture
+- **`guides/API-Design-Guide.md`** - API/UI interaction patterns
+
+### Tools (Future)
+📅 **Planned Tools:**
+- `.cursor/tools/check-design-tokens.sh` (planned) - Design system validation
+- `.cursor/tools/lint-components.sh` (planned) - Component structure validation
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @015-white-labeling-consolidated.mdc - Organization branding (CRITICAL for design!)
+- @042-ui-component-architecture.mdc - Component architecture
+- @050-css-architecture.mdc - CSS organization
+- @054-accessibility-requirements.mdc - Accessibility standards
+- @074-nextjs-styling-consistency.mdc - Next.js styling
+- @200-shadcn-ui-strictness.mdc - UI library usage
+
+### Quick Start
+1. **Design System:** Follow color system and spacing in this rule
+2. **Components:** See @042-ui-component-architecture.mdc
+3. **Branding:** Check @015-white-labeling-consolidated.mdc (org vs platform)

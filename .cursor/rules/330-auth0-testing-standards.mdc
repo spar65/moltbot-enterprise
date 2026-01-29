@@ -1,0 +1,350 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply these standards when testing authentication flows to ensure reliable and maintainable tests
+globs: "**/*.{test,spec}.{js,jsx,ts,tsx}"
+___
+
+# Auth0 Testing Standards
+
+## Context
+- Authentication testing requires special consideration
+- Tests must be resilient to Auth0 SDK updates
+- Proper mocking strategies prevent brittle tests
+
+## Testing Stability Patterns (Based on Production Experience)
+- Mock Auth0 at the integration layer, not implementation details
+- Use behavior-based assertions instead of implementation checks
+- Create test utilities that abstract Auth0 SDK specifics
+- Implement mock reset strategies that survive version updates
+- Use flexible assertions for redirect status codes (accept both 302 and 307)
+- Test auth state management rather than specific implementation details
+- Handle both getSession(req, res) and getSession(req) signatures in test utilities
+- Test for edge cases in session persistence across page navigation
+- Implement timeout handling for authentication operations in tests
+
+## Requirements
+
+### Mocking Strategy
+- Create centralized Auth0 mocks in a dedicated test utility
+- Mock Auth0 at the highest possible level to avoid implementation details
+- Reset mocks between tests to prevent test pollution
+- Use Jest's moduleNameMapper to intercept Auth0 imports when needed
+
+### Test Coverage Requirements
+- Test both authenticated and unauthenticated states
+- Verify proper redirect behavior for protected routes
+- Test error handling for authentication failures
+- Validate role-based access control functionality
+
+### Session Testing Patterns
+- Test session persistence across simulated navigation
+- Verify proper handling of expired sessions
+- Test recovery from invalid session states
+- Use the following pattern for session persistence testing:
+
+<example>
+// Session persistence test
+describe('Session Persistence', () => {
+  it('maintains session during navigation', async () => {
+    // Setup authenticated user
+    setupAuthenticatedUser();
+
+    // Render component that uses authentication
+    const { getByText } = render(<AuthenticatedApp />);
+
+    // Trigger navigation event
+    fireEvent.click(getByText('Go to Profile'));
+
+    // Verify session is maintained
+    await waitFor(() => {
+      expect(getByText('Profile Page')).toBeInTheDocument();
+      expect(mockUseUser).toHaveBeenCalledTimes(1); // Session reused, not re-fetched
+    });
+  });
+
+  it('handles expired sessions gracefully', async () => {
+    // Setup authenticated user
+    setupAuthenticatedUser();
+
+    // Simulate session expiration
+    const originalGetSession = mockGetSession;
+    mockGetSession.mockImplementationOnce(() => {
+      throw new Error('Session expired');
+    });
+
+    // Render component that uses authentication
+    const { getByText } = render(<AuthenticatedApp />);
+
+    // Verify error handling
+    await waitFor(() => {
+      expect(getByText('Your session has expired. Please log in again.')).toBeInTheDocument();
+    });
+
+    // Restore original implementation
+    mockGetSession.mockImplementation(originalGetSession);
+  });
+});
+</example>
+
+### Redirect Testing
+- Test for both 302 and 307 redirect status codes
+- Implement flexible redirect assertions
+- Test redirect URL preservation and parameter handling
+- Use the following pattern for flexible redirect testing:
+
+<example>
+// Flexible redirect test
+it('redirects unauthenticated users with correct status code', async () => {
+  // Setup unauthenticated user
+  setupUnauthenticatedUser();
+
+  // Mock Next.js router
+  const push = jest.fn();
+  useRouter.mockReturnValue({ push });
+
+  // Set up fetch mock
+  global.fetch = jest.fn().mockImplementation(() =>
+    Promise.resolve({
+      status: expect.any(Number), // Accept either 302 or 307
+      redirected: true,
+      url: expect.stringContaining('/api/auth/login'),
+      json: () => Promise.resolve({}),
+    })
+  );
+
+  // Render protected component
+  render(<ProtectedPage />);
+
+  // Verify redirect behavior using flexible assertion
+  await waitFor(() => {
+    const fetchCall = global.fetch.mock.calls[0][0];
+    expect(fetchCall).toContain('/api/auth/me');
+
+    const response = global.fetch.mock.results[0].value;
+    // Use flexible assertion for status code
+    expect([302, 307]).toContain(response.status);
+    expect(response.redirected).toBe(true);
+  });
+});
+</example>
+
+### Component-Level Mocking
+- When testing complex authentication flows, consider mocking entire components instead of Auth0 internals
+- This approach makes tests more resilient to SDK changes
+- Focus on testing what the user experiences, not the implementation details
+
+<example>
+// Component-level mocking approach
+jest.mock('../../pages/profile', () => {
+  return function MockedProfilePage() {
+    return <div data-testid="profile-page">Mocked Profile Page</div>;
+  };
+});
+
+// Test that focuses on behavior
+it('redirects to profile after login', async () => {
+  // Arrange - setup authentication
+  setupAuthenticatedUser();
+  
+  // Act - render component that should redirect to profile
+  render(<LoginSuccessHandler />);
+  
+  // Assert - check if redirect happened by looking for mocked component
+  await waitFor(() => {
+    expect(screen.getByTestId('profile-page')).toBeInTheDocument();
+  });
+});
+</example>
+
+### Version-Agnostic Testing
+- Create tests that work with multiple Auth0 versions
+- Avoid assumptions about specific redirect status codes or API signatures
+- Use flexible matchers for any Auth0-specific behavior
+
+<example>
+// Version-agnostic test helper
+function mockAuthSession(version = 'v4') {
+  if (version === 'v3') {
+    // Mock v3 pattern (requires req, res)
+    getSession.mockImplementation((req, res) => {
+      return Promise.resolve({ user: { name: 'Test User' } });
+    });
+  } else {
+    // Mock v4 pattern (requires only req)
+    getSession.mockImplementation((req) => {
+      return Promise.resolve({ user: { name: 'Test User' } });
+    });
+  }
+}
+
+// Test can run with either version
+it('fetches user profile data', async () => {
+  // Works with either Auth0 v3 or v4
+  mockAuthSession(process.env.AUTH0_VERSION || 'v4');
+  
+  render(<ProfilePage />);
+  
+  await waitFor(() => {
+    expect(screen.getByText('Test User')).toBeInTheDocument();
+  });
+});
+</example>
+
+### Common Test Pitfalls (Based on Production Issues)
+- **Brittle mocks**: Mocking internal Auth0 implementation details
+- **Incomplete test coverage**: Not testing authentication error scenarios
+- **Missing reset logic**: Not clearing authentication state between tests
+- **Implementation coupling**: Tests that break with Auth0 SDK updates
+
+## Examples
+
+<example>
+// Good Auth0 testing implementation
+// __tests__/utils/auth0-mock.ts
+import { User } from '@auth0/nextjs-auth0';
+
+const mockUser: User = {
+  sub: 'auth0|123',
+  name: 'Test User',
+  email: 'test@example.com',
+  roles: ['user'],
+};
+
+// Mock at module level
+jest.mock('@auth0/nextjs-auth0', () => ({
+  useUser: jest.fn(),
+  withPageAuthRequired: jest.fn((component) => component),
+  getSession: jest.fn(),
+}));
+
+// Import after mocking
+import { useUser, withPageAuthRequired, getSession } from '@auth0/nextjs-auth0';
+
+export const mockUseUser = useUser as jest.MockedFunction<typeof useUser>;
+export const mockWithPageAuthRequired = withPageAuthRequired as jest.MockedFunction<typeof withPageAuthRequired>;
+export const mockGetSession = getSession as jest.MockedFunction<typeof getSession>;
+
+export function setupAuthenticatedUser(overrides = {}) {
+  mockUseUser.mockReturnValue({
+    user: { ...mockUser, ...overrides },
+    error: null,
+    isLoading: false,
+  });
+  
+  mockGetSession.mockResolvedValue({
+    user: { ...mockUser, ...overrides },
+  });
+}
+
+export function setupUnauthenticatedUser() {
+  mockUseUser.mockReturnValue({
+    user: undefined,
+    error: null,
+    isLoading: false,
+  });
+  
+  mockGetSession.mockResolvedValue(null);
+}
+
+export function setupAuthenticationError(errorMessage = 'Authentication error') {
+  mockUseUser.mockReturnValue({
+    user: undefined,
+    error: new Error(errorMessage),
+    isLoading: false,
+  });
+  
+  mockGetSession.mockRejectedValue(new Error(errorMessage));
+}
+
+export function resetAuthMocks() {
+  mockUseUser.mockReset();
+  mockWithPageAuthRequired.mockReset();
+  mockGetSession.mockReset();
+}
+
+// In a test file
+import { render, screen } from '@testing-library/react';
+import { setupAuthenticatedUser, resetAuthMocks } from '../utils/auth0-mock';
+import ProfilePage from '../../pages/profile';
+
+describe('ProfilePage', () => {
+  beforeEach(() => {
+    setupAuthenticatedUser();
+  });
+  
+  afterEach(() => {
+    resetAuthMocks();
+  });
+  
+  it('displays user profile when authenticated', () => {
+    render(<ProfilePage />);
+    expect(screen.getByText('Test User')).toBeInTheDocument();
+  });
+});
+</example>
+
+<example type="invalid">
+// Bad Auth0 testing implementation
+import { render, screen } from '@testing-library/react';
+import ProfilePage from '../../pages/profile';
+
+// Directly mocking in test file (scattered mocks)
+jest.mock('@auth0/nextjs-auth0', () => ({
+  useUser: () => ({
+    user: { name: 'Test User' },
+    error: null,
+    isLoading: false,
+  }),
+}));
+
+describe('ProfilePage', () => {
+  it('displays user profile', () => {
+    render(<ProfilePage />);
+    expect(screen.getByText('Test User')).toBeInTheDocument();
+  });
+  
+  // No reset between tests
+  // No testing of unauthenticated state
+  // No testing of error states
+  // Direct coupling to Auth0 implementation details
+});
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Auth0 patterns to test
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Testing workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate Auth0 before testing
+- **`.cursor/tools/check-env-vars.sh`** - Test environment setup
+- **`.cursor/tools/inspect-model.sh`** - Check user/session models for tests
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @019-auth0-integration.mdc - Auth0 integration patterns (what to test)
+- @130-testing-auth-flows.mdc - Auth flow testing
+- @300-testing-standards.mdc - General testing standards
+- @330-third-party-integration-testing.mdc - Third-party testing patterns
+- @374-authentication-architecture-standards.mdc - Auth architecture to test
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @400-auth-testing-patterns.mdc - Auth testing patterns (critical!)
+
+### Quick Start
+1. **Setup:** `.cursor/tools/check-auth-config.sh` (validate test config)
+2. **Follow:** @400-auth-testing-patterns.mdc (proven patterns)
+3. **Test:** See @380-comprehensive-testing-standards.mdc for framework
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/auth0/04-Auth0-Testing-Guide.md`** - **CRITICAL:** Auth0 testing guide!
+- **`guides/Auth0-Testing-Best-Practices.md`** - Testing best practices
+- **`guides/TESTING_AUTH_FLOWS_GUIDE.md`** - Auth flow testing patterns
+- **`guides/AUTH_TESTING_PATTERNS_GUIDE.md`** - General auth testing patterns

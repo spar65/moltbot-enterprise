@@ -1,0 +1,243 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Implement subscription-based access control when adding features to ensure proper tier restrictions
+globs: "src/**/*.{ts,tsx}"
+___
+
+# Subscription Access Control
+
+## Context
+- VibeCoder uses a 5-tier subscription model: free, basic, sync, cleanup, elite
+- Features must be properly restricted based on user subscription tier
+- UI must provide appropriate feedback when users attempt to access restricted features
+- API endpoints must validate subscription tiers server-side
+
+## Requirements
+
+### Tier Structure
+- **REQUIRED**: Use the official 5-tier hierarchy: free → basic → sync → cleanup → elite
+- **REQUIRED**: Use the `SubscriptionTier` type from `src/lib/database.ts` for type safety
+- Never create custom tier hierarchies or alternative access control mechanisms
+- Use the `hasSufficientTier` and `getTierLevel` helper functions for tier comparisons
+
+```typescript
+// Good: Using the official tier type and helpers
+import { SubscriptionTier, hasSufficientTier } from "../lib/database";
+
+function canAccessFeature(userTier: SubscriptionTier, feature: string): boolean {
+  const featureTiers: Record<string, SubscriptionTier> = {
+    "basic-analytics": "basic",
+    "team-collaboration": "sync",
+    "advanced-cleanup": "cleanup",
+    "custom-rules": "elite"
+  };
+  
+  return hasSufficientTier(userTier, featureTiers[feature] || "free");
+}
+
+// Bad: Creating custom tier hierarchy
+const TIER_LEVELS = {
+  "free": 0,
+  "starter": 1, // Non-standard tier name
+  "pro": 2,     // Non-standard tier name
+  "business": 3 // Non-standard tier name
+};
+```
+
+### UI Implementation
+- **REQUIRED**: Use the `ProtectedContent` component for all tier-restricted UI elements
+- **REQUIRED**: Provide helpful upgrade messaging when content is restricted
+- Show appropriate visual indicators for premium features
+- Avoid completely hiding premium features - show previews with upgrade prompts
+- Use consistent upgrade CTAs across the application
+
+```tsx
+// Good: Using the ProtectedContent component
+import { ProtectedContent } from "../components/ProtectedContent";
+
+function FeaturePage() {
+  return (
+    <div>
+      <h1>Feature Dashboard</h1>
+      
+      <ProtectedContent requiredTier="free">
+        <BasicFeature />
+      </ProtectedContent>
+      
+      <ProtectedContent requiredTier="sync">
+        <TeamCollaboration />
+      </ProtectedContent>
+      
+      <ProtectedContent requiredTier="elite">
+        <CustomRules />
+      </ProtectedContent>
+    </div>
+  );
+}
+
+// Bad: Custom implementation of protected content
+function UnsafeFeature() {
+  const user = useUser();
+  
+  // Problematic: Custom tier check, no upgrade path
+  if (user?.subscription?.tier === "pro" || user?.subscription?.tier === "enterprise") {
+    return <PremiumFeature />;
+  }
+  
+  // Hidden completely with no upgrade path
+  return null;
+}
+```
+
+### API Protection
+- **REQUIRED**: Validate subscription tiers server-side for all API endpoints
+- **REQUIRED**: Use the subscription middleware for route-based protection
+- Return appropriate error responses (403) with helpful messages for tier violations
+- Log unauthorized access attempts for monitoring
+- Never rely solely on UI hiding for feature protection
+
+```typescript
+// Good: Using the subscription middleware
+import { withSubscriptionCheck } from "../middleware/subscription";
+
+// API route with subscription protection
+export default withSubscriptionCheck(
+  async function handler(req, res) {
+    // This handler only runs if user has sufficient tier
+    const result = await processRequest(req.body);
+    return res.status(200).json(result);
+  },
+  "sync" // Required tier for this endpoint
+);
+
+// Bad: Manual checks without using middleware
+export default async function handler(req, res) {
+  const user = await getUser(req);
+  
+  // Problematic: Custom tier check, inconsistent with system
+  if (user.subscription?.tier === "pro" || user.subscription?.tier === "enterprise") {
+    const result = await processRequest(req.body);
+    return res.status(200).json(result);
+  }
+  
+  return res.status(403).json({ error: "Upgrade required" });
+}
+```
+
+### Stripe Integration
+- **REQUIRED**: Use the official price ID mapping in `src/pages/api/webhooks/stripe.ts`
+- **REQUIRED**: Update the `.env.local` file with the correct Stripe price IDs
+- Keep webhook handlers updated when adding new subscription features
+- Test webhook handling thoroughly after any changes
+- Maintain proper error handling for subscription events
+
+```typescript
+// Good: Using the official price ID mapping
+function getTierFromPriceId(priceId: string): SubscriptionTier {
+  const priceTierMap: Record<string, SubscriptionTier> = {
+    [process.env.STRIPE_PRICE_ID_BASIC]: "basic",
+    [process.env.STRIPE_PRICE_ID_SYNC]: "sync",
+    [process.env.STRIPE_PRICE_ID_CLEANUP]: "cleanup",
+    [process.env.STRIPE_PRICE_ID_ELITE]: "elite",
+  };
+  
+  const tier = priceTierMap[priceId];
+  if (!tier) {
+    console.warn(`Unknown Stripe price ID: ${priceId}, defaulting to basic`);
+    return "basic";
+  }
+  
+  return tier;
+}
+
+// Bad: Hardcoded price IDs
+const tier = priceId === "price_1234567890" ? "pro" : "free";
+```
+
+## Testing Guidelines
+
+### Unit Testing
+- Test tier comparison logic with all tier combinations
+- Test UI components with different subscription tiers
+- Mock subscription context for component testing
+
+```typescript
+// Example test for hasSufficientTier
+describe('hasSufficientTier', () => {
+  it('should return true when user tier is higher than required', () => {
+    expect(hasSufficientTier('elite', 'basic')).toBe(true);
+  });
+  
+  it('should return true when user tier equals required tier', () => {
+    expect(hasSufficientTier('sync', 'sync')).toBe(true);
+  });
+  
+  it('should return false when user tier is lower than required', () => {
+    expect(hasSufficientTier('basic', 'cleanup')).toBe(false);
+  });
+});
+```
+
+### Integration Testing
+- Test API endpoints with different subscription tiers
+- Verify proper error responses for insufficient tiers
+- Test subscription webhook handling with various events
+
+```typescript
+// Example integration test
+it('should return 403 when user has insufficient tier', async () => {
+  // Mock user with basic tier
+  mockGetUser.mockResolvedValue({
+    id: 'user123',
+    subscription: { tier: 'basic' }
+  });
+  
+  const response = await request(app)
+    .post('/api/tools/advanced')
+    .send({ data: 'test' });
+  
+  expect(response.status).toBe(403);
+  expect(response.body).toHaveProperty('error');
+  expect(response.body.error).toContain('requires cleanup tier');
+});
+```
+
+## Related Rules
+- [011-env-var-security.mdc](mdc:011-env-var-security.mdc) for managing Stripe API keys
+- [012-api-security.mdc](mdc:012-api-security.mdc) for securing API endpoints
+- [150-technical-debt-prevention.mdc](mdc:150-technical-debt-prevention.mdc) for maintaining consistent implementation
+
+## Documentation
+- [Subscription System Overview](mdc:guides/subscriptions/README.md) - Architecture and system design
+- [Developer Implementation Guide](mdc:guides/subscriptions/subscription-access-implementation.md) - How to implement subscription controls
+- [Subscription Tiers Guide](mdc:guides/subscriptions/subscription-tiers.md) - Details about each tier and features
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Access control patterns
+- **`.cursor/docs/security-checklist.md`** - Security validation
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check Subscription/User models
+- **`.cursor/tools/check-env-vars.sh`** - Validate configuration
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @012-api-security.mdc - API security measures
+- @020-payment-security.mdc - Payment security (critical!)
+- @021-stripe-subscription-implementation.mdc - Subscription implementation
+- @025-multi-tenancy.mdc - Multi-tenant isolation patterns
+- @070-subscription-management-standards.mdc - Subscription management
+- @072-subscription-health-monitoring.mdc - Monitoring access
+- @078-payment-testing-standards.mdc - Testing access control
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh Subscription`
+2. **Security:** Review @012-api-security.mdc for access patterns
+3. **Test:** See @078-payment-testing-standards.mdc

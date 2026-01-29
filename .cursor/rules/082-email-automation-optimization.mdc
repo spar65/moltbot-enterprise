@@ -1,0 +1,107 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply email automation optimization standards when implementing workflow automation to ensure maximum effectiveness and personalization of email communications
+globs: "src/{lib,pages/api}/**/*.{js,jsx,ts,tsx}"
+___
+
+# Email Automation Optimization Standards
+
+## Performance Analysis
+- Implement comprehensive performance tracking for all automation workflows
+- Apply comparative analysis between workflows and segments
+- Create engagement heat maps for automation sequence steps
+- Document performance bottlenecks and optimization opportunities
+- Implement A/B testing within automation sequences
+- Apply cohort analysis to identify effectiveness patterns
+
+## Timing Optimization
+- Implement send-time optimization based on recipient engagement patterns
+- Apply dynamic delay adjustments based on behavioral signals
+- Create optimal frequency models for different audience segments
+- Document timing effectiveness by message type and audience
+- Implement timezone-aware scheduling for all automated communications
+- Apply machine learning for continuous send time improvement
+
+## Behavioral Branching
+- Implement dynamic path selection based on recipient behavior
+- Create decision nodes with clear entry and exit conditions
+- Apply behavioral scoring models for path selection
+- Document decision tree logic for all automation workflows
+- Implement proper fallback paths for edge cases
+- Create visualization tools for complex automation flows
+
+## Content Personalization
+- Implement dynamic content selection based on recipient attributes
+- Apply engagement-based content optimization
+- Create content variation testing within automation flows
+- Document personalization rules and effectiveness
+- Implement fallback content for missing personalization data
+- Apply content recommendation algorithms for optimal messaging
+
+## Monitoring and Maintenance
+- Create performance dashboards for all automation workflows
+- Implement alerting for underperforming sequences
+- Apply regular review cycles for optimization
+- Document version history and performance changes
+- Create automated anomaly detection for workflow issues
+- Implement workflow simulation tools for testing changes
+
+## See Also
+
+### Related Rules
+- @075-email-marketing-standards.mdc - Email marketing compliance
+- @076-mailchimp-integration-standards.mdc - MailChimp automation workflows
+- @077-user-communication-standards.mdc - Communication strategy and messaging
+- @080-email-effectiveness-tracking.mdc - Email performance tracking
+- @081-cross-platform-integration.mdc - Cross-platform event handling and segmentation
+- @083-lifecycle-marketing-automation.mdc - Lifecycle automation strategies
+- @084-email-content-optimization-ai.mdc - AI-powered content optimization
+- @221-application-monitoring.mdc - Application monitoring and alerting
+- @222-metrics-alerting.mdc - Metrics and alerting standards
+
+### Tools & Documentation
+- **`.cursor/tools/analyze-automation-workflow.sh`** - Automation workflow analyzer
+  ```bash
+  ./.cursor/tools/analyze-automation-workflow.sh --workflow-id 12345
+  # Analyzes: Performance, bottlenecks, conversion paths, timing optimization
+  ```
+- **`.cursor/tools/test-email-timing.sh`** - Send-time optimization tester
+  ```bash
+  ./.cursor/tools/test-email-timing.sh --segment high-engagement
+  # Recommends: Optimal send times by segment, timezone-aware scheduling
+  ```
+
+### Comprehensive Guides
+- **`guides/Email-Automation-Guide.md`** ⭐ **ESSENTIAL** - Complete automation guide
+- **`guides/Email-Automation-Performance-Optimization.md`** - Performance optimization strategies
+- **`guides/Email-Lifecycle-Marketing.md`** - Lifecycle automation workflows
+- **`guides/Email-Personalization-Guide.md`** - Dynamic content personalization
+
+### Quick Start - Email Automation Optimization
+
+```bash
+# 1. Audit existing automation workflows
+./.cursor/tools/analyze-automation-workflow.sh --workflow-id all
+
+# 2. Identify performance bottlenecks
+# Review drop-off points, engagement heat maps
+
+# 3. Optimize send timing
+./.cursor/tools/test-email-timing.sh --workflow-id 12345
+
+# 4. Implement behavioral branching
+# Create decision nodes based on recipient behavior
+
+# 5. Monitor and iterate
+# Set up dashboards, alerts, regular review cycles
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important)  
+**Last Updated**: November 20, 2025

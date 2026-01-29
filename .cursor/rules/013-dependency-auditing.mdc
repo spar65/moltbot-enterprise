@@ -1,0 +1,226 @@
+---
+description: Use when managing dependencies, updating packages, or before deployments to ensure security and stability
+globs: "**/package.json, **/package-lock.json, **/yarn.lock, **/pnpm-lock.yaml, **/requirements.txt, **/Gemfile, **/Gemfile.lock"
+---
+
+# Dependency Security Auditing
+
+## Context
+- Third-party dependencies make up a significant portion of modern applications
+- Vulnerabilities in dependencies can create security risks in your application
+- New vulnerabilities are discovered regularly, requiring ongoing vigilance
+- Dependency updates must be carefully managed to balance security and stability
+- Different package managers and languages have their own auditing tools
+
+## Requirements
+
+### Pre-Deployment Security Audits
+- **REQUIRED**: Run dependency security audits before all deployments
+- **REQUIRED**: Address all high and critical severity vulnerabilities before deployment
+- Document any security exceptions with clear justification and remediation plan
+- Include dependency auditing in CI/CD pipelines as a required step
+- Set up alerts for newly discovered vulnerabilities in your dependencies
+
+```bash
+# Node.js projects - npm
+npm audit
+
+# To fix automatically where possible
+npm audit fix
+
+# For situations where breaking changes might occur
+npm audit fix --force  # Use with caution
+
+# Node.js projects - yarn
+yarn audit
+
+# Node.js projects - pnpm
+pnpm audit
+
+# Python projects
+pip-audit
+
+# Ruby projects
+bundle audit
+```
+
+### Vulnerability Management
+
+- Prioritize vulnerabilities based on severity, exploitability, and business impact
+- Create action plans for addressing vulnerabilities that cannot be immediately fixed
+- Document deliberate decisions to accept certain vulnerability risks
+- Set time limits for temporary exceptions (e.g., "fix within 2 weeks")
+- Consider the application context when evaluating vulnerabilities
+- For vulnerabilities in development dependencies, assess if they affect your deployment
+
+```typescript
+// Example vulnerability exception documentation
+/**
+ * VULNERABILITY EXCEPTION
+ * 
+ * Package: example-package@1.2.3
+ * CVE: CVE-2023-12345
+ * Severity: High
+ * 
+ * Exception Reason:
+ * This vulnerability affects the server-side rendering functionality which we do not use
+ * in our application. We use this package only for client-side data formatting.
+ * 
+ * Mitigation:
+ * We have implemented input validation before passing data to this package.
+ * 
+ * Plan:
+ * - Monitor for package update that fixes this issue
+ * - Update by: 2023-12-31
+ * - Owner: Security Team
+ */
+```
+
+### Automated Security Scanning
+
+- Set up automated tools for continuous dependency scanning (Snyk, Dependabot, etc.)
+- Configure automated PRs for security updates
+- Use lockfiles to ensure dependency consistency across environments
+- Include security scanning in your PR review process
+- Run deeper security scans on a regular schedule (weekly/monthly)
+- Scan for vulnerabilities in direct and transitive dependencies
+
+```yaml
+# Example GitHub Dependabot configuration
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: "npm" # or yarn, pip, composer, etc.
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Focus on security updates
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "security"
+    # Group minor updates to reduce PR noise
+    groups:
+      development-dependencies:
+        patterns:
+          - "eslint*"
+          - "jest*"
+          - "@types/*"
+      production-dependencies:
+        patterns:
+          - "react*"
+          - "next*"
+```
+
+### Update Strategy
+
+- Maintain a clear dependency update strategy (e.g., regular updates vs. security-only)
+- Schedule regular non-security dependency updates to prevent technical debt
+- Test thoroughly after security-related dependency updates
+- Plan for major version upgrades that include breaking changes
+- Document your dependency review and update process
+- Consider using tools like npm-check or npm-check-updates to identify outdated packages
+
+```bash
+# Identify outdated packages
+npm outdated
+
+# Use specialized tools for managing updates
+npx npm-check-updates
+
+# Update to latest versions with review
+npx npm-check-updates -u
+npm install
+
+# Update specific packages only
+npm update package-name
+```
+
+### Dependency Minimization
+
+- Regularly review and prune unnecessary dependencies
+- Consider the security implications before adding new dependencies
+- Evaluate the activity and maintenance status of dependencies before adoption
+- Check dependency sizes and their impact on your application bundle
+- Consider vendoring small, critical dependencies if they have security issues
+- Avoid dependencies with excessive nested dependencies
+
+```bash
+# Analyze your bundle size including dependencies
+npx webpack-bundle-analyzer
+
+# Find duplicate packages in your dependency tree
+npx depcheck
+
+# Identify potential dependency issues
+npx madge --circular .
+```
+
+### Language-Specific Requirements
+
+#### Node.js / npm / yarn
+- Always use lockfiles (package-lock.json, yarn.lock, pnpm-lock.yaml)
+- Consider using npm ci instead of npm install in CI/CD for consistent installs
+- Use npm audit --omit=dev in production contexts where appropriate
+
+```bash
+# Production audit only (npm)
+npm audit --omit=dev
+
+# Install exact versions to prevent unexpected updates
+npm install --save-exact package-name
+```
+
+#### Python
+- Use virtual environments to isolate dependencies
+- Consider tools like pip-audit, safety, or pipenv check
+- Use requirements.txt or Pipfile.lock to lock dependencies
+
+```bash
+# Python audit tools
+pip install pip-audit
+pip-audit
+
+# Alternative tools
+pip install safety
+safety check
+```
+
+#### Ruby
+- Use bundle audit to check for vulnerabilities
+- Keep Gemfile.lock in version control
+- Use bundle update --conservative for safer updates
+
+## Implementation Checklist
+
+- [ ] Configure CI/CD pipeline to run dependency audits before deployment
+- [ ] Set up automated dependency scanning tools (Dependabot, Snyk, etc.)
+- [ ] Create a process for handling vulnerability exceptions
+- [ ] Document your dependency update strategy
+- [ ] Schedule regular dependency reviews and updates
+- [ ] Add pre-deployment audit checks to your release process
+- [ ] Test thoroughly after security-related dependency updates
+- [ ] Monitor security mailing lists or vulnerability databases for relevant issues 
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#dependency-management-workflow`** - Complete workflow
+- **`.cursor/docs/security-checklist.md#dependencies`** - Pre-deployment checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview
+
+### Tools (USE THESE!)
+- **`.cursor/tools/audit-dependencies.sh`** - CRITICAL: Run weekly!
+  ```bash
+  ./.cursor/tools/audit-dependencies.sh
+  # Checks: npm audit, outdated packages, licenses, known vulnerabilities
+  ```
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @010-security-compliance.mdc - Core security standards
+- @150-technical-debt-prevention.mdc - Preventing technical debt
+
+### Quick Start
+1. **Audit:** `.cursor/tools/audit-dependencies.sh` (current vulnerabilities)
+2. **Follow:** `.cursor/docs/security-workflows.md#dependency-management-workflow`
+3. **Schedule:** Weekly audits (Monday mornings)

@@ -1,0 +1,727 @@
+___
+description: HANDLE browser lifecycle events when BUILDING apps that need to pause/resume or optimize for visibility to ENSURE efficient resource usage and better user experience
+globs: "**/*.{ts,tsx,js,jsx}"
+___
+
+# Browser Lifecycle Events
+
+## Context
+- Browser tabs can be visible, hidden, frozen, or terminated
+- Applications should optimize resource usage based on visibility state
+- Users expect apps to pause animations, timers, and requests when tabs are hidden
+- Network connectivity can change, requiring apps to handle online/offline states
+- Focus/blur events indicate user interaction state
+- Proper lifecycle management improves performance and battery life
+
+## Requirements
+
+### Page Visibility API
+
+- **REQUIRED**: Pause expensive operations when page is hidden
+- **REQUIRED**: Resume operations when page becomes visible
+- **REQUIRED**: Save state before page might be terminated
+- Use `document.visibilityState` to check current state
+- Listen to `visibilitychange` event for state transitions
+- Consider page lifecycle states: active, passive, hidden, frozen, terminated
+
+```typescript
+// GOOD: Page Visibility API usage
+function usePageVisibility() {
+  const [isVisible, setIsVisible] = useState<boolean>(
+    typeof document !== 'undefined' ? !document.hidden : true
+  );
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const hidden = document.hidden;
+      setIsVisible(!hidden);
+      
+      if (hidden) {
+        console.log('Page is now hidden - pausing operations');
+        // Pause animations, timers, polling
+        pauseExpensiveOperations();
+      } else {
+        console.log('Page is now visible - resuming operations');
+        // Resume operations
+        resumeExpensiveOperations();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  return isVisible;
+}
+
+// Usage in a component
+function VideoPlayer() {
+  const isVisible = usePageVisibility();
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+
+    if (isVisible) {
+      videoRef.current.play();
+    } else {
+      videoRef.current.pause();
+    }
+  }, [isVisible]);
+
+  return <video ref={videoRef} src="/video.mp4" />;
+}
+
+// BAD: Not handling visibility
+function BadVideoPlayer() {
+  // Video keeps playing when tab is hidden ❌
+  // Wastes battery and bandwidth
+  return <video autoPlay src="/video.mp4" />;
+}
+```
+
+### Animation & Timer Management
+
+- **REQUIRED**: Pause animations when page is hidden
+- **REQUIRED**: Clear or adjust timers based on visibility
+- Use `requestAnimationFrame` for animations (automatically pauses when hidden)
+- Adjust polling intervals when page is hidden
+- Stop WebSocket messages or reduce frequency when hidden
+
+```typescript
+// GOOD: Visibility-aware animation
+function useVisibilityAwareAnimation(callback: () => void, fps: number = 60) {
+  const animationRef = useRef<number>();
+  const isVisible = usePageVisibility();
+  const lastFrameTime = useRef<number>(Date.now());
+  const frameInterval = 1000 / fps;
+
+  useEffect(() => {
+    if (!isVisible) {
+      // Cancel animation when hidden
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = undefined;
+      }
+      return;
+    }
+
+    // Resume animation when visible
+    const animate = () => {
+      const now = Date.now();
+      const elapsed = now - lastFrameTime.current;
+
+      if (elapsed >= frameInterval) {
+        lastFrameTime.current = now - (elapsed % frameInterval);
+        callback();
+      }
+
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animate();
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [isVisible, callback, frameInterval]);
+}
+
+// GOOD: Visibility-aware polling
+function useVisibilityAwarePolling(
+  fetchData: () => Promise<void>,
+  intervalMs: number
+) {
+  const isVisible = usePageVisibility();
+  const intervalRef = useRef<NodeJS.Timeout>();
+
+  useEffect(() => {
+    // Adjust polling based on visibility
+    const actualInterval = isVisible ? intervalMs : intervalMs * 5; // 5x slower when hidden
+
+    const poll = async () => {
+      try {
+        await fetchData();
+      } catch (error) {
+        console.error('Polling failed:', error);
+      }
+    };
+
+    // Initial poll
+    poll();
+
+    // Set up interval
+    intervalRef.current = setInterval(poll, actualInterval);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [isVisible, fetchData, intervalMs]);
+}
+```
+
+### Online/Offline Detection
+
+- **REQUIRED**: Handle online/offline events appropriately
+- **REQUIRED**: Queue operations when offline, retry when online
+- **REQUIRED**: Inform user of connectivity status
+- Use `navigator.onLine` to check current status
+- Listen to `online` and `offline` events
+- Implement retry logic for failed requests
+
+```typescript
+// GOOD: Online/offline handling
+function useNetworkStatus() {
+  const [isOnline, setIsOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log('Connection restored');
+      setIsOnline(true);
+      // Retry queued operations
+      retryQueuedOperations();
+    };
+
+    const handleOffline = () => {
+      console.log('Connection lost');
+      setIsOnline(false);
+      // Queue operations for later
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  return isOnline;
+}
+
+// Usage with operation queue
+class OperationQueue {
+  private queue: Array<() => Promise<void>> = [];
+  private isProcessing = false;
+
+  async addOperation(operation: () => Promise<void>): Promise<void> {
+    if (navigator.onLine) {
+      try {
+        await operation();
+      } catch (error) {
+        console.error('Operation failed, queuing for retry:', error);
+        this.queue.push(operation);
+      }
+    } else {
+      console.log('Offline: queuing operation');
+      this.queue.push(operation);
+    }
+  }
+
+  async processQueue(): Promise<void> {
+    if (this.isProcessing || this.queue.length === 0) return;
+
+    this.isProcessing = true;
+    console.log(`Processing ${this.queue.length} queued operations`);
+
+    while (this.queue.length > 0 && navigator.onLine) {
+      const operation = this.queue.shift()!;
+      try {
+        await operation();
+        console.log('Queued operation succeeded');
+      } catch (error) {
+        console.error('Queued operation failed, requeuing:', error);
+        this.queue.unshift(operation); // Put back at front
+        break;
+      }
+    }
+
+    this.isProcessing = false;
+  }
+}
+
+// Usage in component
+function OfflineAwareForm() {
+  const isOnline = useNetworkStatus();
+  const [queue] = useState(() => new OperationQueue());
+
+  const handleSubmit = async (data: FormData) => {
+    await queue.addOperation(async () => {
+      await fetch('/api/submit', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    });
+  };
+
+  // Process queue when coming back online
+  useEffect(() => {
+    if (isOnline) {
+      queue.processQueue();
+    }
+  }, [isOnline, queue]);
+
+  return (
+    <div>
+      {!isOnline && (
+        <div className="offline-banner">
+          ⚠️ You're offline. Changes will be saved when you reconnect.
+        </div>
+      )}
+      <form onSubmit={handleSubmit}>
+        {/* Form fields */}
+      </form>
+    </div>
+  );
+}
+```
+
+### Focus & Blur Events
+
+- **REQUIRED**: Pause auto-play content when window loses focus
+- **REQUIRED**: Refresh data when window regains focus (if stale)
+- Handle focus for user interaction detection
+- Useful for chat applications, real-time dashboards
+- Complement visibility API (focus is more granular)
+
+```typescript
+// GOOD: Focus-aware data refresh
+function useFocusAwareRefresh(
+  refreshFn: () => Promise<void>,
+  staleTimeMs: number = 60000
+) {
+  const lastRefreshRef = useRef<number>(Date.now());
+
+  useEffect(() => {
+    const handleFocus = async () => {
+      const now = Date.now();
+      const timeSinceRefresh = now - lastRefreshRef.current;
+
+      if (timeSinceRefresh > staleTimeMs) {
+        console.log('Data is stale, refreshing...');
+        try {
+          await refreshFn();
+          lastRefreshRef.current = now;
+        } catch (error) {
+          console.error('Refresh failed:', error);
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [refreshFn, staleTimeMs]);
+}
+
+// Usage
+function Dashboard() {
+  const [data, setData] = useState(null);
+
+  const refreshData = useCallback(async () => {
+    const response = await fetch('/api/dashboard');
+    const newData = await response.json();
+    setData(newData);
+  }, []);
+
+  // Refresh when window regains focus if data is >60s old
+  useFocusAwareRefresh(refreshData, 60000);
+
+  return <div>{/* Render dashboard */}</div>;
+}
+```
+
+### Page Lifecycle States
+
+- **REQUIRED**: Save critical state before page might be frozen/terminated
+- Handle all lifecycle transitions appropriately
+- Active: Page is visible and has focus
+- Passive: Page is visible but doesn't have focus
+- Hidden: Page is not visible (backgrounded)
+- Frozen: Page is suspended (mobile Safari, Chrome)
+- Terminated: Page is discarded (mobile)
+
+```typescript
+// GOOD: Comprehensive lifecycle handling
+class LifecycleManager {
+  private state: 'active' | 'passive' | 'hidden' | 'frozen' | 'terminated' = 'active';
+  private listeners: Array<(state: string) => void> = [];
+
+  constructor() {
+    this.init();
+  }
+
+  private init(): void {
+    // Visibility changes
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.setState('hidden');
+      } else {
+        this.setState(document.hasFocus() ? 'active' : 'passive');
+      }
+    });
+
+    // Focus changes
+    window.addEventListener('focus', () => {
+      if (!document.hidden) {
+        this.setState('active');
+      }
+    });
+
+    window.addEventListener('blur', () => {
+      if (!document.hidden) {
+        this.setState('passive');
+      }
+    });
+
+    // Freeze event (Chrome 68+)
+    document.addEventListener('freeze', () => {
+      this.setState('frozen');
+      this.saveState();
+    });
+
+    // Resume event
+    document.addEventListener('resume', () => {
+      this.setState(document.hidden ? 'hidden' : 'active');
+    });
+
+    // Page show/hide (for bfcache)
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) {
+        console.log('Page restored from bfcache');
+        this.restoreState();
+      }
+    });
+
+    window.addEventListener('pagehide', (event) => {
+      if (event.persisted) {
+        console.log('Page might be put in bfcache');
+        this.saveState();
+      }
+    });
+
+    // Before unload (last resort)
+    window.addEventListener('beforeunload', () => {
+      this.saveState();
+    });
+  }
+
+  private setState(newState: typeof this.state): void {
+    if (this.state === newState) return;
+
+    console.log(`Lifecycle: ${this.state} -> ${newState}`);
+    this.state = newState;
+
+    // Notify listeners
+    this.listeners.forEach((listener) => listener(newState));
+
+    // Take action based on state
+    this.handleStateChange(newState);
+  }
+
+  private handleStateChange(state: typeof this.state): void {
+    switch (state) {
+      case 'active':
+        // Resume all operations
+        this.resumeOperations();
+        break;
+      case 'passive':
+        // Reduce non-essential operations
+        this.reduceOperations();
+        break;
+      case 'hidden':
+        // Pause expensive operations
+        this.pauseExpensiveOperations();
+        break;
+      case 'frozen':
+        // Save state, pause everything
+        this.freezeOperations();
+        break;
+      case 'terminated':
+        // Cleanup
+        this.cleanup();
+        break;
+    }
+  }
+
+  private saveState(): void {
+    console.log('Saving application state...');
+    // Save to IndexedDB or sessionStorage
+    const state = {
+      timestamp: Date.now(),
+      // ... application state
+    };
+    sessionStorage.setItem('app_state', JSON.stringify(state));
+  }
+
+  private restoreState(): void {
+    console.log('Restoring application state...');
+    const saved = sessionStorage.getItem('app_state');
+    if (saved) {
+      const state = JSON.parse(saved);
+      // Restore application state
+      console.log('State restored from', new Date(state.timestamp));
+    }
+  }
+
+  private resumeOperations(): void {
+    console.log('Resuming operations');
+    // Resume animations, polling, etc.
+  }
+
+  private reduceOperations(): void {
+    console.log('Reducing operations');
+    // Slow down polling, reduce animation frame rate
+  }
+
+  private pauseExpensiveOperations(): void {
+    console.log('Pausing expensive operations');
+    // Stop animations, heavy polling, video/audio
+  }
+
+  private freezeOperations(): void {
+    console.log('Freezing operations');
+    // Stop everything, save state
+  }
+
+  private cleanup(): void {
+    console.log('Cleanup');
+    // Final cleanup before termination
+  }
+
+  public subscribe(listener: (state: string) => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  public getState(): string {
+    return this.state;
+  }
+}
+
+// Usage
+const lifecycleManager = new LifecycleManager();
+
+// Subscribe to state changes
+const unsubscribe = lifecycleManager.subscribe((state) => {
+  console.log('App lifecycle state:', state);
+});
+```
+
+### Battery Status API (Deprecated but useful pattern)
+
+- Monitor battery level and charging status
+- Reduce resource usage when battery is low
+- Increase refresh rates when charging
+- Note: API is deprecated but pattern is still valid
+
+```typescript
+// GOOD: Battery-aware resource management (pattern)
+function useBatteryAwareMode() {
+  const [lowPowerMode, setLowPowerMode] = useState(false);
+
+  useEffect(() => {
+    // Battery API is deprecated, but pattern is useful
+    // Modern approach: respect prefers-reduced-motion and prefers-reduced-data
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const dataQuery = window.matchMedia('(prefers-reduced-data: reduce)');
+
+    const checkPreferences = () => {
+      const lowPower = mediaQuery.matches || dataQuery.matches;
+      setLowPowerMode(lowPower);
+      
+      if (lowPower) {
+        console.log('Low power mode detected, reducing resource usage');
+      }
+    };
+
+    checkPreferences();
+    
+    mediaQuery.addEventListener('change', checkPreferences);
+    dataQuery.addEventListener('change', checkPreferences);
+
+    return () => {
+      mediaQuery.removeEventListener('change', checkPreferences);
+      dataQuery.removeEventListener('change', checkPreferences);
+    };
+  }, []);
+
+  return lowPowerMode;
+}
+
+// Usage
+function AdaptivePolling() {
+  const lowPowerMode = useBatteryAwareMode();
+  const pollInterval = lowPowerMode ? 60000 : 5000; // 60s vs 5s
+
+  // Use pollInterval in your polling logic
+  return <div>Polling every {pollInterval / 1000}s</div>;
+}
+```
+
+### Beforeinstallprompt (PWA)
+
+- Handle PWA install prompt
+- Allow users to install your app
+- Defer prompt until appropriate moment
+- Track install conversions
+
+```typescript
+// GOOD: PWA install prompt handling
+function usePWAInstall() {
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      // Prevent the mini-infobar from appearing
+      e.preventDefault();
+      // Save the event for later
+      setInstallPrompt(e);
+      console.log('PWA install prompt available');
+    };
+
+    const handleAppInstalled = () => {
+      console.log('PWA installed');
+      setIsInstalled(true);
+      setInstallPrompt(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    // Check if already installed
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const promptInstall = async () => {
+    if (!installPrompt) {
+      console.log('Install prompt not available');
+      return false;
+    }
+
+    // Show the install prompt
+    installPrompt.prompt();
+
+    // Wait for the user's response
+    const result = await installPrompt.userChoice;
+    console.log('Install prompt result:', result.outcome);
+
+    // Clear the saved prompt
+    setInstallPrompt(null);
+
+    return result.outcome === 'accepted';
+  };
+
+  return {
+    canInstall: !!installPrompt,
+    isInstalled,
+    promptInstall,
+  };
+}
+
+// Usage
+function InstallButton() {
+  const { canInstall, isInstalled, promptInstall } = usePWAInstall();
+
+  if (isInstalled) {
+    return <div>✓ App installed</div>;
+  }
+
+  if (!canInstall) {
+    return null;
+  }
+
+  return (
+    <button onClick={promptInstall}>
+      Install App
+    </button>
+  );
+}
+```
+
+## See Also
+
+### Related Rules
+- @045-browser-state-management.mdc - Browser history and state
+- @049-client-storage-standards.mdc - Client storage for state persistence
+- @046-session-validation.mdc - Session management
+- @067-runtime-optimization.mdc - Runtime performance
+- @062-core-web-vitals.mdc - Performance metrics
+- @054-accessibility-requirements.mdc - Accessibility considerations
+- @002-rule-application.mdc - Source of Truth Hierarchy
+
+### Tools & Documentation
+- **`.cursor/docs/ai-workflows.md#performance-optimization`** - Performance patterns
+- **Browser DevTools** - Performance tab, Network tab for lifecycle analysis
+- **Chrome DevTools** - Application > Background Services
+
+### Comprehensive Guides
+- **`guides/PWA-Complete-Guide.md`** (To be created) - Progressive Web App implementation
+- **`guides/Performance-Optimization-Complete-Guide.md`** - Performance patterns
+
+### Quick Start - Browser Lifecycle
+
+```typescript
+// 1. Handle page visibility (MOST IMPORTANT)
+const isVisible = usePageVisibility();
+useEffect(() => {
+  if (isVisible) {
+    resumeOperations();
+  } else {
+    pauseOperations();
+  }
+}, [isVisible]);
+
+// 2. Handle online/offline
+const isOnline = useNetworkStatus();
+useEffect(() => {
+  if (isOnline) {
+    processQueuedOperations();
+  }
+}, [isOnline]);
+
+// 3. Refresh data on focus (if stale)
+useFocusAwareRefresh(refreshData, 60000);
+
+// 4. Save state before freeze
+document.addEventListener('freeze', saveState);
+
+// 5. Handle PWA install (if applicable)
+const { canInstall, promptInstall } = usePWAInstall();
+```
+
+### Common Scenarios
+
+| Scenario | Event | Action |
+|----------|-------|--------|
+| **Tab Hidden** | visibilitychange | Pause animations, reduce polling |
+| **Tab Visible** | visibilitychange | Resume operations |
+| **Offline** | offline | Queue operations, show banner |
+| **Online** | online | Retry queued operations |
+| **Window Focus** | focus | Refresh stale data |
+| **Window Blur** | blur | Reduce updates |
+| **Page Frozen** | freeze | Save state immediately |
+| **Low Power** | prefers-reduced-motion | Reduce resource usage |
+| **PWA Install** | beforeinstallprompt | Offer install prompt |

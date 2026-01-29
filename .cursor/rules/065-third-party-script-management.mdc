@@ -1,0 +1,522 @@
+---
+description: Optimize third-party script loading when integrating external services to prevent performance degradation
+globs: "app/**/*.{ts,tsx}"
+---
+
+# Third-Party Script Management
+
+## Context
+Third-party scripts (analytics, chat widgets, ads, social media) are a major source of performance issues. Poorly loaded scripts block rendering, increase bundle size, and degrade Core Web Vitals. This rule establishes patterns for optimal third-party script integration using Next.js Script component and loading strategies.
+
+**Common Third-Party Scripts:**
+- Analytics (Google Analytics, Mixpanel, Segment)
+- Chat widgets (Intercom, Drift, Zendesk)
+- Social media widgets (Twitter, Facebook)
+- Ads and monetization
+- A/B testing tools
+- Error tracking (Sentry)
+
+## Requirements
+
+### Next.js Script Component (Preferred)
+
+**Use next/script for Optimal Loading:**
+```typescript
+// app/layout.tsx
+import Script from 'next/script';
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html>
+      <body>
+        {children}
+        
+        {/* Analytics - load after interactive */}
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"
+          strategy="afterInteractive"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'GA_MEASUREMENT_ID');
+          `}
+        </Script>
+      </body>
+    </html>
+  );
+}
+```
+
+**Loading Strategies:**
+- `beforeInteractive` - Load before page is interactive (critical scripts)
+- `afterInteractive` - Load after page is interactive (analytics, tracking)
+- `lazyOnload` - Load during idle time (low priority scripts)
+- `worker` - Load in Web Worker (experimental)
+
+<example>
+// ✅ GOOD: Optimized script loading strategies
+import Script from 'next/script';
+
+export default function RootLayout({ children }: { children: React.NodeNode }) {
+  return (
+    <html>
+      <body>
+        {children}
+        
+        {/* Critical: Load before interactive */}
+        <Script
+          src="/polyfills.js"
+          strategy="beforeInteractive"
+        />
+        
+        {/* Analytics: Load after interactive */}
+        <Script
+          src="https://analytics.example.com/script.js"
+          strategy="afterInteractive"
+          onLoad={() => console.log('Analytics loaded')}
+        />
+        
+        {/* Chat widget: Lazy load */}
+        <Script
+          src="https://chat.example.com/widget.js"
+          strategy="lazyOnload"
+        />
+      </body>
+    </html>
+  );
+}
+</example>
+
+<example type="invalid">
+// ❌ BAD: Loading scripts in <head> without optimization
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html>
+      <head>
+        {/* Blocks rendering! */}
+        <script src="https://analytics.example.com/script.js"></script>
+        <script src="https://chat.example.com/widget.js"></script>
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
+</example>
+
+### Analytics Scripts
+
+**Google Analytics 4:**
+```typescript
+// components/Analytics.tsx
+'use client';
+
+import Script from 'next/script';
+
+export function Analytics() {
+  if (process.env.NODE_ENV !== 'production') {
+    return null; // Don't load in development
+  }
+  
+  return (
+    <>
+      <Script
+        src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_ID}`}
+        strategy="afterInteractive"
+      />
+      <Script id="google-analytics" strategy="afterInteractive">
+        {`
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', '${process.env.NEXT_PUBLIC_GA_ID}', {
+            page_path: window.location.pathname,
+          });
+        `}
+      </Script>
+    </>
+  );
+}
+```
+
+**Custom Analytics (Recommended):**
+```typescript
+// lib/analytics.ts
+export function trackEvent(eventName: string, properties?: Record<string, any>) {
+  // Send to your own API
+  if (typeof window !== 'undefined') {
+    fetch('/api/analytics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventName, properties }),
+      keepalive: true, // Ensure delivery even if page unloads
+    });
+  }
+}
+
+// Usage
+trackEvent('button_click', { button_id: 'sign-up' });
+```
+
+<example>
+// ✅ GOOD: Self-hosted analytics (no external scripts!)
+'use client';
+
+import { useEffect } from 'react';
+import { trackPageView } from '@/lib/analytics';
+
+export function PageViewTracker() {
+  useEffect(() => {
+    trackPageView(window.location.pathname);
+  }, []);
+  
+  return null;
+}
+
+// No external scripts = better performance + privacy!
+</example>
+
+### Chat Widgets
+
+**Lazy Loading Pattern:**
+```typescript
+// components/ChatWidget.tsx
+'use client';
+
+import Script from 'next/script';
+import { useState } from 'react';
+
+export function ChatWidget() {
+  const [loaded, setLoaded] = useState(false);
+  
+  // Load chat widget on user interaction
+  const loadChat = () => {
+    if (!loaded) {
+      setLoaded(true);
+    }
+  };
+  
+  return (
+    <>
+      {/* Button to trigger loading */}
+      <button
+        onClick={loadChat}
+        className="fixed bottom-4 right-4 rounded-full bg-blue-500 p-4"
+      >
+        Chat
+      </button>
+      
+      {/* Only load script when needed */}
+      {loaded && (
+        <Script
+          src="https://chat.example.com/widget.js"
+          strategy="lazyOnload"
+          onLoad={() => {
+            // @ts-ignore
+            window.ChatWidget?.init({ appId: process.env.NEXT_PUBLIC_CHAT_ID });
+          }}
+        />
+      )}
+    </>
+  );
+}
+```
+
+**Facade Pattern (Best Performance):**
+```typescript
+// Show a fake chat button, load real widget on click
+'use client';
+
+import { useState } from 'react';
+import Script from 'next/script';
+
+export function ChatFacade() {
+  const [showReal, setShowReal] = useState(false);
+  
+  if (!showReal) {
+    return (
+      <button
+        onClick={() => setShowReal(true)}
+        className="chat-button-facade"
+      >
+        💬 Chat with us
+      </button>
+    );
+  }
+  
+  return (
+    <Script
+      src="https://chat.example.com/widget.js"
+      strategy="afterInteractive"
+    />
+  );
+}
+```
+
+<example>
+// ✅ GOOD: Facade pattern for heavy third-party widgets
+// Don't load until user explicitly requests it
+export function HeavyWidget() {
+  const [load, setLoad] = useState(false);
+  
+  return (
+    <>
+      {!load && (
+        <button onClick={() => setLoad(true)}>
+          Load Widget
+        </button>
+      )}
+      {load && (
+        <Script
+          src="https://heavy-widget.example.com/embed.js"
+          strategy="afterInteractive"
+        />
+      )}
+    </>
+  );
+}
+</example>
+
+### Social Media Embeds
+
+**Twitter/X Embed:**
+```typescript
+// components/TwitterEmbed.tsx
+'use client';
+
+import Script from 'next/script';
+
+export function TwitterEmbed({ tweetId }: { tweetId: string }) {
+  return (
+    <>
+      <blockquote className="twitter-tweet">
+        <a href={`https://twitter.com/x/status/${tweetId}`}>
+          Loading tweet...
+        </a>
+      </blockquote>
+      <Script
+        src="https://platform.twitter.com/widgets.js"
+        strategy="lazyOnload"
+        onLoad={() => {
+          // @ts-ignore
+          window.twttr?.widgets.load();
+        }}
+      />
+    </>
+  );
+}
+```
+
+**Static Embed (Better Performance):**
+```typescript
+// Convert dynamic embed to static image + link
+export function StaticTweetEmbed({ tweetId, imageUrl, text }: Props) {
+  return (
+    <a
+      href={`https://twitter.com/x/status/${tweetId}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="tweet-static"
+    >
+      <img src={imageUrl} alt="Tweet" />
+      <p>{text}</p>
+    </a>
+  );
+}
+// No external scripts = instant load!
+```
+
+### Error Tracking (Sentry)
+
+**Optimized Sentry Configuration:**
+```typescript
+// app/providers.tsx
+'use client';
+
+import * as Sentry from '@sentry/nextjs';
+import { useEffect } from 'react';
+
+export function SentryProvider({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') {
+      Sentry.init({
+        dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+        tracesSampleRate: 0.1, // Sample 10% of transactions
+        replaysSessionSampleRate: 0.1, // Record 10% of sessions
+        replaysOnErrorSampleRate: 1.0, // Record 100% of errors
+      });
+    }
+  }, []);
+  
+  return <>{children}</>;
+}
+```
+
+### Performance Impact Measurement
+
+**Measure Third-Party Impact:**
+```typescript
+// lib/performance-observer.ts
+if (typeof window !== 'undefined') {
+  const observer = new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) {
+      if (entry.entryType === 'resource') {
+        const resource = entry as PerformanceResourceTiming;
+        
+        // Check if third-party
+        if (!resource.name.includes(window.location.hostname)) {
+          console.log('Third-party resource:', {
+            url: resource.name,
+            duration: resource.duration,
+            size: resource.transferSize,
+          });
+        }
+      }
+    }
+  });
+  
+  observer.observe({ entryTypes: ['resource'] });
+}
+```
+
+### Content Security Policy (CSP)
+
+**Allow Third-Party Scripts Safely:**
+```typescript
+// next.config.ts
+const nextConfig = {
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://analytics.example.com",
+              "connect-src 'self' https://analytics.example.com",
+              "img-src 'self' data: https:",
+            ].join('; '),
+          },
+        ],
+      },
+    ];
+  },
+};
+```
+
+## Common Patterns
+
+### Pattern 1: Conditional Loading
+```typescript
+// Only load scripts for specific pages
+export default function Page() {
+  const shouldLoadAnalytics = process.env.NODE_ENV === 'production';
+  
+  return (
+    <>
+      <Content />
+      {shouldLoadAnalytics && <AnalyticsScript />}
+    </>
+  );
+}
+```
+
+### Pattern 2: User Consent
+```typescript
+// Load after user accepts cookies
+'use client';
+
+import { useState } from 'react';
+
+export function ConditionalScripts() {
+  const [consent, setConsent] = useState(false);
+  
+  return (
+    <>
+      {!consent && (
+        <CookieBanner onAccept={() => setConsent(true)} />
+      )}
+      {consent && <AnalyticsScripts />}
+    </>
+  );
+}
+```
+
+### Pattern 3: Resource Hints
+```typescript
+// Preconnect to third-party domains
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html>
+      <head>
+        <link rel="preconnect" href="https://www.googletagmanager.com" />
+        <link rel="dns-prefetch" href="https://analytics.example.com" />
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
+```
+
+## Best Practices
+
+### DO:
+- ✅ Use Next.js Script component with appropriate strategy
+- ✅ Load analytics/tracking with `afterInteractive`
+- ✅ Load non-critical widgets with `lazyOnload`
+- ✅ Use facades for heavy widgets (load on interaction)
+- ✅ Self-host scripts when possible
+- ✅ Measure third-party impact
+- ✅ Set up CSP headers
+
+### DON'T:
+- ❌ Load scripts in <head> without async/defer
+- ❌ Load multiple analytics tools
+- ❌ Load chat widgets immediately
+- ❌ Trust third-party script performance
+- ❌ Load in development environment
+- ❌ Skip performance monitoring
+
+## Tools & Documentation
+
+### Required Tools (USE THESE!)
+- **`.cursor/tools/run-lighthouse.sh`** - Check third-party impact
+- **`.cursor/tools/analyze-performance.sh`** - Overall performance analysis
+
+### Complete Workflow Documentation
+- **`guides/Asset-Optimization-Complete-Guide.md`** - Asset optimization
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master performance guide
+- **`.cursor/docs/ai-workflows.md#script-optimization`** - Proven patterns
+
+### Quick Start
+1. **Use:** Next.js Script component
+2. **Choose:** Appropriate loading strategy
+3. **Measure:** Third-party script impact
+4. **Optimize:** Lazy load or use facades
+
+## See Also
+
+### Documentation
+- **`guides/Asset-Optimization-Complete-Guide.md`** - Comprehensive guide
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master guide
+- **`guides/Core-Web-Vitals-Optimization-Guide.md`** - Core Web Vitals
+
+### Related Rules
+- @062-core-web-vitals.mdc - Core Web Vitals impact
+- @060-performance-metrics.mdc - Performance monitoring
+- @011-env-var-security.mdc - API key security
+
+### Related Tools
+- **`.cursor/tools/run-lighthouse.sh`** - Lighthouse automation
+
+## Priority
+**P1 (Important)** - Third-party scripts significantly impact Core Web Vitals and overall performance.
+
+## References
+- [Next.js Script Optimization](https://nextjs.org/docs/app/building-your-application/optimizing/scripts)
+- [Third-Party Script Impact](https://web.dev/third-party-javascript/)
+- [Script Loading Best Practices](https://web.dev/efficiently-load-third-party-javascript/)

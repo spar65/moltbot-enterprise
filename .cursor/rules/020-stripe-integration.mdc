@@ -1,0 +1,243 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: IMPLEMENT secure Stripe integration patterns when ADDING payment processing or subscription features to ENSURE compliance, security, and reliability
+globs: "src/**/{stripe,payment,subscription,checkout}*.{ts,tsx,js,jsx}"
+___
+
+# Stripe Integration Standards
+
+## Context
+- Stripe is the primary payment processor for VIBEcoder subscription services
+- Payment processing requires special security and compliance considerations
+- Webhook handlers must be robust and handle all subscription lifecycle events
+- Client and server implementations have different security requirements
+
+## Requirements
+
+### API Keys and Environment Variables
+- **REQUIRED**: Store Stripe secret keys in environment variables only (never in code)
+- **REQUIRED**: Use `STRIPE_SECRET_KEY` for server-side operations
+- **REQUIRED**: Use `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` for client-side operations
+- **REQUIRED**: Configure different API keys for development, testing, and production
+- Implement environment variable validation on application startup
+
+```typescript
+// Good: Server-side environment validation
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeSecretKey) {
+  throw new Error('STRIPE_SECRET_KEY is not set');
+}
+const stripe = new Stripe(stripeSecretKey, { apiVersion: '2024-04-10' as any });
+
+// Good: Client-side publishable key usage
+const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+if (!publishableKey) {
+  console.error('Stripe publishable key is missing');
+}
+```
+
+### Webhook Implementation
+- **REQUIRED**: Disable body parsing in API routes for webhooks
+- **REQUIRED**: Verify webhook signatures with `STRIPE_WEBHOOK_SECRET`
+- **REQUIRED**: Return 200 status for processed webhooks (even with errors)
+- **REQUIRED**: Handle all subscription lifecycle events:
+  - `checkout.session.completed`
+  - `customer.subscription.created`
+  - `customer.subscription.updated`
+  - `customer.subscription.deleted`
+  - `invoice.payment_succeeded`
+  - `invoice.payment_failed`
+  - `payment_intent.succeeded`
+  - `payment_intent.payment_failed`
+- Log webhook events with appropriate detail for debugging
+- Implement idempotency in webhook handlers to prevent duplicate processing
+
+```typescript
+// Good: Webhook configuration and signature verification
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+const handler = async (req: NextApiRequest, res: NextApiResponse) => {
+  if (req.method === 'POST') {
+    const buf = await buffer(req);
+    const sig = req.headers['stripe-signature'];
+
+    if (!sig) {
+      console.error('Webhook Error: Missing stripe-signature header');
+      return res.status(400).send('Webhook Error: Missing signature');
+    }
+
+    let event: Stripe.Event;
+
+    try {
+      event = stripe.webhooks.constructEvent(buf.toString(), sig, webhookSecret);
+      // Process the event...
+    } catch (err: any) {
+      console.error(`Webhook signature verification failed: ${err.message}`);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // Always return 200 to acknowledge receipt
+    return res.status(200).json({ received: true });
+  }
+};
+```
+
+### Subscription Management
+- **REQUIRED**: Use Stripe Checkout for initial subscription creation
+- **REQUIRED**: Use Customer Portal for subscription management
+- **REQUIRED**: Store subscription metadata including plan details
+- **REQUIRED**: Implement proper error handling for payment failures
+- Track subscription status changes in your database
+- Use webhooks as the source of truth for subscription status
+- Implement subscription lifecycle hooks (created, updated, cancelled)
+
+```typescript
+// Good: Checkout session creation with metadata
+const session = await stripe.checkout.sessions.create({
+  payment_method_types: ['card'],
+  mode: 'subscription',
+  line_items: [
+    {
+      price: priceId,
+      quantity: 1,
+    },
+  ],
+  success_url: `${req.headers.origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+  cancel_url: `${req.headers.origin}/subscribe`,
+  metadata: {
+    planId: planId,
+  },
+});
+```
+
+### Error Handling and Logging
+- **REQUIRED**: Implement comprehensive error handling for Stripe API calls
+- **REQUIRED**: Log webhook processing errors but still return 200 status
+- **REQUIRED**: Forward clear error messages to users for payment failures
+- **REQUIRED**: Handle network interruptions and retries gracefully
+- Monitor and alert on repeated payment failures or webhook errors
+- Log subscription lifecycle events for auditing purposes
+
+```typescript
+// Good: Error handling in API routes
+try {
+  // Stripe API call...
+} catch (error: any) {
+  console.error('Stripe API error:', error);
+  
+  // Classify errors
+  if (error.type === 'StripeCardError') {
+    return res.status(400).json({ error: error.message });
+  } else if (error.type === 'StripeInvalidRequestError') {
+    return res.status(400).json({ error: 'Invalid parameters in Stripe request' });
+  } else {
+    // For server errors, don't expose internal details
+    console.error('Unexpected Stripe error:', error);
+    return res.status(500).json({ error: 'An unexpected error occurred' });
+  }
+}
+```
+
+### Testing
+- **REQUIRED**: Use test mode keys for all non-production environments
+- **REQUIRED**: Use the webhook test page for validating webhook handlers
+- **REQUIRED**: Test all subscription lifecycle events before deployment
+- **REQUIRED**: Implement test utilities for mocking Stripe responses
+- Create test fixtures for common Stripe objects (customers, subscriptions)
+- Set up end-to-end tests for the payment flow
+
+```typescript
+// Good: Using test helpers for webhook testing
+import { createTestEvent, sendTestEvent } from '../utils/StripeIntegration';
+
+test('webhook should process subscription created event', async () => {
+  const { event } = createTestEvent('customer.subscription.created', {
+    planId: 'basic'
+  });
+  
+  const result = await sendTestEvent('customer.subscription.created', 
+    { planId: 'basic' },
+    { endpoint: '/api/webhooks/stripe' }
+  );
+  
+  expect(result.status).toBe(200);
+});
+```
+
+### Security
+- **REQUIRED**: Never log full card details or sensitive information
+- **REQUIRED**: Use HTTPS for all Stripe-related API calls
+- **REQUIRED**: Implement proper access controls for subscription-gated features
+- **REQUIRED**: Validate all inputs before passing to Stripe API
+- Rate limit sensitive operations to prevent abuse
+- Implement fraud detection mechanisms for high-risk operations
+
+```typescript
+// Good: Input validation before Stripe API calls
+if (!priceId) {
+  return res.status(400).json({ error: `Invalid planId: ${planId}` });
+}
+
+// Good: Redacting sensitive information in logs
+console.log(`Processing subscription for customer: ${customerId.substring(0, 6)}...`);
+```
+
+## Implementation Checklist
+
+- [ ] Configure Stripe API keys in environment variables
+- [ ] Implement webhook handler with signature verification
+- [ ] Support all subscription lifecycle events
+- [ ] Set up Stripe Checkout for subscription creation
+- [ ] Set up Customer Portal for subscription management
+- [ ] Implement subscription status tracking in database
+- [ ] Create webhook test page and utilities
+- [ ] Test full subscription lifecycle (create/update/cancel)
+- [ ] Implement proper error handling and logging
+- [ ] Set up monitoring for payment failures and webhook errors
+
+## Integration with Other Rules
+
+- Supports [011-env-var-security.mdc](mdc:011-env-var-security.mdc) for API key management
+- Complements [012-api-security.mdc](mdc:012-api-security.mdc) for secure API implementations
+- Works with [131-error-handling.mdc](mdc:131-error-handling.mdc) for payment error handling
+- Supports [013-dependency-auditing.mdc](mdc:013-dependency-auditing.mdc) for Stripe SDK updates
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Stripe integration guide
+- **`.cursor/docs/security-checklist.md#payment-security-if-applicable`** - Payment deployment checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Detect exposed Stripe keys
+  ```bash
+  ./.cursor/tools/scan-secrets.sh
+  # Detects: sk_live_*, pk_*, rk_*, hardcoded keys
+  ```
+- **`.cursor/tools/check-env-vars.sh`** - Validate Stripe key separation (client vs server)
+- **`.cursor/tools/inspect-model.sh`** - Check subscription/payment data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @010-security-compliance.mdc - Core security standards
+- @020-payment-security.mdc - Payment security (critical!)
+- @021-stripe-sync-implementation.mdc - Stripe data sync patterns
+- @069-stripe-webhook-debugging.mdc - Webhook debugging
+- @078-payment-testing-standards.mdc - Testing payment flows
+- @330-third-party-integration-testing.mdc - Third-party testing patterns
+- @331-high-risk-feature-testing.mdc - Critical path testing
+
+### Quick Start
+1. **Scan:** `.cursor/tools/scan-secrets.sh` (find exposed keys)
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Test:** See @078-payment-testing-standards.mdc
+4. **Deploy:** `.cursor/docs/security-checklist.md#payment-security-if-applicable`

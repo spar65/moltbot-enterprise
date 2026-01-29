@@ -1,0 +1,173 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+---
+
+description: Implement Auth0 Management API integration with proper role-based authentication and custom claims
+globs: "src/**/\*.{ts,js}", "pages/api/**/\*.{ts,js}"
+
+---
+
+# Auth0 Management API Integration
+
+## Context
+
+- When implementing admin functionality that needs to manage Auth0 users
+- When setting up role-based authentication with custom claims
+- When debugging Auth0 token/session issues
+
+## Requirements
+
+### Critical Session Parameter Rule
+
+- **CRITICAL**: Always pass full session object to admin auth functions:
+
+  ```typescript
+  // ❌ WRONG - Missing session parameter
+  logUserSession(session.user);
+  isUserAdmin(session.user);
+
+  // ✅ CORRECT - Pass both user and session
+  logUserSession(session.user, session);
+  isUserAdmin(session.user, session);
+  ```
+
+### Auth0 Management API Setup
+
+- **REQUIRED**: Create Machine-to-Machine application in Auth0 Dashboard
+- **REQUIRED**: Grant Management API scopes: `read:users`, `update:users`, `create:users`, `delete:users`
+- **REQUIRED**: Add environment variables:
+  ```
+  AUTH0_MGMT_CLIENT_ID=your_m2m_client_id
+  AUTH0_MGMT_CLIENT_SECRET=your_m2m_client_secret
+  AUTH0_AUDIENCE=https://api.yourdomain.com
+  ```
+
+### Auth0 Actions for Custom Claims
+
+- **REQUIRED**: Create Auth0 Action in Login/Post Login flow
+- **REQUIRED**: Add custom claims to both ID and access tokens
+- **REQUIRED**: Deploy the Action and add to Login flow
+
+### Token Decoding Implementation
+
+- **REQUIRED**: Implement JWT token decoding in admin auth functions
+- **REQUIRED**: Handle session parameter correctly to access tokenSet
+- **REQUIRED**: Decode both ID and access tokens for compatibility
+
+## Common Issues and Solutions
+
+### Issue: "Session/tokenSet/idToken not available"
+
+- **Cause**: Missing session parameter in function calls
+- **Solution**: Always pass both `user` and `session` to admin functions
+- **Check**: Verify function signatures match actual calls
+
+### Issue: Custom claims not in token
+
+- **Cause**: Auth0 Action not deployed or not in login flow
+- **Solution**:
+  1. Check Auth0 Dashboard > Actions > Library (should show "DEPLOYED")
+  2. Check Auth0 Dashboard > Actions > Flows > Login (Action should be in flow)
+  3. Logout/login to get fresh token
+
+### Issue: Inconsistent authentication behavior
+
+- **Cause**: Function parameter mismatch between endpoints
+- **Solution**:
+  1. Check all calls to `isUserAdmin()` and `logUserSession()`
+  2. Ensure consistent parameter passing
+  3. Restart development server
+
+## Comprehensive Guide Reference
+
+📖 **For complete implementation details, debugging steps, and troubleshooting:**
+See: `guides/auth0/Auth0-Management-API-Integration-Complete-Guide.md`
+
+This guide includes:
+
+- Complete Auth0 Dashboard setup steps
+- Full code implementations
+- Step-by-step debugging process
+- The critical bug we discovered and how to find it
+- Debug endpoints for troubleshooting
+- Production checklist
+
+## Examples
+
+<example>
+// Correct admin endpoint implementation
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const session = await auth0.getSession(req);
+  
+  if (!session?.user) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  
+  // ✅ Pass both user and session
+  logUserSession(session.user, session);
+  
+  if (!isUserAdmin(session.user, session)) {
+    return res.status(403).json({ error: 'Forbidden: Admin access required' });
+  }
+  
+  // Admin functionality here...
+}
+</example>
+
+<example type="invalid">
+// Missing session parameter - CRITICAL BUG
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const session = await auth0.getSession(req);
+  
+  // ❌ Missing session parameter - will cause token decoding to fail
+  logUserSession(session.user);
+  
+  if (!isUserAdmin(session.user)) {
+    return res.status(403).json({ error: 'Forbidden: Admin access required' });
+  }
+}
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Complete Auth0 setup guide
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Pre-deployment checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate Auth0 configuration
+  ```bash
+  ./.cursor/tools/check-auth-config.sh
+  # Validates: Env vars, secret strength, secure cookies, SDK version
+  ```
+- **`.cursor/tools/check-env-vars.sh`** - Ensure no secrets exposed
+- **`.cursor/tools/scan-secrets.sh`** - Detect hardcoded secrets
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @014-third-party-auth.mdc - Authentication implementation standards
+- @019-auth0-integration.mdc - Auth0 integration patterns (primary)
+- @046-session-validation.mdc - Session security
+- @047-session-token-debugging.mdc - Session debugging patterns
+- @115-auth0-m2m-troubleshooting.mdc - M2M troubleshooting
+- @330-auth0-testing-standards.mdc - Auth0 testing standards
+- @374-authentication-architecture-standards.mdc - Auth architecture
+- @400-auth-testing-patterns.mdc - Auth testing patterns
+- @410-auth-debugging.mdc - Auth debugging workflows
+
+### Quick Start
+1. **Validate:** `.cursor/tools/check-auth-config.sh`
+2. **Follow:** `.cursor/docs/security-workflows.md#auth0-integration-workflow`
+3. **Deploy:** `.cursor/docs/security-checklist.md#authentication-authorization`
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH0_CURRENT_IMPLEMENTATION.md`** - Current Auth0 setup and configuration
+- **`guides/AUTH0_TROUBLESHOOTING_GUIDE.md`** - Common Auth0 issues and solutions
+- **`guides/auth0/13-Machine-to-Machine-Applications-Guide.md`** - M2M Auth0 apps (Management API!)
+- **`guides/Auth0-Management-API-Integration-Complete-Guide.md`** - Complete Management API guide

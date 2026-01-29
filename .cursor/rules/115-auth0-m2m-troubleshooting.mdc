@@ -1,0 +1,224 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+---
+
+description: Use when troubleshooting Auth0 Management API authentication issues or setting up Machine-to-Machine applications
+globs: "\**/*auth0\*"
+
+---
+
+# Auth0 Machine-to-Machine (M2M) Application Troubleshooting
+
+## Context
+
+- Auth0 Management API authentication failures are common but frustrating
+- M2M applications require specific configuration and authorization
+- Environment variable updates in Vercel require redeployment
+- Different Auth0 tenants (dev/prod) have separate configurations
+
+## Requirements
+
+### M2M Application Setup
+
+- Create M2M application in the correct Auth0 tenant
+- Select "Machine to Machine Applications" type
+- Authorize for "Auth0 Management API" (not custom APIs)
+- Grant required scopes for user management
+- Save Client ID and Client Secret immediately
+
+### Required Scopes
+
+- `read:users` - Read user information
+- `update:users` - Update user profiles
+- `create:users` - Create new users
+- `delete:users` - Delete users
+- `read:users_app_metadata` - Read user metadata
+- `update:users_app_metadata` - Update user metadata
+
+### Environment Variable Configuration
+
+- `AUTH0_DOMAIN` - Domain without https:// (e.g., `vibecoder-prod.us.auth0.com`)
+- `AUTH0_MGMT_CLIENT_ID` - M2M application Client ID
+- `AUTH0_MGMT_CLIENT_SECRET` - M2M application Client Secret
+- `AUTH0_AUDIENCE` - Usually `https://{domain}/api/v2/` for Management API
+
+### Common Issues and Solutions
+
+#### 401 Unauthorized Errors
+
+- **Symptom**: `{"error":"access_denied","error_description":"Unauthorized"}`
+- **Causes**:
+  1. M2M app not properly authorized for Management API
+  2. Wrong client credentials in environment variables
+  3. Audience mismatch
+  4. Authorization grant not saved properly in Auth0
+
+#### Environment Variable Not Loading
+
+- **Symptom**: Old values persist after updating in Vercel
+- **Solution**: Force new deployment with `vercel --prod --force`
+- **Note**: Vercel requires redeployment to load new environment variables
+
+#### Wrong Auth0 Tenant
+
+- **Symptom**: Works in dev but not in production
+- **Check**: Ensure production uses production Auth0 tenant, not dev tenant
+- **Verify**: Domain in environment variables matches Auth0 dashboard
+
+## Implementation Guidelines
+
+### Debug Endpoint for Troubleshooting
+
+```typescript
+// Temporary debug endpoint to verify configuration
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  const config = {
+    domain: process.env.AUTH0_DOMAIN,
+    has_mgmt_client_id: !!process.env.AUTH0_MGMT_CLIENT_ID,
+    mgmt_client_id_prefix: process.env.AUTH0_MGMT_CLIENT_ID?.substring(0, 8),
+    audience: process.env.AUTH0_AUDIENCE,
+  };
+
+  // Test token acquisition
+  try {
+    const tokenResponse = await fetch(`https://${config.domain}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: process.env.AUTH0_MGMT_CLIENT_ID,
+        client_secret: process.env.AUTH0_MGMT_CLIENT_SECRET,
+        audience: `https://${config.domain}/api/v2/`,
+        grant_type: "client_credentials",
+      }),
+    });
+
+    const tokenData = await tokenResponse.json();
+    return res.json({
+      config,
+      tokenTest: {
+        status: tokenResponse.ok ? "success" : "failed",
+        statusCode: tokenResponse.status,
+        error: tokenData.error,
+      },
+    });
+  } catch (error) {
+    return res.json({ config, error: error.message });
+  }
+}
+```
+
+### Testing New Credentials Before Deployment
+
+```javascript
+// Test script for new M2M credentials
+const https = require("https");
+
+async function testAuth0Credentials() {
+  const domain = "your-domain.auth0.com";
+  const clientId = "your-client-id";
+  const clientSecret = "your-client-secret";
+
+  const postData = JSON.stringify({
+    client_id: clientId,
+    client_secret: clientSecret,
+    audience: `https://${domain}/api/v2/`,
+    grant_type: "client_credentials",
+  });
+
+  // Make token request and verify response
+  // ... implementation
+}
+```
+
+## Troubleshooting Checklist
+
+1. **Verify Auth0 Configuration**
+
+   - [ ] Correct Auth0 tenant (dev vs prod)
+   - [ ] M2M app created and authorized
+   - [ ] All required scopes selected
+   - [ ] Client credentials copied correctly
+
+2. **Check Environment Variables**
+
+   - [ ] All variables set in Vercel
+   - [ ] Set for correct environment (Production)
+   - [ ] No typos or extra spaces
+   - [ ] Domain format correct (no https://)
+
+3. **Force Deployment**
+
+   - [ ] Run `vercel --prod --force`
+   - [ ] Wait for deployment to complete
+   - [ ] Clear browser cache if needed
+
+4. **Test Authentication**
+   - [ ] Create debug endpoint
+   - [ ] Test token acquisition
+   - [ ] Verify API calls work
+   - [ ] Check Auth0 logs for errors
+
+## Prevention Strategies
+
+1. **Document All Credentials**
+
+   - Keep track of which M2M app is for which environment
+   - Document when credentials were last rotated
+   - Note which scopes are required
+
+2. **Test Before Production**
+
+   - Always test new credentials locally first
+   - Use debug endpoints to verify configuration
+   - Check Auth0 logs for authentication attempts
+
+3. **Regular Audits**
+   - Review M2M applications quarterly
+   - Remove unused applications
+   - Rotate credentials periodically
+
+## Related Rules
+
+- [014-third-party-auth.mdc](mdc:014-third-party-auth.mdc) for general Auth0 setup
+- [011-env-var-security.mdc](mdc:011-env-var-security.mdc) for environment variable management
+- [150-technical-debt-prevention.mdc](mdc:150-technical-debt-prevention.mdc) for cleanup procedures
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - M2M setup patterns
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Validation checklist
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate Auth0 M2M configuration
+- **`.cursor/tools/check-env-vars.sh`** - Verify M2M credentials properly configured
+- **`.cursor/tools/scan-secrets.sh`** - Detect hardcoded M2M secrets
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @014-third-party-auth.mdc - Authentication implementation standards
+- @018-auth0-management-api-integration.mdc - Management API integration
+- @019-auth0-integration.mdc - Auth0 integration patterns (primary)
+- @140-troubleshooting-standards.mdc - General troubleshooting patterns
+- @330-auth0-testing-standards.mdc - Auth0 testing standards
+- @374-authentication-architecture-standards.mdc - Auth architecture
+- @410-auth-debugging.mdc - Auth debugging workflows (critical!)
+
+### Quick Start
+1. **Validate:** `.cursor/tools/check-auth-config.sh`
+2. **Debug:** See @410-auth-debugging.mdc for systematic debugging
+3. **Follow:** `.cursor/docs/security-workflows.md#auth0-integration-workflow`
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH0_TROUBLESHOOTING_GUIDE.md`** - Common Auth0 issues and solutions
+- **`guides/auth0/13-Machine-to-Machine-Applications-Guide.md`** - **CRITICAL:** M2M troubleshooting!
+- **`guides/Auth0-Management-API-Integration-Complete-Guide.md`** - Management API patterns

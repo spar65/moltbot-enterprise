@@ -1,0 +1,117 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply email deliverability standards when implementing email sending infrastructure to ensure high inbox placement rates and sender reputation
+globs: "src/{lib,pages/api}/**/*.{js,jsx,ts,tsx}"
+___
+
+# Email Deliverability Standards
+
+## Sender Reputation Management
+- Monitor IP and domain reputation scores
+- Implement gradual IP warming for new sending domains
+- Track bounce rates and maintain clean lists
+- Implement feedback loop handling for ISP complaints
+- Monitor blacklist status and implement removal procedures
+- Document reputation recovery procedures
+
+## Authentication and Infrastructure
+- Implement SPF, DKIM, and DMARC records with proper alignment
+- Use dedicated sending domains for different email types
+- Implement BIMI for brand logo display in email clients
+- Monitor email authentication failures and alignment issues
+- Document email infrastructure configuration and maintenance
+- Apply proper subdomain strategy for different email types
+
+## Deliverability Monitoring
+- Implement seed-based deliverability testing
+- Monitor inbox placement rates across major ISPs
+- Track and analyze spam complaint rates
+- Apply engagement monitoring for deliverability signals
+- Create alerting for deliverability issues
+- Implement regular deliverability audits
+
+## Gmail & Yahoo 2024 Compliance Requirements (MANDATORY)
+- **REQUIRED**: Implement RFC 8058 one-click unsubscribe in email headers
+  - Add List-Unsubscribe-Post header with instant unsubscribe endpoint
+  - Add List-Unsubscribe header with HTTPS unsubscribe URL
+  - Process unsubscribe requests within 2 seconds
+  - Apply one-click unsubscribe to all bulk marketing emails
+- **REQUIRED**: Maintain spam complaint rate below 0.3%
+  - Monitor complaint rates in Google Postmaster Tools
+  - Implement automated warnings at 0.2% threshold
+  - Create emergency procedures for complaint rate spikes
+  - Document complaint rate tracking and response procedures
+- **REQUIRED**: Authenticate all bulk emails with SPF, DKIM, and DMARC
+  - No exceptions for authentication (covered in Authentication section above)
+  - Ensure DMARC policy is set to at least "p=none" for monitoring
+  - Monitor DMARC reports for authentication failures
+- Document compliance validation procedures and testing
+- Implement regular compliance audits (monthly minimum)
+- Create compliance dashboard for stakeholder visibility
+
+## Content Optimization
+- Apply spam trigger word avoidance
+- Implement proper HTML and CSS practices
+- Test content with spam analysis tools
+- Balance text-to-image ratios
+- Implement proper link structures
+- Apply mobile optimization for all content
+
+## See Also
+
+### Related Rules
+- @075-email-marketing-standards.mdc - Email marketing compliance and list management
+- @076-mailchimp-integration-standards.mdc - MailChimp API and sending infrastructure
+- @077-user-communication-standards.mdc - User communication best practices
+- @079-email-accessibility-standards.mdc - Accessible email design standards
+- @080-email-effectiveness-tracking.mdc - Email metrics and performance tracking
+- @011-env-var-security.mdc - Secure API key and credential management
+- @224-secrets-management.mdc - Secrets management best practices
+- @221-application-monitoring.mdc - Production monitoring and alerting
+
+### Tools & Documentation
+- **`.cursor/tools/check-email-compliance.sh`** - Email compliance and deliverability checker
+  ```bash
+  ./.cursor/tools/check-email-compliance.sh
+  # Validates: SPF, DKIM, DMARC, BIMI, one-click unsubscribe, spam rates
+  ```
+- **`.cursor/tools/check-dns-records.sh`** - DNS record validation for email authentication
+  ```bash
+  ./.cursor/tools/check-dns-records.sh yourdomain.com
+  # Checks: SPF, DKIM, DMARC, MX records
+  ```
+
+### Comprehensive Guides
+- **`guides/Email-Deliverability-Complete-Guide.md`** ⭐ **ESSENTIAL** - Master deliverability guide
+- **`guides/Email-Compliance-Guide.md`** - GDPR, CAN-SPAM, CASL, Gmail/Yahoo 2024
+- **`guides/Email-MailChimp-Integration-Guide.md`** - MailChimp setup and configuration
+- **`guides/Email-Template-Development-Guide.md`** - Email template best practices
+
+### Quick Start - Email Deliverability Setup
+
+```bash
+# 1. Validate DNS authentication records
+./.cursor/tools/check-dns-records.sh yourdomain.com
+
+# 2. Set up SPF, DKIM, DMARC records
+# Follow output recommendations from step 1
+
+# 3. Implement one-click unsubscribe headers
+# Add List-Unsubscribe and List-Unsubscribe-Post headers to all emails
+
+# 4. Monitor compliance
+./.cursor/tools/check-email-compliance.sh
+
+# 5. Set up Google Postmaster Tools
+# Monitor spam rates, reputation, and authentication
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P0 (Required)  
+**Last Updated**: November 20, 2025

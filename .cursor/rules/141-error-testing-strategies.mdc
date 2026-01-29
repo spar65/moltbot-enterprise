@@ -1,0 +1,575 @@
+---
+description: Implement comprehensive error testing strategies when building applications to ensure errors are handled correctly and systems fail gracefully
+globs: ["**/__tests__/**/*", "**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}"]
+---
+
+# Error Testing Strategies
+
+## Context
+
+Testing error scenarios is critical but often neglected. This rule establishes comprehensive strategies for testing errors, from unit tests to chaos engineering, ensuring your error handling actually works when things go wrong.
+
+**Error Testing Levels**:
+1. **Unit Tests** - Test error classes and handlers
+2. **Component Tests** - Test error boundaries and UI
+3. **Integration Tests** - Test API error flows
+4. **E2E Tests** - Test user error experiences
+5. **Chaos Tests** - Test system resilience
+
+## Requirements
+
+### 1. Testing Error Boundaries
+
+**Error Boundary Component Tests**:
+
+```typescript
+// __tests__/components/GlobalErrorBoundary.test.tsx
+import { render, screen } from "@testing-library/react";
+import { GlobalErrorBoundary } from "@/components/errors/GlobalErrorBoundary";
+
+// Component that throws an error
+function ErrorComponent() {
+  throw new Error("Test error");
+}
+
+describe("GlobalErrorBoundary", () => {
+  it("should catch and display errors", () => {
+    // Suppress console.error for this test
+    const consoleSpy = jest.spyOn(console, "error").mockImplementation();
+    
+    render(
+      <GlobalErrorBoundary>
+        <ErrorComponent />
+      </GlobalErrorBoundary>
+    );
+    
+    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
+    expect(screen.getByText("Try Again")).toBeInTheDocument();
+    
+    consoleSpy.mockRestore();
+  });
+  
+  it("should allow reset after error", async () => {
+    const consoleSpy = jest.spyOn(console, "error").mockImplementation();
+    let shouldError = true;
+    
+    function ConditionalError() {
+      if (shouldError) throw new Error("Test error");
+      return <div>Success</div>;
+    }
+    
+    const { rerender } = render(
+      <GlobalErrorBoundary>
+        <ConditionalError />
+      </GlobalErrorBoundary>
+    );
+    
+    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
+    
+    // Fix the error condition
+    shouldError = false;
+    
+    // Click reset
+    const resetButton = screen.getByText("Try Again");
+    resetButton.click();
+    
+    expect(screen.getByText("Success")).toBeInTheDocument();
+    
+    consoleSpy.mockRestore();
+  });
+});
+```
+
+### 2. Testing Form Validation Errors
+
+**Form Error Tests**:
+
+```typescript
+// __tests__/components/LoginForm.test.tsx
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { LoginForm } from "@/components/forms/LoginForm";
+
+describe("LoginForm validation", () => {
+  it("should show validation errors for invalid email", async () => {
+    render(<LoginForm />);
+    
+    const emailInput = screen.getByLabelText(/email/i);
+    const submitButton = screen.getByRole("button", { name: /log in/i });
+    
+    await userEvent.type(emailInput, "invalid-email");
+    await userEvent.click(submitButton);
+    
+    await waitFor(() => {
+      expect(screen.getByText(/please enter a valid email/i)).toBeInTheDocument();
+    });
+  });
+  
+  it("should show API error on login failure", async () => {
+    // Mock API failure
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ message: "Invalid credentials" }),
+    });
+    
+    render(<LoginForm />);
+    
+    await userEvent.type(screen.getByLabelText(/email/i), "test@example.com");
+    await userEvent.type(screen.getByLabelText(/password/i), "wrong");
+    await userEvent.click(screen.getByRole("button", { name: /log in/i }));
+    
+    await waitFor(() => {
+      expect(screen.getByText(/invalid credentials/i)).toBeInTheDocument();
+    });
+  });
+});
+```
+
+### 3. Testing API Error Handling
+
+**API Route Error Tests**:
+
+```typescript
+// __tests__/api/users.test.ts
+import { POST } from "@/app/api/users/route";
+import { prismaMock } from "@/lib/test-utils";
+
+describe("POST /api/users", () => {
+  it("should return 400 for invalid data", async () => {
+    const request = new Request("http://localhost/api/users", {
+      method: "POST",
+      body: JSON.stringify({ email: "invalid" }), // Missing required fields
+    });
+    
+    const response = await POST(request);
+    
+    expect(response.status).toBe(400);
+    const data = await response.json();
+    expect(data.error).toBeDefined();
+  });
+  
+  it("should return 500 on database error", async () => {
+    prismaMock.user.create.mockRejectedValue(
+      new Error("Database connection failed")
+    );
+    
+    const request = new Request("http://localhost/api/users", {
+      method: "POST",
+      body: JSON.stringify({
+        email: "test@example.com",
+        name: "Test User",
+      }),
+    });
+    
+    const response = await POST(request);
+    
+    expect(response.status).toBe(500);
+    const data = await response.json();
+    expect(data.error).toBe("Internal server error");
+  });
+  
+  it("should return 409 on duplicate email", async () => {
+    prismaMock.user.create.mockRejectedValue({
+      code: "P2002", // Prisma unique constraint error
+      meta: { target: ["email"] },
+    });
+    
+    const request = new Request("http://localhost/api/users", {
+      method: "POST",
+      body: JSON.stringify({
+        email: "existing@example.com",
+        name: "Test User",
+      }),
+    });
+    
+    const response = await POST(request);
+    
+    expect(response.status).toBe(409);
+    const data = await response.json();
+    expect(data.error).toContain("already exists");
+  });
+});
+```
+
+### 4. Testing React Query Errors
+
+**Query Error Tests**:
+
+```typescript
+// __tests__/hooks/useUser.test.ts
+import { renderHook, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useUser } from "@/hooks/useUser";
+
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+  
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      {children}
+    </QueryClientProvider>
+  );
+}
+
+describe("useUser", () => {
+  it("should handle 404 errors", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+    });
+    
+    const { result } = renderHook(() => useUser("nonexistent"), {
+      wrapper: createWrapper(),
+    });
+    
+    await waitFor(() => {
+      expect(result.current.error).toBeDefined();
+      expect(result.current.error?.message).toContain("not found");
+    });
+  });
+  
+  it("should retry on network errors", async () => {
+    let callCount = 0;
+    global.fetch = jest.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount < 3) {
+        return Promise.reject(new Error("Network error"));
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ id: "123", name: "Test" }),
+      });
+    });
+    
+    const { result } = renderHook(() => useUser("123"), {
+      wrapper: createWrapper(),
+    });
+    
+    await waitFor(() => {
+      expect(result.current.data).toEqual({ id: "123", name: "Test" });
+    });
+    
+    expect(callCount).toBe(3); // Verified retry happened
+  });
+});
+```
+
+### 5. Simulating Network Failures
+
+**Network Condition Tests**:
+
+```typescript
+// __tests__/integration/offline-handling.test.tsx
+describe("Offline handling", () => {
+  it("should show offline message when network is unavailable", async () => {
+    // Simulate offline
+    Object.defineProperty(navigator, "onLine", {
+      writable: true,
+      value: false,
+    });
+    
+    render(<App />);
+    
+    // Trigger offline event
+    window.dispatchEvent(new Event("offline"));
+    
+    await waitFor(() => {
+      expect(screen.getByText(/you're offline/i)).toBeInTheDocument();
+    });
+  });
+  
+  it("should queue requests when offline", async () => {
+    const { result } = renderHook(() => useOfflineQueue());
+    
+    // Go offline
+    Object.defineProperty(navigator, "onLine", { value: false });
+    window.dispatchEvent(new Event("offline"));
+    
+    // Try to make request
+    const request = { url: "/api/data", method: "POST", body: { test: true } };
+    result.current.addToQueue(request);
+    
+    expect(result.current.queue).toHaveLength(1);
+    
+    // Go online
+    Object.defineProperty(navigator, "onLine", { value: true });
+    window.dispatchEvent(new Event("online"));
+    
+    await waitFor(() => {
+      expect(result.current.queue).toHaveLength(0); // Queue processed
+    });
+  });
+});
+```
+
+### 6. Testing Circuit Breakers
+
+**Resilience Pattern Tests**:
+
+```typescript
+// __tests__/lib/resilience/circuit-breaker.test.ts
+import { CircuitBreaker, CircuitState } from "@/lib/resilience/circuit-breaker";
+
+describe("CircuitBreaker", () => {
+  it("should open after threshold failures", async () => {
+    const breaker = new CircuitBreaker("test", {
+      failureThreshold: 3,
+      timeout: 1000,
+      volumeThreshold: 1,
+    });
+    
+    const failingOp = jest.fn().mockRejectedValue(new Error("Failed"));
+    
+    // Fail 3 times
+    for (let i = 0; i < 3; i++) {
+      try {
+        await breaker.execute(failingOp);
+      } catch (e) {
+        // Expected
+      }
+    }
+    
+    expect(breaker.getState()).toBe(CircuitState.OPEN);
+    
+    // Next call should fail fast without calling operation
+    failingOp.mockClear();
+    try {
+      await breaker.execute(failingOp);
+    } catch (e) {
+      expect(e.message).toContain("Circuit breaker");
+    }
+    expect(failingOp).not.toHaveBeenCalled();
+  });
+  
+  it("should use fallback when circuit is open", async () => {
+    const breaker = new CircuitBreaker("test", {
+      failureThreshold: 1,
+      volumeThreshold: 1,
+    });
+    
+    const failingOp = jest.fn().mockRejectedValue(new Error("Failed"));
+    const fallback = jest.fn().mockResolvedValue("fallback-result");
+    
+    // Fail once to open circuit
+    try {
+      await breaker.execute(failingOp);
+    } catch (e) {}
+    
+    // Use fallback
+    const result = await breaker.execute(failingOp, fallback);
+    
+    expect(result).toBe("fallback-result");
+    expect(fallback).toHaveBeenCalled();
+  });
+});
+```
+
+### 7. Testing Error Monitoring Integration
+
+**Sentry Integration Tests**:
+
+```typescript
+// __tests__/lib/monitoring/sentry.test.ts
+import * as Sentry from "@sentry/nextjs";
+import { captureErrorWithContext } from "@/lib/errors/context-helper";
+
+jest.mock("@sentry/nextjs");
+
+describe("Error monitoring", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+  
+  it("should capture errors with user context", () => {
+    const error = new Error("Test error");
+    const context = {
+      user: {
+        userId: "123",
+        email: "test@example.com",
+        organizationId: "org-456",
+      },
+    };
+    
+    captureErrorWithContext(error, context);
+    
+    expect(Sentry.captureException).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({
+        contexts: expect.objectContaining({
+          user: context.user,
+        }),
+        tags: expect.objectContaining({
+          organizationId: "org-456",
+        }),
+      })
+    );
+  });
+});
+```
+
+### 8. Chaos Engineering (Basic)
+
+**Fault Injection Tests**:
+
+```typescript
+// __tests__/chaos/fault-injection.test.ts
+import { injectChaos } from "@/lib/test-utils/chaos";
+
+describe("Chaos testing", () => {
+  it("should handle random API failures", async () => {
+    const chaosConfig = {
+      failureRate: 0.3, // 30% failure rate
+      errorTypes: ["timeout", "500", "network"],
+    };
+    
+    const results = {
+      success: 0,
+      failure: 0,
+    };
+    
+    // Run 100 requests with chaos
+    for (let i = 0; i < 100; i++) {
+      try {
+        await injectChaos(chaosConfig, async () => {
+          return await fetch("/api/data");
+        });
+        results.success++;
+      } catch (e) {
+        results.failure++;
+      }
+    }
+    
+    // Should have ~30% failures (with tolerance)
+    expect(results.failure).toBeGreaterThan(20);
+    expect(results.failure).toBeLessThan(40);
+    
+    // Should still have successful requests
+    expect(results.success).toBeGreaterThan(60);
+  });
+});
+```
+
+### 9. Testing Error Recovery
+
+**Recovery Scenario Tests**:
+
+```typescript
+// __tests__/integration/error-recovery.test.ts
+describe("Error recovery", () => {
+  it("should recover from temporary database failure", async () => {
+    let callCount = 0;
+    
+    prismaMock.user.findUnique.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error("Connection refused");
+      }
+      return Promise.resolve({ id: "123", name: "Test" });
+    });
+    
+    const result = await withRetry(
+      () => prismaMock.user.findUnique({ where: { id: "123" } }),
+      { maxAttempts: 3 }
+    );
+    
+    expect(result).toEqual({ id: "123", name: "Test" });
+    expect(callCount).toBe(2); // Failed once, succeeded on retry
+  });
+});
+```
+
+## Examples
+
+<example>
+// ✅ GOOD - Comprehensive error testing
+
+describe("Payment processing", () => {
+  // Test validation errors
+  it("should reject invalid card numbers", async () => {
+    const result = await processPayment({ cardNumber: "invalid" });
+    expect(result.error).toBe("Invalid card number");
+  });
+  
+  // Test network errors
+  it("should retry on network failure", async () => {
+    // Simulate network failure then success
+    mockStripe
+      .mockRejectedValueOnce(new Error("Network error"))
+      .mockResolvedValue({ id: "pi_123", status: "succeeded" });
+    
+    const result = await processPayment(validData);
+    expect(result.success).toBe(true);
+  });
+  
+  // Test error recovery
+  it("should use fallback on service failure", async () => {
+    mockStripe.mockRejectedValue(new Error("Service unavailable"));
+    
+    const result = await processPayment(validData);
+    expect(result.fallbackUsed).toBe(true);
+  });
+  
+  // Test error monitoring
+  it("should report errors to Sentry", async () => {
+    await processPayment(validData);
+    expect(Sentry.captureException).toHaveBeenCalled();
+  });
+});
+</example>
+
+<example type="invalid">
+// ❌ BAD - Only testing happy path
+
+describe("Payment processing", () => {
+  it("should process valid payment", async () => {
+    const result = await processPayment(validData);
+    expect(result.success).toBe(true);
+  });
+  // No error tests! ❌
+});
+</example>
+
+## See Also
+
+### Related Rules
+
+**Error Handling**:
+- @135-error-monitoring-observability.mdc - Error monitoring
+- @136-error-recovery-resilience.mdc - Recovery patterns
+- @138-frontend-error-patterns.mdc - Frontend errors
+- @139-error-context-debugging.mdc - Error context
+
+**Testing**:
+- @300-testing-standards.mdc - General testing
+- @380-comprehensive-testing-standards.mdc - Universal framework
+- @320-test-resilience.mdc - Test reliability
+- @370-api-testing-database.mdc - API testing
+
+### Quick Start
+
+```typescript
+// 1. Test error boundaries
+it("catches errors", () => { /* ... */ });
+
+// 2. Test form validation
+it("shows validation errors", () => { /* ... */ });
+
+// 3. Test API errors
+it("handles 500 errors", () => { /* ... */ });
+
+// 4. Test recovery
+it("retries on failure", () => { /* ... */ });
+
+// 5. Test monitoring
+expect(Sentry.captureException).toHaveBeenCalled();
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P2  
+**Generated**: November 20, 2025

@@ -1,0 +1,319 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Implement comprehensive testing strategies for authentication flows to ensure security, reliability, and correct user experience
+globs: "**/*.{test,spec}.{ts,tsx,js,jsx}"
+___
+
+# Authentication Testing Patterns
+
+## Context
+- This rule applies when testing authentication-related functionality
+- Critical for ensuring secure and reliable user authentication
+- Applies to unit tests, integration tests, and end-to-end tests
+- Important for validating Auth0 or other authentication provider integrations
+
+## Requirements
+
+### Mocking Authentication in Tests
+- Implement proper authentication mocking:
+  - Create reusable mock authentication providers for tests
+  - Mock Auth0 or other authentication services with appropriate test doubles
+  - Simulate different authentication states (logged in, logged out, expired)
+  - Mock different user roles and permissions
+  - Maintain separation between auth mocks and business logic tests
+  - Create helper functions for quickly setting up auth test context
+- Document authentication mocking approaches for different test types
+- Ensure mocks do not contain real credentials or secrets
+
+### Testing Protected Routes
+- Implement comprehensive testing for protected routes:
+  - Test access to protected routes without authentication
+  - Test access with authenticated but unauthorized users
+  - Test access with proper authentication and authorization
+  - Test route redirects for unauthenticated access attempts
+  - Verify correct handling of URL parameters after authentication
+  - Test expiration and refresh of authentication tokens
+  - Verify security headers and CSP settings on protected routes
+- Ensure test coverage for all protected routes
+- Test both API and frontend route protection
+
+### Simulating Authentication Failures
+- Implement tests for authentication failure scenarios:
+  - Test with invalid credentials
+  - Test with expired tokens
+  - Test with malformed tokens
+  - Test with missing tokens
+  - Test network failures during authentication
+  - Test rate limiting or brute force protection
+  - Test authorization server unavailability
+  - Test token revocation scenarios
+- Verify appropriate error messages for each failure mode
+- Ensure proper security in error handling (no information leakage)
+
+### Integration Tests for Auth Flows
+- Create end-to-end tests for authentication flows:
+  - Test complete login flow from start to finish
+  - Test logout flow including session cleanup
+  - Test registration flow if applicable
+  - Test password reset flow
+  - Test email verification flow
+  - Test social login integration
+  - Test token refresh flow
+  - Test remember me functionality
+- Test flows across multiple browsers and devices
+- Include accessibility testing for authentication UI
+
+### Security-Focused Authentication Testing
+- Implement security-specific authentication tests:
+  - Test for session fixation vulnerabilities
+  - Test for cross-site scripting in auth flows
+  - Test for cross-site request forgery protection
+  - Test for proper HTTP security headers
+  - Test for token leakage prevention
+  - Test for proper cookie security settings
+  - Test for multi-factor authentication if applicable
+- Integrate with security scanning tools when possible
+- Document security testing coverage and findings
+
+## Examples
+
+<example>
+// Good authentication mocking pattern
+// auth-test-utils.ts
+
+import { render, RenderOptions } from '@testing-library/react';
+import { AuthProvider } from '../contexts/auth';
+
+// Mock user profiles for different test scenarios
+export const mockUsers = {
+  admin: {
+    sub: 'auth0|123456',
+    email: 'admin@example.com',
+    name: 'Admin User',
+    roles: ['admin'],
+    permissions: ['read:any', 'write:any']
+  },
+  regularUser: {
+    sub: 'auth0|654321',
+    email: 'user@example.com',
+    name: 'Regular User',
+    roles: ['user'],
+    permissions: ['read:own', 'write:own']
+  },
+  unverified: {
+    sub: 'auth0|789012',
+    email: 'unverified@example.com',
+    name: 'Unverified User',
+    email_verified: false,
+    roles: ['user'],
+    permissions: []
+  }
+};
+
+// Auth state options for tests
+export type AuthState = 'authenticated' | 'unauthenticated' | 'loading';
+
+// Auth test context options
+export interface AuthTestContextOptions {
+  user?: typeof mockUsers[keyof typeof mockUsers] | null;
+  authState?: AuthState;
+  loginError?: Error | null;
+}
+
+// Default options for authenticated admin user
+const defaultAuthOptions: AuthTestContextOptions = {
+  user: mockUsers.admin,
+  authState: 'authenticated',
+  loginError: null
+};
+
+// Custom render with auth context wrapper
+export function renderWithAuth(
+  ui: React.ReactElement,
+  authOptions: AuthTestContextOptions = defaultAuthOptions,
+  renderOptions: Omit<RenderOptions, 'wrapper'> = {}
+) {
+  return render(ui, {
+    wrapper: ({ children }) => (
+      <MockAuthProvider
+        user={authOptions.user}
+        authState={authOptions.authState}
+        loginError={authOptions.loginError}
+      >
+        {children}
+      </MockAuthProvider>
+    ),
+    ...renderOptions
+  });
+}
+
+// Mock auth provider for tests
+export function MockAuthProvider({
+  children,
+  user = mockUsers.admin,
+  authState = 'authenticated',
+  loginError = null
+}: React.PropsWithChildren<AuthTestContextOptions>) {
+  // Mock implementation of AuthProvider for testing
+  const mockAuth = {
+    user,
+    isLoading: authState === 'loading',
+    isAuthenticated: authState === 'authenticated',
+    error: loginError,
+    login: jest.fn(),
+    logout: jest.fn(),
+    getAccessToken: jest.fn().mockResolvedValue('mock-access-token')
+  };
+
+  return (
+    <AuthProvider value={mockAuth}>
+      {children}
+    </AuthProvider>
+  );
+}
+</example>
+
+<example type="invalid">
+// Poor authentication testing approach
+
+// Hardcoded credentials in tests
+test('user can log in', async () => {
+  await page.type('#email', 'real-admin@company.com');
+  await page.type('#password', 'ActualPassword123!');
+  await page.click('#login-button');
+  
+  // Check if login worked
+  await page.waitForSelector('#dashboard');
+});
+
+// No testing of edge cases or failures
+test('protected route requires auth', async () => {
+  // Only tests the happy path with valid auth
+  const res = await request(app)
+    .get('/api/protected')
+    .set('Authorization', 'Bearer valid-token');
+  
+  expect(res.status).toBe(200);
+});
+</example>
+
+<example>
+// Good protected route testing
+// protected-routes.test.ts
+
+import request from 'supertest';
+import { app } from '../app';
+import { generateMockToken, mockInvalidToken } from './auth-test-utils';
+
+describe('Protected API Routes', () => {
+  describe('GET /api/user/profile', () => {
+    it('returns 401 when no token is provided', async () => {
+      const res = await request(app).get('/api/user/profile');
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty('error');
+      expect(res.body.error).toMatch(/authentication required/i);
+    });
+    
+    it('returns 401 when token is invalid', async () => {
+      const res = await request(app)
+        .get('/api/user/profile')
+        .set('Authorization', `Bearer ${mockInvalidToken}`);
+      
+      expect(res.status).toBe(401);
+    });
+    
+    it('returns 403 when token is valid but lacks required permissions', async () => {
+      const token = generateMockToken({ 
+        sub: 'user123',
+        permissions: ['read:basic'] // Missing required permission
+      });
+      
+      const res = await request(app)
+        .get('/api/user/profile')
+        .set('Authorization', `Bearer ${token}`);
+      
+      expect(res.status).toBe(403);
+      expect(res.body).toHaveProperty('error');
+      expect(res.body.error).toMatch(/insufficient permissions/i);
+    });
+    
+    it('returns 200 and user profile when token is valid with required permissions', async () => {
+      const token = generateMockToken({ 
+        sub: 'user123',
+        permissions: ['read:profile']
+      });
+      
+      const res = await request(app)
+        .get('/api/user/profile')
+        .set('Authorization', `Bearer ${token}`);
+      
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('id');
+      expect(res.body).toHaveProperty('email');
+    });
+  });
+  
+  // Additional tests for other protected routes...
+});
+</example>
+
+<example type="invalid">
+// Insufficient auth failure testing
+
+describe('Login', () => {
+  // Only testing the success case
+  it('allows user to log in with valid credentials', async () => {
+    // Implementation...
+    expect(result.success).toBe(true);
+  });
+  
+  // Missing tests for:
+  // - Invalid credentials
+  // - Account lockout
+  // - Rate limiting
+  // - Network failures
+  // - Server errors
+  // - Expired credentials
+});
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Auth patterns to test
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Testing workflows
+- **`.cursor/docs/security-checklist.md`** - What to validate in tests
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate auth before testing
+- **`.cursor/tools/check-env-vars.sh`** - Test environment setup
+- **`.cursor/tools/inspect-model.sh`** - Check user/session models for tests
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @130-testing-auth-flows.mdc - Auth flow testing
+- @300-testing-standards.mdc - General testing standards
+- @330-auth0-testing-standards.mdc - Auth0-specific testing
+- @374-authentication-architecture-standards.mdc - Auth architecture to test
+- @375-api-test-first-time-right.mdc - API testing patterns (schema-first)
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @410-auth-debugging.mdc - Debug failing auth tests
+
+### Quick Start
+1. **Setup:** `.cursor/tools/check-auth-config.sh` (validate environment)
+2. **Schema:** `.cursor/tools/inspect-model.sh User` (check data models)
+3. **Follow:** This rule's patterns + @375-api-test-first-time-right.mdc
+4. **Test:** Should pass first run (95%+ success rate)
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH_TESTING_PATTERNS_GUIDE.md`** - **CRITICAL:** Auth testing patterns!
+- **`guides/TESTING_AUTH_FLOWS_GUIDE.md`** - Auth flow testing guide
+- **`guides/auth0/04-Auth0-Testing-Guide.md`** - Auth0-specific testing
+- **`guides/Auth0-Testing-Best-Practices.md`** - Testing best practices

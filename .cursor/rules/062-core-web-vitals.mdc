@@ -1,0 +1,339 @@
+---
+description: Optimize Core Web Vitals when implementing features to ensure excellent user experience and SEO performance
+globs: "app/**/*.{ts,tsx,js,jsx}"
+---
+
+# Core Web Vitals Optimization
+
+## Context
+Core Web Vitals are Google's standardized metrics for measuring user experience. They directly impact SEO rankings and user satisfaction. Every feature must consider its impact on these metrics.
+
+**The Three Core Metrics:**
+- **LCP (Largest Contentful Paint)** - Loading performance
+- **INP (Interaction to Next Paint)** - Interactivity (replaced FID)
+- **CLS (Cumulative Layout Shift)** - Visual stability
+
+## Requirements
+
+### LCP - Largest Contentful Paint (Target: <2.5s)
+
+**What It Measures:**
+- Time until the largest content element is visible
+- Usually hero image, heading, or large text block
+
+**Optimization Requirements:**
+1. **Server-Side Rendering**
+   - Use Next.js SSR/SSG for above-the-fold content
+   - Pre-render critical page structure
+   - Stream HTML progressively
+
+2. **Resource Loading**
+   - Preload critical resources (fonts, hero images)
+   - Use `priority` prop for Next.js Image components above fold
+   - Minimize render-blocking resources
+
+3. **Image Optimization**
+   - Use Next.js Image component for automatic optimization
+   - Serve WebP/AVIF formats with fallbacks
+   - Implement proper sizing and responsive images
+
+<example>
+// ✅ GOOD: Optimized LCP for hero image
+import Image from 'next/image';
+
+export default function Hero() {
+  return (
+    <section>
+      <Image
+        src="/hero.jpg"
+        alt="Hero"
+        width={1200}
+        height={600}
+        priority // Preload for LCP
+        quality={90}
+      />
+      <h1 className="hero-title">Welcome</h1>
+    </section>
+  );
+}
+</example>
+
+<example type="invalid">
+// ❌ BAD: Unoptimized LCP
+export default function Hero() {
+  return (
+    <section>
+      <img src="/hero.jpg" alt="Hero" /> {/* No optimization */}
+      <h1>Welcome</h1>
+    </section>
+  );
+}
+</example>
+
+### INP - Interaction to Next Paint (Target: <200ms)
+
+**What It Measures:**
+- Responsiveness to user interactions
+- Time from user input to visual feedback
+
+**Optimization Requirements:**
+1. **Event Handler Optimization**
+   - Debounce/throttle frequent events (scroll, resize)
+   - Use `useTransition` for non-urgent updates
+   - Minimize work in event handlers
+
+2. **React Optimization**
+   - Use `React.memo` for expensive components
+   - Implement proper `useMemo` and `useCallback`
+   - Avoid unnecessary re-renders
+
+3. **Heavy Computation**
+   - Move to Web Workers for CPU-intensive tasks
+   - Use `requestIdleCallback` for non-critical work
+   - Break up long tasks into smaller chunks
+
+<example>
+// ✅ GOOD: Optimized interactions
+'use client';
+
+import { useState, useTransition, useMemo } from 'react';
+
+export default function SearchResults() {
+  const [query, setQuery] = useState('');
+  const [isPending, startTransition] = useTransition();
+
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setQuery(value); // Immediate for input
+    
+    // Non-urgent filtering
+    startTransition(() => {
+      performExpensiveFiltering(value);
+    });
+  };
+
+  return (
+    <div>
+      <input 
+        type="text" 
+        value={query} 
+        onChange={handleSearch}
+        aria-busy={isPending}
+      />
+      {isPending && <LoadingSpinner />}
+    </div>
+  );
+}
+</example>
+
+<example type="invalid">
+// ❌ BAD: Blocking interactions
+export default function SearchResults() {
+  const [query, setQuery] = useState('');
+
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setQuery(value);
+    // Blocks UI during expensive operation
+    performExpensiveFiltering(value); 
+  };
+
+  return <input type="text" value={query} onChange={handleSearch} />;
+}
+</example>
+
+### CLS - Cumulative Layout Shift (Target: <0.1)
+
+**What It Measures:**
+- Visual stability during page load
+- Unexpected layout shifts
+
+**Optimization Requirements:**
+1. **Reserved Space**
+   - Always specify image dimensions
+   - Reserve space for dynamic content
+   - Use skeleton loaders with fixed dimensions
+
+2. **Font Loading**
+   - Use `font-display: swap` or `optional`
+   - Preload critical fonts
+   - Avoid layout shifts from font changes
+
+3. **Dynamic Content**
+   - Avoid inserting content above existing content
+   - Reserve space for ads/embeds
+   - Use CSS `aspect-ratio` for media
+
+<example>
+// ✅ GOOD: Prevents CLS with reserved space
+import Image from 'next/image';
+
+export default function ProductCard() {
+  return (
+    <article>
+      {/* Fixed dimensions prevent shift */}
+      <Image
+        src="/product.jpg"
+        alt="Product"
+        width={300}
+        height={300}
+      />
+      {/* Skeleton loader with fixed height */}
+      <div className="h-20">
+        <ProductDetails />
+      </div>
+    </article>
+  );
+}
+</example>
+
+<example type="invalid">
+// ❌ BAD: Causes CLS
+export default function ProductCard() {
+  return (
+    <article>
+      {/* No dimensions = layout shift when loaded */}
+      <img src="/product.jpg" alt="Product" />
+      {/* Dynamic height = layout shift */}
+      <div>
+        <ProductDetails />
+      </div>
+    </article>
+  );
+}
+</example>
+
+### Measurement & Monitoring
+
+**Development Monitoring:**
+```bash
+# Run Lighthouse audit
+./.cursor/tools/run-lighthouse.sh
+
+# Check specific page
+npm run lighthouse -- http://localhost:3000/page
+```
+
+**Production Monitoring:**
+1. **Real User Monitoring (RUM)**
+   - Integrate web-vitals library
+   - Send metrics to analytics
+   - Set up alerts for threshold breaches
+
+2. **Lab Testing**
+   - Lighthouse CI in GitHub Actions
+   - Regular WebPageTest audits
+   - Performance budgets enforcement
+
+<example>
+// ✅ GOOD: Monitoring Core Web Vitals
+import { getCLS, getFID, getFCP, getLCP, getTTFB } from 'web-vitals';
+
+function sendToAnalytics(metric: any) {
+  // Send to analytics service
+  const body = JSON.stringify(metric);
+  const url = '/api/analytics';
+  
+  // Use sendBeacon for reliability
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon(url, body);
+  } else {
+    fetch(url, { body, method: 'POST', keepalive: true });
+  }
+}
+
+// Measure all Core Web Vitals
+getCLS(sendToAnalytics);
+getFID(sendToAnalytics); // or getINP when available
+getLCP(sendToAnalytics);
+</example>
+
+### Performance Budgets
+
+**Set Clear Budgets:**
+```typescript
+// lighthouse-budget.json
+{
+  "budgets": [{
+    "resourceSizes": [
+      { "resourceType": "script", "budget": 300 },
+      { "resourceType": "image", "budget": 500 },
+      { "resourceType": "total", "budget": 1000 }
+    ],
+    "timings": [
+      { "metric": "largest-contentful-paint", "budget": 2500 },
+      { "metric": "interactive", "budget": 3500 },
+      { "metric": "cumulative-layout-shift", "budget": 0.1 }
+    ]
+  }]
+}
+```
+
+## Common Issues & Solutions
+
+### Issue: Slow LCP from Large Images
+**Solution:**
+- Use Next.js Image with `priority` prop
+- Implement proper image compression
+- Use modern formats (WebP, AVIF)
+- Consider lazy loading below-fold images
+
+### Issue: Poor INP from Expensive Renders
+**Solution:**
+- Use React.memo for expensive components
+- Implement virtualization for long lists
+- Move heavy computation to Web Workers
+- Use useTransition for non-urgent updates
+
+### Issue: CLS from Dynamic Content
+**Solution:**
+- Always specify image dimensions
+- Use skeleton loaders with fixed dimensions
+- Preload critical fonts
+- Avoid inserting content above existing content
+
+## Tools & Documentation
+
+### Required Tools (USE THESE!)
+- **`.cursor/tools/run-lighthouse.sh`** - Automated Core Web Vitals audits
+- **`.cursor/tools/analyze-performance.sh`** - Overall performance analysis
+
+### Complete Workflow Documentation
+- **`guides/Core-Web-Vitals-Optimization-Guide.md`** - Comprehensive optimization guide
+- **`guides/Performance-Monitoring-Complete-Guide.md`** - Monitoring setup
+- **`.cursor/docs/ai-workflows.md#performance-optimization`** - Proven patterns
+
+### Quick Start
+1. **Read:** This rule + Core Web Vitals guide
+2. **Measure:** Run `.cursor/tools/run-lighthouse.sh`
+3. **Optimize:** Follow patterns above
+4. **Monitor:** Set up RUM in production
+5. **Budget:** Enforce performance budgets in CI/CD
+
+## See Also
+
+### Documentation
+- **`guides/Core-Web-Vitals-Optimization-Guide.md`** - Detailed optimization strategies
+- **`guides/Performance-Monitoring-Complete-Guide.md`** - Monitoring implementation
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master performance guide
+- **`.cursor/docs/ai-workflows.md`** - Proven development patterns
+
+### Related Rules
+- @060-performance-metrics.mdc - General performance metrics
+- @061-code-splitting.mdc - JavaScript optimization
+- @063-client-performance.mdc - Client-side performance
+- @073-nextjs-image-optimization.mdc - Image optimization details
+
+### Related Tools
+- **`.cursor/tools/run-lighthouse.sh`** - Lighthouse automation
+- **`.cursor/tools/check-bundle-size.sh`** - Bundle size analysis
+- **`.cursor/tools/analyze-performance.sh`** - Overall performance check
+
+## Priority
+**P0 (Required)** - Core Web Vitals directly impact SEO rankings and user experience. Must be considered for all user-facing features.
+
+## References
+- [Web.dev Core Web Vitals](https://web.dev/vitals/)
+- [Google Search Central - Core Web Vitals](https://developers.google.com/search/docs/appearance/core-web-vitals)
+- [Next.js Performance Documentation](https://nextjs.org/docs/app/building-your-application/optimizing)
+- [web-vitals Library](https://github.com/GoogleChrome/web-vitals)

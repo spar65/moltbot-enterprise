@@ -1,0 +1,431 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# User CRUD Operations
+
+## Context
+- When implementing user profile management, settings, and preferences
+- When integrating any authentication provider with your database
+- When implementing user-related API endpoints
+
+## Core Requirements
+
+### 1. User Data Model
+
+Define comprehensive, type-safe user data models:
+
+```typescript
+// User core data - synced with auth provider
+export interface User {
+  id: string;                    // Unique identifier (from auth provider)
+  email: string;                 // Primary email
+  name?: string | null;          // Full name
+  profile_picture?: string | null; // Avatar URL
+  email_verified: boolean;       // Email verification status
+  created_at: string;            // ISO timestamp
+  updated_at: string;            // ISO timestamp
+}
+
+// Extended user profile data - application specific
+export interface UserProfile extends User {
+  nickname?: string | null;      // Display name
+  bio?: string | null;           // Short biography
+  timezone?: string;             // User's timezone
+  language?: string;             // Preferred language
+  last_login?: string | null;    // Last login timestamp
+}
+
+// User settings/preferences
+export interface UserSettings {
+  id: string;                    // Settings ID
+  user_id: string;               // Reference to user
+  theme: "light" | "dark" | "system"; // UI theme
+  email_notifications: boolean;  // Email notification preference
+  marketing_emails: boolean;     // Marketing communications opt-in
+  notification_frequency: "immediate" | "daily" | "weekly"; // Notification schedule
+  updated_at: string;            // Last updated timestamp
+}
+```
+
+### 2. Core User Operations
+
+Implement standardized CRUD operations:
+
+```typescript
+// Create/sync user from auth provider
+async function upsertUser(authUser: AuthUser): Promise<User> {
+  // Implementation should:
+  // 1. Check if user exists by ID
+  // 2. Update existing user or create new one
+  // 3. Return complete user object
+  // 4. Include proper error handling
+}
+
+// Retrieve user by ID
+async function getUser(userId: string): Promise<User | null> {
+  // Implementation with proper error handling
+}
+
+// Update user profile
+async function updateUserProfile(
+  userId: string, 
+  updates: Partial<UserProfile>
+): Promise<User> {
+  // Implementation with validation and error handling
+}
+
+// Delete user account (with cascade options)
+async function deleteUser(
+  userId: string, 
+  options: { cascade: boolean }
+): Promise<boolean> {
+  // Implementation with proper error handling and security checks
+}
+```
+
+### 3. User Settings Management
+
+Implement consistent settings operations:
+
+```typescript
+// Get user settings with defaults
+async function getUserSettings(userId: string): Promise<UserSettings> {
+  // Implementation should:
+  // 1. Retrieve settings or create with defaults if not exist
+  // 2. Include proper error handling
+}
+
+// Update user settings
+async function updateUserSettings(
+  userId: string,
+  updates: Partial<UserSettings>
+): Promise<UserSettings> {
+  // Implementation with validation and error handling
+}
+```
+
+### 4. API Endpoints
+
+Structure API endpoints consistently:
+
+```typescript
+// GET /api/user/profile
+export async function getUserProfileHandler(req, res) {
+  try {
+    // 1. Authenticate user
+    // 2. Get user data
+    // 3. Return standardized response
+  } catch (error) {
+    // Structured error handling
+  }
+}
+
+// PUT /api/user/profile
+export async function updateUserProfileHandler(req, res) {
+  try {
+    // 1. Authenticate user
+    // 2. Validate input
+    // 3. Update user data
+    // 4. Return standardized response
+  } catch (error) {
+    // Structured error handling with validation errors
+  }
+}
+
+// GET /api/user/settings
+export async function getUserSettingsHandler(req, res) {
+  // Similar pattern to profile
+}
+
+// PUT /api/user/settings
+export async function updateUserSettingsHandler(req, res) {
+  // Similar pattern to profile update
+}
+```
+
+### 5. Authentication Provider Integration
+
+Implement provider-agnostic auth user mapping:
+
+```typescript
+// Map Auth0 user to standard AuthUser format
+export function mapAuth0UserToAuthUser(auth0User: any): AuthUser {
+  return {
+    sub: auth0User.sub,
+    email: auth0User.email,
+    name: auth0User.name,
+    picture: auth0User.picture,
+    email_verified: auth0User.email_verified
+  };
+}
+
+// Map Clerk user to standard AuthUser format
+export function mapClerkUserToAuthUser(clerkUser: any): AuthUser {
+  return {
+    sub: clerkUser.id,
+    email: clerkUser.emailAddresses[0]?.emailAddress,
+    name: `${clerkUser.firstName} ${clerkUser.lastName}`.trim(),
+    picture: clerkUser.imageUrl,
+    email_verified: clerkUser.emailAddresses[0]?.verification?.status === 'verified'
+  };
+}
+
+// Map Firebase user to standard AuthUser format
+export function mapFirebaseUserToAuthUser(firebaseUser: any): AuthUser {
+  return {
+    sub: firebaseUser.uid,
+    email: firebaseUser.email,
+    name: firebaseUser.displayName,
+    picture: firebaseUser.photoURL,
+    email_verified: firebaseUser.emailVerified
+  };
+}
+```
+
+### 6. Input Validation
+
+Use consistent validation patterns:
+
+```typescript
+import { z } from "zod";
+
+// User profile validation schema
+export const userProfileSchema = z.object({
+  name: z.string().max(100).optional(),
+  nickname: z.string().max(50).optional(),
+  bio: z.string().max(500).optional(),
+  timezone: z.string().max(50).optional(),
+  language: z.string().max(10).optional()
+});
+
+// User settings validation schema
+export const userSettingsSchema = z.object({
+  theme: z.enum(["light", "dark", "system"]).optional(),
+  email_notifications: z.boolean().optional(),
+  marketing_emails: z.boolean().optional(),
+  notification_frequency: z.enum(["immediate", "daily", "weekly"]).optional()
+});
+
+// Validate request data against schema
+export async function validateUserData<T>(
+  schema: z.ZodType<T>,
+  data: unknown
+): Promise<{ success: boolean; data?: T; errors?: any }> {
+  try {
+    const validData = schema.parse(data);
+    return { success: true, data: validData };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const formattedErrors = error.errors.reduce((acc, curr) => {
+        const path = curr.path.join(".");
+        acc[path] = curr.message;
+        return acc;
+      }, {} as Record<string, string>);
+      
+      return { success: false, errors: formattedErrors };
+    }
+    throw error;
+  }
+}
+```
+
+### 7. Error Handling
+
+Implement consistent error handling:
+
+```typescript
+export class UserError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number = 400,
+    public code?: string,
+    public originalError?: any
+  ) {
+    super(message);
+    this.name = "UserError";
+  }
+}
+
+export function handleUserApiError(error: any, res: any) {
+  console.error("User API Error:", error);
+
+  if (error instanceof UserError) {
+    return res.status(error.statusCode).json({
+      error: {
+        message: error.message,
+        code: error.code
+      }
+    });
+  }
+
+  return res.status(500).json({
+    error: {
+      message: "An unexpected error occurred",
+      code: "INTERNAL_SERVER_ERROR"
+    }
+  });
+}
+```
+
+### 8. Client-Side Integration
+
+Implement reusable hooks for user data access:
+
+```typescript
+export function useUser() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch user data
+  // Handle loading states
+  // Handle error states
+  // Provide update methods
+
+  return { user, loading, error, updateUser };
+}
+
+export function useUserSettings() {
+  const [settings, setSettings] = useState<UserSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Similar pattern to useUser
+  
+  return { settings, loading, error, updateSettings };
+}
+```
+
+## Standardized API Response Format
+
+Maintain consistent API responses:
+
+```typescript
+// Success response
+{
+  "data": {
+    // User or settings data
+  },
+  "meta": {
+    "timestamp": "2023-01-01T00:00:00.000Z"
+  }
+}
+
+// Error response
+{
+  "error": {
+    "message": "User-friendly error message",
+    "code": "ERROR_CODE",
+    "fieldErrors": {
+      "name": "Name is required",
+      "email": "Invalid email format"
+    }
+  },
+  "meta": {
+    "timestamp": "2023-01-01T00:00:00.000Z"
+  }
+}
+```
+
+## Examples
+
+<example>
+// Good implementation of user profile update
+
+// API endpoint
+export async function updateProfileHandler(req, res) {
+  try {
+    // 1. Authenticate user
+    const session = await getAuthSession(req, res);
+    if (!session?.user) {
+      return res.status(401).json({
+        error: { message: "Authentication required", code: "UNAUTHORIZED" }
+      });
+    }
+
+    // 2. Validate input
+    const validation = await validateUserData(userProfileSchema, req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: {
+          message: "Invalid user data",
+          code: "VALIDATION_ERROR",
+          fieldErrors: validation.errors
+        }
+      });
+    }
+
+    // 3. Update user data
+    const updatedUser = await updateUserProfile(session.user.sub, validation.data);
+
+    // 4. Return standardized response
+    return res.status(200).json({
+      data: updatedUser,
+      meta: { timestamp: new Date().toISOString() }
+    });
+  } catch (error) {
+    return handleUserApiError(error, res);
+  }
+}
+</example>
+
+<example type="invalid">
+// Poor implementation with inconsistent error handling and no validation
+
+async function updateProfile(req, res) {
+  const user = await getUser(req.body.id);
+  
+  // No authentication check
+  // No input validation
+  
+  user.name = req.body.name;
+  user.email = req.body.email;
+  
+  await saveUser(user);
+  
+  res.json(user);
+}
+</example>
+
+## Key Principles
+
+1. **Type Safety**: Always use strongly typed interfaces for user data
+2. **Validation**: Validate all user input before processing
+3. **Authentication**: Always verify user identity before CRUD operations
+4. **Error Handling**: Implement consistent, user-friendly error handling
+5. **Provider Agnostic**: Keep core user logic independent of auth provider
+6. **Standardized Responses**: Use consistent API response formats
+7. **Progressive Enhancement**: Support gradual collection of user data
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - User CRUD workflows
+- **`.cursor/docs/security-workflows.md`** - User security patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - CRITICAL: Check User model!
+  ```bash
+  ./.cursor/tools/inspect-model.sh User
+  # Check: organizationId, fields, relationships
+  ```
+- **`.cursor/tools/check-schema-changes.sh`** - Validate User schema changes
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (Prisma schema first!)
+- @012-api-security.mdc - API security (user operations!)
+- @016-platform-hierarchy.mdc - Platform hierarchy
+- @017-platform-user-features.mdc - Platform user features
+- @025-multi-tenancy.mdc - Multi-tenant isolation (CRITICAL!)
+- @060-api-standards.mdc - Organization-scoped APIs
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @376-database-test-isolation.mdc - Database testing patterns
+- @440-admin-user-management.mdc - Admin user operations
+
+### Quick Start
+1. **ALWAYS:** `.cursor/tools/inspect-model.sh User` (before ANY user work!)
+2. **Scope:** Every user API must be organization-scoped (@025-multi-tenancy.mdc)
+3. **Test:** Follow @375-api-test-first-time-right.mdc (schema-first testing)

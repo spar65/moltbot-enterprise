@@ -1,0 +1,155 @@
+---
+description: 
+globs: ""
+alwaysApply: false
+---
+___
+description: Separate VIBEcoder documentation from AgentMinder features to maintain clear boundaries
+globs: "FEATURES/**, documentation-portal/**"
+___
+
+# Feature and Documentation Separation
+
+This rule establishes clear boundaries between VIBEcoder™ product documentation and AgentMinder application features.
+
+## Context
+
+- The repository contains two distinct sets of features:
+  1. VIBEcoder™ product features (the documentation system itself)
+  2. AgentMinder application features (the application being documented)
+- Without clear separation, these can be confused and incorrectly placed
+
+## Requirements
+
+### Directory Structure Separation
+
+- **VIBEcoder™ Product Documentation**:
+  - MUST be located in `documentation-portal/pages/features/`
+  - Documents the capabilities of the VIBEcoder™ documentation system itself
+  - Includes features like code visualization, search, and interactive documentation
+
+- **AgentMinder Application Features**:
+  - MUST be located in `FEATURES/`
+  - Documents the features of the AgentMinder application
+  - Includes platform user features, super user features, admin features, etc.
+  - MUST follow this exact directory structure:
+    - `FEATURES/features/` - Feature documentation files
+    - `FEATURES/interface/` - API and interface documentation
+    - `FEATURES/user-stories/` - User story documentation
+
+### Prohibited Directories
+
+- The following directories MUST NOT exist:
+  - `FEATURES/use-cases/` - Use cases should be documented elsewhere
+  - `FEATURES/agentminder/` - Features should not be in a subdirectory
+  - `FEATURES/vibecoder/` - VIBEcoder documentation belongs in documentation-portal
+  - Any other top-level directories in FEATURES besides features, interface, and user-stories
+
+### Content Guidelines
+
+- VIBEcoder™ documentation MUST focus on the documentation system's capabilities
+- AgentMinder features MUST focus on the application being built
+- Content should never be duplicated between these directories
+- Reference the other system only when necessary and with clear distinction
+
+### Naming Conventions
+
+- VIBEcoder™ documentation files should contain terms like "documentation", "visualization", "portal"
+- AgentMinder features should contain terms like "platform", "organization", "users", "agents"
+
+## Examples
+
+<example>
+// VIBEcoder™ feature belongs in documentation-portal
+```markdown
+# Code Visualization
+
+Code Visualization is a core feature of VIBEcoder™ that transforms complex code relationships 
+into intuitive, interactive diagrams...
+```
+
+// AgentMinder feature belongs in FEATURES/features
+```markdown
+# AI Agent Management
+
+The AI Agent management workflow consists of a comprehensive process including Setup, Test, 
+and Deploy stages with a robust template-based configuration system...
+```
+
+// AgentMinder API belongs in FEATURES/interface
+```markdown
+# Agent API Endpoints
+
+This document details the REST API endpoints available for managing AI agents...
+```
+
+// AgentMinder user stories belong in FEATURES/user-stories
+```markdown
+# Super User Stories
+
+This document lists all user stories for the Super User role...
+```
+</example>
+
+<example type="invalid">
+// WRONG: VIBEcoder feature incorrectly placed in AgentMinder features directory
+```
+FEATURES/documentation-visualization.md  // Should be in documentation-portal/pages/features/
+```
+
+// WRONG: AgentMinder feature incorrectly placed in VIBEcoder documentation
+```
+documentation-portal/pages/features/agent-management.md  // Should be in FEATURES/features/
+```
+
+// WRONG: Feature placed in incorrect AgentMinder subdirectory
+```
+FEATURES/agentminder/features/platform-dashboard.md  // Should be in FEATURES/features/
+```
+
+// WRONG: Feature placed in prohibited directory
+```
+FEATURES/use-cases/agent-deployment.md  // Use cases should not be in FEATURES/
+```
+</example>
+
+## Checking for Compliance
+
+- Before committing changes, verify files are in the correct location
+- When using the `codebase_search` tool, specify the correct target directory based on what you're searching for
+- When syncing documentation, ensure the correct source/target mapping
+- Run `./documentation-portal/run-portal.sh` regularly to check for and fix structural issues
+
+## See Also
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @015-white-labeling-consolidated.mdc - Organization branding
+- @070-nextjs-architecture.mdc - **CRITICAL:** Directory structure standards
+- @003-do-no-harm.mdc - **CORE RULE - CRITICAL:** File safety when reorganizing
+- @104-stable-interfaces.mdc - API stability annotations
+- @801-project-documentation-structure.mdc - Documentation structure standards
+
+### Tools & Documentation
+- **`.cursor/docs/ai-workflows.md`** - Documentation workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Comprehensive Guides
+- **`guides/Project-Documentation-Structure.md`** ⭐ **Essential** - Complete documentation organization
+
+### Quick Start
+1. **VIBEcoder docs** → `documentation-portal/pages/features/`
+2. **AgentMinder features** → `FEATURES/features/`
+3. **API docs** → `FEATURES/interface/`
+4. **User stories** → `FEATURES/user-stories/`
+5. **Validate:** Run `./documentation-portal/run-portal.sh`
+
+### When to Use This Rule
+- ✅ Organizing new features or documentation
+- ✅ Refactoring project structure
+- ✅ Setting up new projects
+- ✅ Creating documentation
+
+### Do NOT Use This Rule
+- ❌ For code organization (use @070-nextjs-architecture.mdc)
+- ❌ For database organization (use @065-database-access-patterns.mdc)

@@ -1,0 +1,200 @@
+---
+description: CONFIGURE Prisma connection when EXPERIENCING TLS or connection errors with Neon database to ENSURE reliable database connectivity
+globs: "**/__tests__/**/*.ts, **/lib/db.ts, **/prisma/*.prisma, **/*.test.ts"
+---
+
+# Prisma Neon Connection Standards
+
+## Context
+
+- Neon is a serverless PostgreSQL provider commonly used for test databases
+- Prisma's native query engine can have TLS certificate parsing issues with Neon
+- The error manifests as: `Error opening a TLS connection: bad certificate format`
+- Direct `psql` connections work fine, indicating the issue is Prisma-specific
+- This commonly occurs in integration tests that require real database connections
+
+## Symptoms to Watch For
+
+1. **TLS Certificate Errors**
+   ```
+   PrismaClientInitializationError: Error opening a TLS connection: bad certificate format
+   ```
+
+2. **Connection Timeouts with Neon**
+   - Tests hang then fail with connection errors
+   - Works locally but fails in CI/CD
+
+3. **Intermittent Connection Failures**
+   - Some tests pass, others fail with same connection string
+   - Connection pool exhaustion issues
+
+## Requirements
+
+### Diagnosing the Issue
+
+1. **REQUIRED**: Test raw connection first before assuming Prisma issue
+   ```bash
+   # Test with psql directly
+   psql "postgresql://user:pass@host/db?sslmode=require" -c "SELECT 1"
+   ```
+
+2. **REQUIRED**: Check if error is TLS-specific by examining error message
+   - "bad certificate format" = Prisma TLS parsing issue
+   - "connection refused" = Network/firewall issue
+   - "authentication failed" = Credentials issue
+
+### Solution: Use Prisma Driver Adapters
+
+When Prisma's native engine fails with TLS errors on Neon:
+
+1. **REQUIRED**: Install pg driver adapter packages
+   ```bash
+   npm install @prisma/adapter-pg pg @types/pg
+   ```
+
+2. **REQUIRED**: Enable driver adapters in schema (Prisma 6.x+, preview feature deprecated but still works)
+   ```prisma
+   generator client {
+     provider        = "prisma-client-js"
+     previewFeatures = ["driverAdapters"]
+   }
+   ```
+
+3. **REQUIRED**: Create Prisma client with pg adapter
+   ```typescript
+   import { PrismaClient } from '@prisma/client';
+   import { PrismaPg } from '@prisma/adapter-pg';
+   import { Pool } from 'pg';
+   
+   const connectionString = process.env.DATABASE_URL;
+   const pool = new Pool({ connectionString });
+   const adapter = new PrismaPg(pool);
+   const prisma = new PrismaClient({ adapter });
+   ```
+
+4. **REQUIRED**: Properly close connections on cleanup
+   ```typescript
+   async function disconnect() {
+     await prisma.$disconnect();
+     await pool.end();
+   }
+   ```
+
+### Test Environment Configuration
+
+1. **REQUIRED**: Use `.env.test` for test database credentials
+   ```bash
+   # Run tests with test environment
+   npx dotenv-cli -e .env.test -- npm run test:integration
+   ```
+
+2. **REQUIRED**: Include `sslmode=require` in connection string for Neon
+   ```
+   DATABASE_URL="postgresql://user:pass@host.neon.tech/db?sslmode=require"
+   ```
+
+3. **RECOMMENDED**: Add `forceExit: true` to Jest config for integration tests
+   ```javascript
+   // jest.integration.config.js
+   module.exports = {
+     // ... other config
+     forceExit: true, // Handle pg pool cleanup
+   };
+   ```
+
+## Examples
+
+<example>
+// ✅ CORRECT - Test helper with pg adapter for Neon
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+
+let pool: Pool | null = null;
+let prisma: PrismaClient | null = null;
+
+export function getTestPrisma(): PrismaClient {
+  if (!prisma) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error('DATABASE_URL must be set');
+    }
+    
+    pool = new Pool({ connectionString });
+    const adapter = new PrismaPg(pool);
+    prisma = new PrismaClient({ adapter });
+  }
+  return prisma;
+}
+
+export async function cleanupTestConnection(): Promise<void> {
+  if (prisma) await prisma.$disconnect();
+  if (pool) await pool.end();
+  prisma = null;
+  pool = null;
+}
+</example>
+
+<example type="invalid">
+// ❌ WRONG - Direct Prisma client without adapter (may fail with Neon TLS)
+import { PrismaClient } from '@prisma/client';
+
+// This can fail with "bad certificate format" on Neon
+const prisma = new PrismaClient();
+
+// ❌ WRONG - Not closing pool on disconnect
+export async function disconnect() {
+  await prisma.$disconnect();
+  // Missing: pool.end() - causes Jest open handle warnings
+}
+</example>
+
+## Troubleshooting Checklist
+
+1. ✅ Verify psql connects successfully with same connection string
+2. ✅ Check error message for "bad certificate format" specifically
+3. ✅ Ensure `@prisma/adapter-pg` and `pg` are installed
+4. ✅ Verify `previewFeatures = ["driverAdapters"]` in schema.prisma
+5. ✅ Confirm Prisma client uses adapter in initialization
+6. ✅ Check `.env.test` has correct `DATABASE_URL`
+7. ✅ Ensure `sslmode=require` is in connection string
+8. ✅ Verify pool is closed in cleanup/teardown
+
+## See Also
+
+### Related Rules
+- @370-api-testing-database.mdc - API testing with database integration
+- @375-api-test-first-time-right.mdc - API testing best practices
+- @376-database-test-isolation.mdc - Database test isolation standards
+- @208-database-operations.mdc - Database operations standards
+- @011-env-var-security.mdc - Environment variable security
+
+### Tools & Documentation
+- **`__tests__/helpers/database-helpers.ts`** - Test database utilities with pg adapter
+- **`prisma/schema.prisma`** - Prisma schema with driver adapter config
+- **`.env.test`** - Test environment configuration
+
+### Comprehensive Guides
+- **`guides/Prisma-Neon-Connection-Guide.md`** ⭐ **Essential** - Complete troubleshooting guide
+- **`guides/Database-Operations-Complete-Guide.md`** - Database operations reference
+
+### Quick Start
+
+```bash
+# 1. Diagnose - test raw connection
+psql "$DATABASE_URL" -c "SELECT 1"
+
+# 2. If psql works but Prisma fails with TLS error, install adapter
+npm install @prisma/adapter-pg pg @types/pg
+
+# 3. Update schema.prisma
+# Add: previewFeatures = ["driverAdapters"]
+
+# 4. Regenerate Prisma client
+npx dotenv-cli -e .env.test -- npx prisma generate
+
+# 5. Update test helpers to use pg adapter pattern
+
+# 6. Run tests
+npm run test:integration
+```

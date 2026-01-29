@@ -1,0 +1,479 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply proper testing standards when implementing admin user management interfaces to ensure security, reliability, and maintainability
+globs: "**/*.{ts,tsx,js,jsx}"
+___
+
+# Admin User Management Testing Standards
+
+## Context
+- Apply when implementing admin interfaces for user management
+- Apply when testing admin user management functionality
+- Apply when fixing or troubleshooting admin user management tests
+
+## Requirements
+
+### 1. Authentication and Authorization Testing
+
+- Test admin routes with both admin and non-admin sessions
+- Verify proper status codes for unauthorized access (403)
+- Test proper user role validation in middleware
+- Include negative test cases for each admin endpoint
+
+<example>
+// Testing admin authorization
+describe("Admin User Management", () => {
+  it("should allow admin users to access user management", async () => {
+    // Setup admin session
+    setupAuth0Mock(createMockAdminSession());
+    
+    const { req, res } = createMocks({ method: "GET" });
+    await handler(req, res);
+    
+    expect(res._getStatusCode()).toBe(200);
+  });
+  
+  it("should block non-admin users from accessing user management", async () => {
+    // Setup regular user session
+    setupAuth0Mock(createMockRegularSession());
+    
+    const { req, res } = createMocks({ method: "GET" });
+    await handler(req, res);
+    
+    expect(res._getStatusCode()).toBe(403);
+  });
+});
+</example>
+
+<example type="invalid">
+// Only testing the happy path
+describe("Admin User Management", () => {
+  it("should allow admin users to access user management", async () => {
+    // Setup admin session only
+    setupAuth0Mock(createMockAdminSession());
+    
+    const { req, res } = createMocks({ method: "GET" });
+    await handler(req, res);
+    
+    expect(res._getStatusCode()).toBe(200);
+  });
+  // Missing test for non-admin access!
+});
+</example>
+
+### 2. Data Fetching and Filtering
+
+- Test data fetching with different pagination parameters
+- Test filtering by user attributes (email, status, subscription)
+- Test sorting functionality
+- Test search functionality
+- Test edge cases like empty results and invalid filter parameters
+
+<example>
+describe("User Listing API", () => {
+  beforeEach(() => {
+    setupTestDatabase();
+    jest.clearAllMocks();
+  });
+  
+  it("should return paginated results", async () => {
+    // Mock database to return many users
+    mockDb.query.mockResolvedValueOnce({ rows: generateUsers(25), rowCount: 25 });
+    
+    const { req, res } = createMocks({
+      method: "GET",
+      query: { page: "2", limit: "10" },
+    });
+    
+    await handler(req, res);
+    
+    expect(res._getStatusCode()).toBe(200);
+    const data = JSON.parse(res._getData());
+    expect(data.users.length).toBe(10);
+    expect(data.pagination.currentPage).toBe(2);
+  });
+  
+  it("should filter users by subscription status", async () => {
+    const { req, res } = createMocks({
+      method: "GET",
+      query: { subscriptionStatus: "active" },
+    });
+    
+    await handler(req, res);
+    
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining("subscription_status = $"),
+      expect.arrayContaining(["active"])
+    );
+  });
+});
+</example>
+
+<example type="invalid">
+// Missing pagination and filter tests
+describe("User Listing API", () => {
+  it("should return users", async () => {
+    // Only testing default case
+    const { req, res } = createMocks({
+      method: "GET",
+    });
+    
+    await handler(req, res);
+    
+    expect(res._getStatusCode()).toBe(200);
+    const data = JSON.parse(res._getData());
+    expect(Array.isArray(data.users)).toBe(true);
+  });
+});
+</example>
+
+### 3. Proper Isolation in Tests
+
+- Use proper setup and teardown in tests
+- Reset mocks and modules between tests
+- Avoid test interference with isolated database mocking
+- Use separate test files for different admin functionalities
+
+<example>
+describe("Admin User Management", () => {
+  beforeEach(() => {
+    // Clear all mocks to prevent test interference
+    jest.clearAllMocks();
+    
+    // Setup isolated test environment
+    setupTestEnvironment();
+    
+    // Setup mock database with clean data for each test
+    mockDb = setupMockDatabase();
+  });
+  
+  afterEach(() => {
+    // Reset modules to prevent state leaking between tests
+    jest.resetModules();
+  });
+  
+  it("test case 1", async () => {
+    // Test-specific setup...
+  });
+  
+  it("test case 2", async () => {
+    // Different test-specific setup...
+  });
+});
+</example>
+
+<example type="invalid">
+// Poor test isolation
+describe("Admin User Management", () => {
+  // No setup/teardown
+  // No mock clearing
+  
+  it("test case 1", async () => {
+    // Setup that affects other tests
+    mockDb.query.mockResolvedValue([...]);
+  });
+  
+  it("test case 2", async () => {
+    // Will be affected by previous test's mock setup!
+  });
+});
+</example>
+
+### 4. Mock Auth0 Sessions Consistently
+
+- Use centralized auth0 mocking utilities
+- Create specific session types for testing (admin, regular user, etc.)
+- Simulate Auth0 errors and edge cases
+- Test session timeout and refresh scenarios
+
+<example>
+// Using centralized Auth0 mock utilities
+import { 
+  setupAuth0Mock, 
+  createMockAdminSession,
+  createMockRegularSession 
+} from "../utils/auth0-test-utils";
+
+describe("Admin Protection", () => {
+  it("should identify admin users correctly", () => {
+    const adminSession = createMockAdminSession();
+    setupAuth0Mock(adminSession);
+    
+    // Test admin identification
+    const isAdmin = checkAdminPermissions(adminSession.user);
+    expect(isAdmin).toBe(true);
+  });
+  
+  it("should reject non-admin users", () => {
+    const userSession = createMockRegularSession();
+    setupAuth0Mock(userSession);
+    
+    // Test admin rejection
+    const isAdmin = checkAdminPermissions(userSession.user);
+    expect(isAdmin).toBe(false);
+  });
+});
+</example>
+
+<example type="invalid">
+// Inconsistent session mocking
+describe("Admin Protection", () => {
+  it("should identify admin users correctly", () => {
+    // Manually creating session objects
+    // with inconsistent structure
+    const session = {
+      user: {
+        email: "admin@example.com",
+        admin: true // Wrong format!
+      }
+    };
+    
+    jest.doMock("@auth0/nextjs-auth0", () => ({
+      // Different mocking pattern in each test
+    }));
+    
+    const isAdmin = checkAdminPermissions(session.user);
+    expect(isAdmin).toBe(true);
+  });
+});
+</example>
+
+### 5. UI Component Testing
+
+- Test admin UI components in isolation with proper mocks
+- Test user interaction patterns (clicks, form submissions)
+- Test responsive layout for admin interfaces
+- Test table sorting, filtering, and pagination in the UI
+
+<example>
+describe("AdminUserTable Component", () => {
+  it("should render user data in a table", async () => {
+    const mockUsers = generateMockUsers(5);
+    render(<AdminUserTable users={mockUsers} />);
+    
+    // Check table structure
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getAllByRole("row").length).toBe(6); // 5 users + header
+    
+    // Check user data is displayed
+    expect(screen.getByText(mockUsers[0].email)).toBeInTheDocument();
+  });
+  
+  it("should sort users when column header is clicked", async () => {
+    const mockUsers = generateMockUsers(5);
+    const onSortMock = jest.fn();
+    
+    render(<AdminUserTable 
+      users={mockUsers}
+      onSort={onSortMock} 
+    />);
+    
+    // Click on email column header
+    await userEvent.click(screen.getByText("Email"));
+    
+    // Check sort was triggered
+    expect(onSortMock).toHaveBeenCalledWith("email", "asc");
+  });
+});
+</example>
+
+<example type="invalid">
+// Missing interaction tests
+describe("AdminUserTable Component", () => {
+  it("should render user data", () => {
+    const mockUsers = generateMockUsers(5);
+    render(<AdminUserTable users={mockUsers} />);
+    
+    // Only checking basic rendering
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    
+    // Missing tests for:
+    // - Sorting
+    // - Filtering
+    // - Pagination
+    // - User interactions
+  });
+});
+</example>
+
+### 6. Testing Admin Actions and Operations
+
+- Test CRUD operations on user data
+- Test subscription management functions
+- Test edge cases (e.g., operations on non-existent users)
+- Test error handling for failed operations
+
+<example>
+describe("Admin User Operations", () => {
+  it("should update user subscription tier", async () => {
+    // Setup admin auth and mock database
+    setupAuth0Mock(createMockAdminSession());
+    mockDb.query.mockResolvedValueOnce({ rowCount: 1 });
+    
+    const { req, res } = createMocks({
+      method: "PATCH",
+      query: { userId: "user_123" },
+      body: { subscriptionTier: "premium" }
+    });
+    
+    await handler(req, res);
+    
+    // Check successful response
+    expect(res._getStatusCode()).toBe(200);
+    
+    // Verify database was called correctly
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE users SET subscription_tier = $1"),
+      expect.arrayContaining(["premium", "user_123"])
+    );
+  });
+  
+  it("should return 404 for non-existent user", async () => {
+    // Setup admin auth and mock database no-match response
+    setupAuth0Mock(createMockAdminSession());
+    mockDb.query.mockResolvedValueOnce({ rowCount: 0 });
+    
+    const { req, res } = createMocks({
+      method: "PATCH",
+      query: { userId: "non_existent_user" },
+      body: { subscriptionTier: "premium" }
+    });
+    
+    await handler(req, res);
+    
+    // Check error response
+    expect(res._getStatusCode()).toBe(404);
+  });
+});
+</example>
+
+<example type="invalid">
+// Missing error case testing
+describe("Admin User Operations", () => {
+  it("should update user subscription tier", async () => {
+    // Setup and test the happy path only
+    
+    // Missing tests for:
+    // - Non-existent users
+    // - Database errors
+    // - Invalid input validation
+  });
+});
+</example>
+
+### 7. Integration Testing for Admin Workflows
+
+- Test complete admin workflows across multiple requests
+- Test user search and update sequences
+- Test subscription management workflows
+- Test reporting and analytics features
+
+<example>
+describe("Admin User Management Workflow", () => {
+  // Setup mock auth and database
+  
+  it("should search, view, and update a user", async () => {
+    // 1. Search for user
+    const searchRes = await makeRequest({
+      method: "GET",
+      path: "/api/admin/users",
+      query: { search: "test@example.com" }
+    });
+    
+    const users = JSON.parse(searchRes._getData()).users;
+    const userId = users[0].id;
+    
+    // 2. Get user details
+    const detailRes = await makeRequest({
+      method: "GET",
+      path: `/api/admin/users/${userId}`
+    });
+    
+    const userDetail = JSON.parse(detailRes._getData()).user;
+    expect(userDetail.email).toBe("test@example.com");
+    
+    // 3. Update user subscription
+    const updateRes = await makeRequest({
+      method: "PATCH",
+      path: `/api/admin/users/${userId}`,
+      body: { subscriptionTier: "premium" }
+    });
+    
+    expect(updateRes._getStatusCode()).toBe(200);
+    
+    // 4. Verify update was saved
+    const verifyRes = await makeRequest({
+      method: "GET",
+      path: `/api/admin/users/${userId}`
+    });
+    
+    const updatedUser = JSON.parse(verifyRes._getData()).user;
+    expect(updatedUser.subscriptionTier).toBe("premium");
+  });
+});
+</example>
+
+<example type="invalid">
+// Testing endpoints in isolation only
+describe("Admin User API", () => {
+  it("should get users", async () => {
+    // Test only the GET endpoint
+  });
+  
+  it("should update user", async () => {
+    // Test only the UPDATE endpoint
+    // Not testing the full workflow
+  });
+});
+</example>
+
+## Relationship to Other Rules
+
+This rule builds upon and extends:
+
+- [330-third-party-integration-testing.mdc](mdc:330-third-party-integration-testing.mdc) - Auth0 integration testing
+- [330-auth0-testing-standards.mdc](mdc:330-auth0-testing-standards.mdc) - Auth0 testing standards
+- [025-multi-tenancy.mdc](mdc:025-multi-tenancy.mdc) - Multi-tenant data isolation
+- [130-error-handling.mdc](mdc:130-error-handling.mdc) - Error handling patterns
+
+Follow this rule alongside:
+
+- [400-auth-testing-patterns.mdc](mdc:400-auth-testing-patterns.mdc) - Auth testing patterns
+- [042-ui-component-architecture.mdc](mdc:042-ui-component-architecture.mdc) - UI component architecture
+- [054-accessibility-requirements.mdc](mdc:054-accessibility-requirements.mdc) - Accessibility requirements
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Admin workflows
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Admin auth patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check user/admin models
+  ```bash
+  ./.cursor/tools/inspect-model.sh User
+  ./.cursor/tools/inspect-model.sh Organization
+  # Check admin role patterns!
+  ```
+- **`.cursor/tools/check-auth-config.sh`** - Validate admin auth
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (schema first!)
+- @012-api-security.mdc - API security (admin permissions!)
+- @014-third-party-auth.mdc - Authentication standards
+- @016-platform-hierarchy.mdc - Platform hierarchy
+- @017-platform-user-features.mdc - Platform user features
+- @025-multi-tenancy.mdc - Multi-tenant isolation
+- @070-user-crud-operations.mdc - User CRUD patterns
+- @350-admin-testing-patterns.mdc - Admin testing
+- @400-auth-testing-patterns.mdc - Auth testing for admin
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh User` (admin roles)
+2. **Auth:** See @400-auth-testing-patterns.mdc (admin permissions)
+3. **Secure:** Follow @012-api-security.mdc (admin API security)

@@ -1,0 +1,97 @@
+___
+description: Debug Stripe webhook processing issues with proper signature verification and event handling
+globs: "pages/api/webhooks/**/*.{ts,js}", "src/lib/stripe/**/*.{ts,js}"
+___
+
+# Stripe Webhook Debugging
+
+## Context
+- When debugging Stripe webhook processing failures
+- When webhook events are not updating the database
+- When signature verification is failing inconsistently
+
+## Requirements
+
+### CRITICAL: Raw Body Buffer Rule
+- **ALWAYS** use raw request body for signature verification
+- **NEVER** use parsed JSON body - this breaks signature verification
+- **VERIFY** body parser is disabled for webhook endpoints
+
+### Common Bug Pattern
+```typescript
+// ❌ CRITICAL BUG - Body parser enabled breaks signatures
+export const config = {
+  // Missing this breaks webhook verification
+};
+
+export default async function handler(req, res) {
+  // This will fail - body is already parsed
+  const sig = req.headers['stripe-signature'];
+  const event = stripe.webhooks.constructEvent(req.body, sig, secret);
+}
+
+// ✅ CORRECT - Raw body buffer for signature verification
+export const config = {
+  api: {
+    bodyParser: false  // Critical for webhook signature verification
+  }
+};
+
+export default async function handler(req, res) {
+  const buf = await buffer(req);  // Get raw buffer
+  const sig = req.headers['stripe-signature'];
+  const event = stripe.webhooks.constructEvent(buf, sig, secret);
+}
+```
+
+### Debug Steps
+1. **Check webhook configuration** - verify endpoint URL and secret in Stripe Dashboard
+2. **Verify raw body processing** - ensure bodyParser is disabled
+3. **Test with Stripe CLI** - use `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
+4. **Check event processing** - verify database updates happen correctly
+
+### Debug Endpoints
+Create these debug endpoints for troubleshooting:
+- `/api/debug/webhook-config.ts` - Verify webhook configuration
+- `/api/debug/stripe-events.ts` - List recent Stripe events
+- `/api/debug/database-sync.ts` - Check database sync status
+
+## Reference Guide
+
+📖 **For complete debugging walkthrough:**
+See: `guides/stripe/Stripe-Integration-Complete-Guide.md`
+
+## Critical Bug Prevention
+
+- [ ] **Body Parser Rule**: Every webhook endpoint has `bodyParser: false`
+- [ ] **Signature Verification**: All webhooks verify signatures before processing
+- [ ] **Environment Isolation**: Webhook secrets match the correct environment
+- [ ] **Database Transactions**: All database updates use transactions for consistency
+- [ ] **Timeout Handling**: All webhook processing completes within 5 seconds
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Webhook patterns
+- **`.cursor/docs/ai-workflows.md#debugging-with-ai`** - Systematic debugging
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Check webhook secret exposure
+- **`.cursor/tools/check-env-vars.sh`** - Validate webhook configuration
+- **`.cursor/tools/inspect-model.sh`** - Check webhook data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @020-stripe-integration.mdc - Primary Stripe patterns
+- @021-stripe-sync-implementation.mdc - Stripe sync (webhooks!)
+- @069-webhook-processing-standards.mdc - Webhook processing patterns
+- @078-payment-testing-standards.mdc - Testing webhooks
+- @140-troubleshooting-standards.mdc - General debugging
+- @350-debug-test-failures.mdc - Systematic debugging
+- @331-high-risk-feature-testing.mdc - Critical testing
+
+### Quick Start
+1. **Validate:** `.cursor/tools/check-env-vars.sh` (webhook secret)
+2. **Debug:** See @350-debug-test-failures.mdc for systematic approach
+3. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`

@@ -1,0 +1,617 @@
+---
+description: Apply when implementing route protection and authentication guards to ensure secure access control and proper user authorization
+globs: "**/middleware.{ts,js}, **/app/**/layout.{tsx,jsx}, **/lib/auth*.{ts,js}"
+---
+
+# Route Protection Patterns
+
+**Priority**: P0 (CRITICAL - Security)  
+**Domain**: Authentication & Security (040-series)  
+**Applies To**: All authenticated routes, layouts, and API endpoints
+
+---
+
+## Context
+
+- Routes must be protected based on authentication status
+- Role-based access control (RBAC) enforces user permissions
+- Next.js middleware provides global route protection
+- Layout-level guards protect route groups
+- API routes need independent authentication checks
+- Unauthenticated users must be redirected to login
+- Unauthorized users (wrong role) must see 403 forbidden
+
+---
+
+## Requirements
+
+### 1. Global Middleware Protection
+
+**REQUIRED**: Use Next.js middleware for first layer of protection
+
+```typescript
+// middleware.ts (root level)
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { auth } from '@/lib/auth';
+
+export async function middleware(request: NextRequest) {
+  const session = await auth();
+  const { pathname } = request.nextUrl;
+  
+  // Public routes (no authentication required)
+  const publicRoutes = ['/', '/login', '/signup', '/api/health'];
+  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
+  
+  if (isPublicRoute) {
+    return NextResponse.next();
+  }
+  
+  // Protected routes - require authentication
+  if (!session?.user) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('callbackUrl', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+  
+  // Admin routes - require admin role
+  if (pathname.startsWith('/admin')) {
+    if (session.user.role !== 'ADMIN') {
+      return NextResponse.redirect(new URL('/403', request.url));
+    }
+  }
+  
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except:
+     * - _next/static (static files)
+     * - _next/image (image optimization)
+     * - favicon.ico (favicon file)
+     * - public folder
+     */
+    '/((?!_next/static|_next/image|favicon.ico|public/).*)',
+  ],
+};
+```
+
+### 2. Layout-Level Protection
+
+**REQUIRED**: Add authentication checks in layout components
+
+```typescript
+// app/(app)/layout.tsx (Authenticated routes)
+import { redirect } from 'next/navigation';
+import { auth } from '@/lib/auth';
+import { AppShell } from '@/components/layout/AppShell';
+
+export default async function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const session = await auth();
+  
+  // Guard: Require authentication
+  if (!session?.user) {
+    redirect('/login');
+  }
+  
+  // Pass user to AppShell
+  return (
+    <AppShell 
+      user={{
+        id: session.user.id!,
+        name: session.user.name || '',
+        email: session.user.email || '',
+        role: (session.user.role as 'USER' | 'ADMIN') || 'USER',
+      }}
+      currentPath={/* get from headers */}
+    >
+      {children}
+    </AppShell>
+  );
+}
+```
+
+### 3. Admin Route Protection
+
+**REQUIRED**: Protect admin routes with role-based checks
+
+```typescript
+// app/(admin)/layout.tsx
+import { redirect } from 'next/navigation';
+import { auth } from '@/lib/auth';
+import { AppShell } from '@/components/layout/AppShell';
+
+export default async function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const session = await auth();
+  
+  // Guard: Require authentication
+  if (!session?.user) {
+    redirect('/login');
+  }
+  
+  // Guard: Require admin role
+  if (session.user.role !== 'ADMIN') {
+    redirect('/403'); // Forbidden
+  }
+  
+  return (
+    <AppShell 
+      user={{
+        id: session.user.id!,
+        name: session.user.name || '',
+        email: session.user.email || '',
+        role: 'ADMIN',
+      }}
+      currentPath={/* get from headers */}
+    >
+      <div className="admin-layout">
+        {children}
+      </div>
+    </AppShell>
+  );
+}
+```
+
+### 4. Page-Level Protection (Extra Security)
+
+**OPTIONAL**: Add protection at page level for extra security
+
+```typescript
+// app/(app)/settings/page.tsx
+import { redirect } from 'next/navigation';
+import { auth } from '@/lib/auth';
+
+export default async function SettingsPage() {
+  const session = await auth();
+  
+  // Double-check authentication (redundant but safe)
+  if (!session?.user) {
+    redirect('/login');
+  }
+  
+  return (
+    <div>
+      <h1>Settings for {session.user.name}</h1>
+      {/* Page content */}
+    </div>
+  );
+}
+```
+
+### 5. API Route Protection
+
+**REQUIRED**: Authenticate API routes independently
+
+```typescript
+// app/api/health-check/test/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
+
+export async function POST(request: NextRequest) {
+  // Guard: Require authentication
+  const session = await auth();
+  
+  if (!session?.user) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+  
+  // Guard: Check rate limits (if applicable)
+  const rateLimitOk = await checkRateLimit(session.user.id);
+  if (!rateLimitOk) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded' },
+      { status: 429 }
+    );
+  }
+  
+  // Process request
+  const body = await request.json();
+  
+  // Business logic...
+  
+  return NextResponse.json({ success: true });
+}
+```
+
+### 6. Admin API Protection
+
+**REQUIRED**: Protect admin API endpoints with role checks
+
+```typescript
+// app/api/admin/users/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
+
+export async function GET(request: NextRequest) {
+  const session = await auth();
+  
+  // Guard: Require authentication
+  if (!session?.user) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+  
+  // Guard: Require admin role
+  if (session.user.role !== 'ADMIN') {
+    return NextResponse.json(
+      { error: 'Forbidden - Admin access required' },
+      { status: 403 }
+    );
+  }
+  
+  // Fetch users (admin only)
+  const users = await prisma.user.findMany();
+  
+  return NextResponse.json({ users });
+}
+```
+
+### 7. Client-Side Protection (UI Only)
+
+**OPTIONAL**: Hide UI elements based on auth state (NOT for security)
+
+```typescript
+'use client';
+
+import { useSession } from 'next-auth/react';
+
+export function UserMenu() {
+  const { data: session, status } = useSession();
+  
+  // Loading state
+  if (status === 'loading') {
+    return <div className="h-10 w-10 rounded-full bg-gray-200 animate-pulse" />;
+  }
+  
+  // Not authenticated (should not happen if middleware works)
+  if (!session?.user) {
+    return null;
+  }
+  
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger>
+        <Avatar>
+          <AvatarImage src={session.user.image} alt={session.user.name} />
+          <AvatarFallback>{session.user.name?.[0]}</AvatarFallback>
+        </Avatar>
+      </DropdownMenuTrigger>
+      
+      <DropdownMenuContent>
+        <DropdownMenuLabel>{session.user.name}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        
+        <DropdownMenuItem>
+          <Link href="/settings">Settings</Link>
+        </DropdownMenuItem>
+        
+        {/* Show admin link only for admins */}
+        {session.user.role === 'ADMIN' && (
+          <DropdownMenuItem>
+            <Link href="/admin">Admin Dashboard</Link>
+          </DropdownMenuItem>
+        )}
+        
+        <DropdownMenuSeparator />
+        
+        <DropdownMenuItem onClick={() => signOut()}>
+          Log out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+```
+
+**⚠️ IMPORTANT**: Client-side checks are ONLY for UX. Never rely on them for security. Always enforce security server-side.
+
+---
+
+## Route Organization Patterns
+
+### Route Groups Strategy
+
+```
+app/
+├── (public)/          # No authentication required
+│   ├── page.tsx      # Landing page
+│   └── about/
+│
+├── (auth)/           # Authentication pages
+│   ├── login/
+│   └── signup/
+│
+├── (app)/            # Authenticated routes (USER or ADMIN)
+│   ├── layout.tsx   # Auth guard + AppShell
+│   ├── dashboard/
+│   ├── test/
+│   ├── history/
+│   └── settings/
+│
+└── (admin)/          # Admin-only routes
+    ├── layout.tsx   # Admin guard + AppShell
+    ├── users/
+    ├── settings/
+    └── analytics/
+```
+
+---
+
+## Error Pages
+
+### 401 Unauthorized Page
+
+```typescript
+// app/(auth)/401/page.tsx
+import Link from 'next/link';
+
+export default function UnauthorizedPage() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold text-gray-900 mb-4">
+          401 - Unauthorized
+        </h1>
+        <p className="text-gray-600 mb-8">
+          You need to be logged in to access this page.
+        </p>
+        <Link
+          href="/login"
+          className="px-6 py-3 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+        >
+          Go to Login
+        </Link>
+      </div>
+    </div>
+  );
+}
+```
+
+### 403 Forbidden Page
+
+```typescript
+// app/(auth)/403/page.tsx
+import Link from 'next/link';
+
+export default function ForbiddenPage() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold text-gray-900 mb-4">
+          403 - Forbidden
+        </h1>
+        <p className="text-gray-600 mb-8">
+          You don't have permission to access this page.
+        </p>
+        <Link
+          href="/dashboard"
+          className="px-6 py-3 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+        >
+          Go to Dashboard
+        </Link>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Testing Route Protection
+
+### Middleware Tests
+
+```typescript
+import { NextRequest } from 'next/server';
+import { middleware } from '@/middleware';
+
+describe('Middleware Route Protection', () => {
+  it('should allow public routes without auth', async () => {
+    const request = new NextRequest(new URL('http://localhost:3000/'));
+    const response = await middleware(request);
+    
+    expect(response.status).toBe(200);
+  });
+  
+  it('should redirect unauthenticated users to login', async () => {
+    // Mock no session
+    jest.spyOn(require('@/lib/auth'), 'auth').mockResolvedValue(null);
+    
+    const request = new NextRequest(new URL('http://localhost:3000/dashboard'));
+    const response = await middleware(request);
+    
+    expect(response.status).toBe(307); // Redirect
+    expect(response.headers.get('location')).toContain('/login');
+  });
+  
+  it('should redirect non-admin to 403 for admin routes', async () => {
+    // Mock user session (non-admin)
+    jest.spyOn(require('@/lib/auth'), 'auth').mockResolvedValue({
+      user: { id: '123', role: 'USER' }
+    });
+    
+    const request = new NextRequest(new URL('http://localhost:3000/admin'));
+    const response = await middleware(request);
+    
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toContain('/403');
+  });
+  
+  it('should allow admin users to access admin routes', async () => {
+    // Mock admin session
+    jest.spyOn(require('@/lib/auth'), 'auth').mockResolvedValue({
+      user: { id: '123', role: 'ADMIN' }
+    });
+    
+    const request = new NextRequest(new URL('http://localhost:3000/admin'));
+    const response = await middleware(request);
+    
+    expect(response.status).toBe(200);
+  });
+});
+```
+
+### API Route Protection Tests
+
+```typescript
+import { POST } from '@/app/api/health-check/test/route';
+import { NextRequest } from 'next/server';
+
+describe('API Route Protection', () => {
+  it('should return 401 for unauthenticated requests', async () => {
+    // Mock no session
+    jest.spyOn(require('@/lib/auth'), 'auth').mockResolvedValue(null);
+    
+    const request = new NextRequest('http://localhost:3000/api/health-check/test', {
+      method: 'POST',
+      body: JSON.stringify({ test: 'data' }),
+    });
+    
+    const response = await POST(request);
+    const data = await response.json();
+    
+    expect(response.status).toBe(401);
+    expect(data.error).toBe('Unauthorized');
+  });
+  
+  it('should process authenticated requests', async () => {
+    // Mock user session
+    jest.spyOn(require('@/lib/auth'), 'auth').mockResolvedValue({
+      user: { id: '123', email: 'test@example.com', role: 'USER' }
+    });
+    
+    const request = new NextRequest('http://localhost:3000/api/health-check/test', {
+      method: 'POST',
+      body: JSON.stringify({ test: 'data' }),
+    });
+    
+    const response = await POST(request);
+    const data = await response.json();
+    
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+  });
+});
+```
+
+---
+
+## Best Practices
+
+### 1. Defense in Depth
+
+**REQUIRED**: Multiple layers of protection
+
+```
+Layer 1: Middleware (global)
+  ↓
+Layer 2: Layout guards (route groups)
+  ↓
+Layer 3: Page-level checks (optional, extra security)
+  ↓
+Layer 4: API route authentication (independent)
+```
+
+### 2. Consistent Error Responses
+
+**REQUIRED**: Use standard HTTP status codes
+
+| Status | Meaning | When to Use |
+|--------|---------|-------------|
+| 200 | OK | Successful request |
+| 401 | Unauthorized | Not authenticated (no session) |
+| 403 | Forbidden | Authenticated but not authorized (wrong role) |
+| 404 | Not Found | Resource doesn't exist |
+| 429 | Too Many Requests | Rate limit exceeded |
+
+### 3. Redirect with Callback URL
+
+**REQUIRED**: Preserve intended destination after login
+
+```typescript
+// Redirect to login with callback
+const loginUrl = new URL('/login', request.url);
+loginUrl.searchParams.set('callbackUrl', pathname);
+return NextResponse.redirect(loginUrl);
+
+// After login, redirect back
+const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+router.push(callbackUrl);
+```
+
+### 4. Never Trust Client
+
+**CRITICAL**: Always validate on server
+
+```typescript
+// ❌ WRONG: Trusting client-side role
+'use client';
+const role = localStorage.getItem('role'); // Can be manipulated!
+if (role === 'ADMIN') {
+  // Show admin features - INSECURE!
+}
+
+// ✅ CORRECT: Server-side validation
+const session = await auth();
+if (session?.user.role === 'ADMIN') {
+  // Server verified admin status - SECURE
+}
+```
+
+---
+
+## See Also
+
+### Related Rules
+- @014-third-party-auth.mdc - NextAuth.js setup
+- @046-session-validation.mdc - Session security
+- @010-security-compliance.mdc - Security standards
+- @012-api-security.mdc - API security best practices
+- @041-app-shell-layout-standards.mdc - Layout with auth
+
+### Tools & Documentation
+- **`.cursor/tools/check-auth-config.sh`** - Validate auth configuration
+- **`app/lib/auth.ts`** - NextAuth.js configuration
+
+### Comprehensive Guides
+- **`guides/AUTH_ARCHITECTURE_PATTERNS_GUIDE.md`** ⭐ **Essential** - Auth patterns
+- **`guides/MIDDLEWARE_ARCHITECTURE_GUIDE.md`** - Middleware patterns
+- **`docs/SPEC-v0.4.0-04-Authentication-Flow.md`** - Auth spec
+
+### Quick Start
+
+```bash
+# 1. Review auth configuration
+cat app/lib/auth.ts
+
+# 2. Review middleware
+cat middleware.ts
+
+# 3. Test auth flow
+npm run test:unit -- middleware.test.ts
+
+# 4. Test protected routes manually
+# - Try accessing /dashboard without login
+# - Try accessing /admin as non-admin
+```
+
+---
+
+**Status**: ✅ Production Ready (v0.4.0)  
+**Last Updated**: 2024-12-07  
+**Priority**: P0 (CRITICAL - Security)

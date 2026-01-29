@@ -1,0 +1,591 @@
+---
+description: Apply SLA/SLO standards when defining service level agreements and objectives to ensure clear expectations and accountability
+globs: "**/*"
+---
+
+# SLA/SLO/SLI Standards
+
+## Context
+Service Level Agreements (SLAs), Objectives (SLOs), and Indicators (SLIs) define what "good" looks like for your service. They set clear expectations, enable data-driven decisions, and help prioritize reliability work.
+
+**The Hierarchy:**
+- **SLI** (Indicator) - What you measure (metric)
+- **SLO** (Objective) - What you promise internally (target)
+- **SLA** (Agreement) - What you promise customers (contract)
+
+## Requirements
+
+### 1. Service Level Indicators (SLIs)
+
+**What to Measure:**
+```yaml
+Common SLIs:
+  Availability:
+    - Definition: % of time service is available
+    - Measurement: successful requests / total requests
+    - Example: 99.9% of requests succeed
+  
+  Latency:
+    - Definition: How fast service responds
+    - Measurement: request duration (p50, p95, p99)
+    - Example: 95% of requests complete in < 500ms
+  
+  Quality:
+    - Definition: % of requests returning correct results
+    - Measurement: successful responses / total responses
+    - Example: 99.99% of requests return valid data
+  
+  Durability:
+    - Definition: % of data retained
+    - Measurement: data retained / data stored
+    - Example: 99.999999% of data is never lost
+```
+
+**SLI Implementation:**
+```typescript
+// lib/metrics/sli.ts
+
+export interface SLI {
+  name: string;
+  measure: () => Promise<number>;
+  target: number;
+  window: string;
+}
+
+// Availability SLI
+export const availabilitySLI: SLI = {
+  name: 'availability',
+  measure: async () => {
+    // successful requests / total requests (last 5 minutes)
+    const metrics = await getMetrics({
+      metric: 'http_requests_total',
+      time: '5m',
+    });
+    
+    const successful = metrics.filter(m => m.status < 500).length;
+    const total = metrics.length;
+    
+    return (successful / total) * 100;
+  },
+  target: 99.9, // %
+  window: '30d',
+};
+
+// Latency SLI
+export const latencySLI: SLI = {
+  name: 'latency',
+  measure: async () => {
+    // % of requests under threshold
+    const metrics = await getMetrics({
+      metric: 'http_request_duration',
+      time: '5m',
+    });
+    
+    const fast = metrics.filter(m => m.duration < 500).length; // < 500ms
+    const total = metrics.length;
+    
+    return (fast / total) * 100;
+  },
+  target: 95, // % under 500ms
+  window: '30d',
+};
+
+// Error Rate SLI
+export const errorRateSLI: SLI = {
+  name: 'error_rate',
+  measure: async () => {
+    const metrics = await getMetrics({
+      metric: 'http_requests_total',
+      time: '5m',
+    });
+    
+    const errors = metrics.filter(m => m.status >= 500).length;
+    const total = metrics.length;
+    
+    return ((total - errors) / total) * 100; // % successful
+  },
+  target: 99.9, // % successful
+  window: '30d',
+};
+```
+
+### 2. Service Level Objectives (SLOs)
+
+**Setting SLOs:**
+```yaml
+SLO Guidelines:
+  Start Conservative:
+    - Begin with 99% (allows 7.2 hours downtime/month)
+    - Measure actual performance first
+    - Tighten gradually based on data
+  
+  Don't Aim for 100%:
+    - 100% is impossible and expensive
+    - Leave room for maintenance, deployments
+    - 99.9% = 43 minutes downtime/month (reasonable)
+  
+  Multiple SLOs:
+    - Availability: 99.9% uptime
+    - Latency: 95% of requests < 500ms
+    - Error Rate: 99.9% success rate
+```
+
+**SLO Examples by Service Type:**
+```yaml
+Consumer Web Application:
+  Availability: 99.9% (three nines)
+    - Downtime: 43.2 minutes/month
+    - Cost: Moderate
+  
+  Latency: 95% < 500ms, 99% < 2s
+    - User experience: Good
+    - Cost: Moderate
+  
+  Error Rate: 99.9% success
+    - 1 in 1000 requests can fail
+    - Cost: Moderate
+
+Critical Financial Service:
+  Availability: 99.99% (four nines)
+    - Downtime: 4.3 minutes/month
+    - Cost: High
+  
+  Latency: 95% < 200ms, 99% < 500ms
+    - User experience: Excellent
+    - Cost: High
+  
+  Error Rate: 99.99% success
+    - 1 in 10,000 requests can fail
+    - Cost: High
+
+Internal Tool:
+  Availability: 99% (two nines)
+    - Downtime: 7.2 hours/month
+    - Cost: Low
+  
+  Latency: 95% < 2s, 99% < 5s
+    - User experience: Acceptable
+    - Cost: Low
+  
+  Error Rate: 99% success
+    - 1 in 100 requests can fail
+    - Cost: Low
+```
+
+**Our SLOs (Example):**
+```typescript
+// config/slo.ts
+
+export const serviceLevelObjectives = {
+  // Availability: 99.9% uptime (three nines)
+  availability: {
+    target: 99.9,        // %
+    window: '30d',       // rolling 30 days
+    downtime: 43.2,      // minutes per month allowed
+    measurement: 'successful_requests / total_requests',
+  },
+  
+  // Latency: 95% of requests under 500ms
+  latency_p95: {
+    target: 95,          // % of requests
+    threshold: 500,      // ms
+    window: '30d',
+    measurement: 'requests_under_500ms / total_requests',
+  },
+  
+  // Latency: 99% of requests under 2000ms
+  latency_p99: {
+    target: 99,          // % of requests
+    threshold: 2000,     // ms
+    window: '30d',
+    measurement: 'requests_under_2000ms / total_requests',
+  },
+  
+  // Error Rate: 99.9% success rate
+  errorRate: {
+    target: 99.9,        // % successful
+    window: '30d',
+    measurement: '(total_requests - errors) / total_requests',
+  },
+};
+```
+
+### 3. Error Budgets
+
+**Error Budget Concept:**
+```yaml
+Error Budget:
+  Definition: Amount of unreliability you can tolerate
+  
+  Calculation:
+    - SLO: 99.9% availability
+    - Error Budget: 100% - 99.9% = 0.1%
+    - In time: 43.2 minutes per month
+    - In requests: 1 error per 1000 requests
+  
+  Purpose:
+    - Balance reliability vs feature velocity
+    - Decide when to slow down (budget exhausted)
+    - Decide when to speed up (budget unused)
+```
+
+**Error Budget Tracking:**
+```typescript
+// lib/metrics/error-budget.ts
+
+export interface ErrorBudget {
+  slo: number;              // Target (e.g., 99.9%)
+  window: number;           // Days (e.g., 30)
+  budget: number;           // % allowed to fail (e.g., 0.1%)
+  consumed: number;         // % actually failed
+  remaining: number;        // % remaining
+  exhausted: boolean;       // Budget used up?
+}
+
+export async function calculateErrorBudget(
+  slo: SLI,
+  days: number = 30
+): Promise<ErrorBudget> {
+  const current = await slo.measure();
+  const target = slo.target;
+  
+  const budget = 100 - target;           // e.g., 100 - 99.9 = 0.1%
+  const consumed = 100 - current;        // e.g., 100 - 99.85 = 0.15%
+  const remaining = budget - consumed;   // e.g., 0.1 - 0.15 = -0.05%
+  const exhausted = remaining <= 0;
+  
+  return {
+    slo: target,
+    window: days,
+    budget: budget,
+    consumed: consumed,
+    remaining: remaining,
+    exhausted: exhausted,
+  };
+}
+
+// Example usage
+const availabilityBudget = await calculateErrorBudget(availabilitySLI, 30);
+
+if (availabilityBudget.exhausted) {
+  console.warn('❌ Error budget exhausted! Freeze feature work, focus on reliability.');
+} else if (availabilityBudget.remaining < 0.01) {
+  console.warn('⚠️ Error budget almost exhausted! Be careful with changes.');
+} else {
+  console.log('✅ Error budget healthy. Safe to deploy features.');
+}
+```
+
+**Error Budget Policy:**
+```markdown
+## Error Budget Policy
+
+### When Error Budget is Healthy (> 50% remaining):
+- ✅ Deploy features freely
+- ✅ Accept some risk for velocity
+- ✅ Focus on feature development
+- ✅ Normal deployment cadence
+
+### When Error Budget is Low (10-50% remaining):
+- ⚠️ Slow down feature deployments
+- ⚠️ Increase testing rigor
+- ⚠️ Review reliability of changes
+- ⚠️ Consider delaying risky features
+
+### When Error Budget is Exhausted (< 10% or negative):
+- ❌ FREEZE feature deployments
+- ❌ Focus 100% on reliability
+- ❌ Fix bugs and performance issues
+- ❌ Improve monitoring and alerting
+- ❌ Only deploy reliability improvements
+
+### How to Recover:
+1. Identify what's consuming budget (errors? latency?)
+2. Fix root causes (not symptoms)
+3. Add tests to prevent regression
+4. Improve monitoring
+5. Wait for budget to recover (time-based)
+```
+
+### 4. Service Level Agreements (SLAs)
+
+**SLA Components:**
+```yaml
+SLA (Customer Contract):
+  Commitment:
+    - "99.9% uptime" or "43 minutes downtime per month"
+    - Measured monthly
+    - Excludes planned maintenance
+  
+  Consequences:
+    - If miss SLA: Service credits (e.g., 10% refund)
+    - If miss badly: Larger credits (e.g., 25% refund)
+  
+  Measurement:
+    - Publicly visible status page
+    - Monthly SLA reports
+    - Automatic credit calculation
+  
+  Exclusions:
+    - Customer's network issues
+    - Force majeure (disasters)
+    - Planned maintenance (announced 24h prior)
+```
+
+**SLA Example:**
+```markdown
+## Service Level Agreement
+
+### Uptime Commitment
+We commit to 99.9% uptime, measured monthly.
+
+**Uptime Definition:**
+- Service is accessible and functional
+- API responds within 2 seconds
+- No data loss or corruption
+
+**Exclusions:**
+- Scheduled maintenance (< 4 hours/month, announced 24h prior)
+- Issues caused by customer's infrastructure
+- Force majeure events
+
+### Service Credits
+
+| Monthly Uptime | Downtime      | Service Credit |
+|---------------|---------------|----------------|
+| ≥ 99.9%       | < 43 minutes  | None           |
+| 99.0-99.9%    | 43-7.2 hours  | 10%            |
+| 95.0-99.0%    | 7.2-36 hours  | 25%            |
+| < 95.0%       | > 36 hours    | 50%            |
+
+**Credit Claim:**
+- Customer must request within 30 days
+- Credits applied to next month's bill
+- Maximum credit: 50% of monthly fee
+
+### Measurement
+- Uptime measured from our monitoring systems
+- Publicly visible at status.example.com
+- Monthly reports emailed to customers
+```
+
+### 5. SLO Monitoring Dashboard
+
+**Dashboard Requirements:**
+```yaml
+SLO Dashboard:
+  Overview:
+    - Current SLO status (✅/⚠️/❌)
+    - Error budget remaining (%)
+    - Time until budget reset
+  
+  Per-SLO:
+    - Current value vs target
+    - Trend (last 7 days)
+    - Error budget consumed
+    - Time series graph
+  
+  Alerts:
+    - SLO missed
+    - Error budget < 20%
+    - Error budget exhausted
+```
+
+**Dashboard Implementation:**
+```typescript
+// components/SLODashboard.tsx
+
+export function SLODashboard() {
+  const [sloStatus, setSloStatus] = useState<SLOStatus[]>([]);
+  
+  useEffect(() => {
+    async function fetchSLO() {
+      const availability = await measureSLI(availabilitySLI);
+      const latency = await measureSLI(latencySLI);
+      const errorRate = await measureSLI(errorRateSLI);
+      
+      setSloStatus([
+        {
+          name: 'Availability',
+          current: availability,
+          target: 99.9,
+          status: availability >= 99.9 ? 'healthy' : 'unhealthy',
+        },
+        {
+          name: 'Latency (p95)',
+          current: latency,
+          target: 95,
+          status: latency >= 95 ? 'healthy' : 'unhealthy',
+        },
+        {
+          name: 'Error Rate',
+          current: errorRate,
+          target: 99.9,
+          status: errorRate >= 99.9 ? 'healthy' : 'unhealthy',
+        },
+      ]);
+    }
+    
+    fetchSLO();
+    const interval = setInterval(fetchSLO, 60000); // Update every minute
+    return () => clearInterval(interval);
+  }, []);
+  
+  return (
+    <div className="slo-dashboard">
+      <h2>Service Level Objectives</h2>
+      
+      {sloStatus.map(slo => (
+        <div key={slo.name} className="slo-card">
+          <h3>{slo.name}</h3>
+          <div className={`status status-${slo.status}`}>
+            {slo.current.toFixed(2)}%
+          </div>
+          <div className="target">
+            Target: {slo.target}%
+          </div>
+          <div className="error-budget">
+            Error Budget: {(slo.target - slo.current).toFixed(2)}%
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+### 6. SLO Review Process
+
+**Weekly SLO Review:**
+```markdown
+## Weekly SLO Review (30 minutes)
+
+### Attendees
+- Engineering team
+- Product manager
+- On-call engineer
+
+### Agenda
+1. **Review Each SLO** (15 min)
+   - Current status vs target
+   - Trend (improving or degrading?)
+   - Error budget remaining
+   - Incidents that impacted SLO
+
+2. **Action Items** (10 min)
+   - What's consuming error budget?
+   - Should we adjust SLO targets?
+   - Reliability improvements needed?
+   - Feature freeze needed?
+
+3. **Next Steps** (5 min)
+   - Assign action items
+   - Schedule deep dives if needed
+   - Update runbooks
+
+### Output
+- SLO health report
+- Action items with owners
+- Decision on deployment velocity
+```
+
+**Monthly SLO Report:**
+```markdown
+## Monthly SLO Report - January 2024
+
+### Executive Summary
+- ✅ All SLOs met this month
+- Error budget: 45% remaining (healthy)
+- 2 incidents impacted availability
+- Recommendation: Continue current velocity
+
+### SLO Performance
+
+| SLO           | Target | Actual | Status | Budget Remaining |
+|---------------|--------|--------|--------|------------------|
+| Availability  | 99.9%  | 99.92% | ✅     | 80%              |
+| Latency (p95) | 95%    | 96.2%  | ✅     | 120%             |
+| Error Rate    | 99.9%  | 99.88% | ✅     | 80%              |
+
+### Incidents
+1. **INC-2024-001**: Database slowdown (15 min)
+   - Impact: Latency SLO
+   - Budget consumed: 5%
+   - Resolution: Query optimization
+
+2. **INC-2024-002**: API timeout (8 min)
+   - Impact: Availability SLO
+   - Budget consumed: 3%
+   - Resolution: Increased timeout
+
+### Recommendations
+- ✅ SLOs healthy, continue feature development
+- Consider tightening latency SLO (consistently exceeding)
+- Add monitoring for database query performance
+```
+
+## SLO/SLA Checklist
+
+```markdown
+## Setup Checklist
+
+### Define SLIs
+- [ ] Identify key user journeys
+- [ ] Define measurable indicators
+- [ ] Implement measurement code
+- [ ] Validate measurements are accurate
+
+### Set SLOs
+- [ ] Start with conservative targets
+- [ ] Calculate error budgets
+- [ ] Document in writing
+- [ ] Share with team
+
+### Track Error Budgets
+- [ ] Implement error budget calculation
+- [ ] Create dashboard
+- [ ] Set up alerts (< 20% remaining)
+- [ ] Define error budget policy
+
+### Customer SLAs (if applicable)
+- [ ] Define SLA terms
+- [ ] Calculate service credits
+- [ ] Create public status page
+- [ ] Automate credit calculation
+
+### Process
+- [ ] Weekly SLO review meeting
+- [ ] Monthly SLO report
+- [ ] Incident SLO impact analysis
+- [ ] Quarterly SLO target review
+```
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - SLO tracking workflows
+- **`003-cursor-system-overview.mdc`** ⭐ - System overview
+
+### Complete Guides
+- **`guides/Monitoring-Complete-Guide.md`** ⭐ - SLO monitoring
+- **`guides/Incident-Response-Complete-Guide.md`** ⭐ - SLO impact
+
+### Related Rules
+- @221-application-monitoring.mdc - SLI measurement
+- @222-metrics-alerting.mdc - SLO alerts
+- @202-rollback-procedures.mdc - Protect error budget
+
+### Quick Start
+1. **Define SLIs:** Availability, latency, error rate
+2. **Set SLOs:** 99.9% availability, 95% latency < 500ms
+3. **Track error budget:** Calculate and dashboard
+4. **Review weekly:** Team SLO review meeting
+5. **Adjust velocity:** Based on error budget health
+
+## Priority
+**P1 (Important)** - SLO/SLA standards provide clear reliability targets and enable data-driven decisions about feature velocity vs reliability.
+
+## References
+- [Google SRE - SLO](https://sre.google/sre-book/service-level-objectives/)
+- [Implementing SLOs](https://sre.google/workbook/implementing-slos/)
+- [The Art of SLOs](https://sre.google/resources/practices-and-processes/art-of-slos/)

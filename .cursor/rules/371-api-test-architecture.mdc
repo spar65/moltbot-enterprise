@@ -1,0 +1,215 @@
+---
+description: Use when deciding testing strategy and architecture for API endpoints to ensure proper test coverage and maintainability
+globs: "**/__tests__/**/api-*.test.ts, **/tests/api/**/*.test.ts, **/jest.api.config.js, **/jest.api.setup.js"
+---
+
+# API Test Architecture and Strategy
+
+## Context
+
+- Different types of API testing serve different purposes and have different trade-offs
+- Test architecture decisions impact development speed, test reliability, and maintenance burden
+- Proper test categorization prevents mixing concerns and improves test organization
+- Mock strategy affects test isolation, speed, and confidence in functionality
+- API test infrastructure must be scalable and reusable across multiple endpoints
+
+## Requirements
+
+### Test Type Decision Matrix
+
+Use this matrix to determine the appropriate testing approach:
+
+| Scenario                   | Test Type   | Configuration             | Database         | Speed   |
+| -------------------------- | ----------- | ------------------------- | ---------------- | ------- |
+| **Core business logic**    | Unit        | `jest.database.config.js` | Mock             | Fast    |
+| **API request/response**   | API         | `jest.api.config.js`      | Mock             | Medium  |
+| **End-to-end workflows**   | Integration | `jest.api.config.js`      | Real/Transaction | Slow    |
+| **External service flows** | E2E         | Cypress/Playwright        | Real             | Slowest |
+
+### When to Use Unit Tests (Database Infrastructure)
+
+- Testing `ApiKeyManager`, `SubscriptionManager`, and other business logic classes
+- Testing utility functions and helper methods
+- Testing data transformation and validation logic
+- Fast feedback during development
+- High code coverage of business logic paths
+- Use `__tests__/database-*.test.ts` naming pattern
+
+### When to Use API Tests (This Architecture)
+
+- Testing HTTP request/response flows
+- Testing middleware integration (auth, rate limiting, validation)
+- Testing API contract compliance (request/response format)
+- Testing authentication and authorization flows
+- Testing error handling and status codes
+- Use `__tests__/api-*.test.ts` naming pattern
+
+### When to Use Integration Tests
+
+- Testing complete user workflows (generate key → use key → API call)
+- Testing cross-service interactions
+- Testing database constraints and relationships
+- Testing transaction boundaries and rollback scenarios
+- Use real database with `withTransaction()` for isolation
+
+### File Organization Requirements
+
+```
+__tests__/
+├── database-*.test.ts        # Unit tests (business logic)
+├── api-*.test.ts            # API endpoint tests
+└── integration-*.test.ts    # Full workflow tests
+
+tests/
+├── helpers/
+│   ├── api-test-helpers.ts  # Reusable API utilities
+│   └── db-test-helpers.ts   # Reusable DB utilities
+├── mocks/
+│   ├── auth0.mock.js        # Centralized Auth0 mocking
+│   ├── middleware.mock.js   # Middleware mocking
+│   └── services.mock.js     # External service mocking
+└── fixtures/
+    ├── api-requests.json    # Standard request payloads
+    └── api-responses.json   # Expected response formats
+```
+
+### Mock Strategy Requirements
+
+- **Centralized Mocking**: Define mocks in `tests/mocks/` for reuse across test files
+- **Layered Mocking**: Mock at appropriate levels (module, middleware, external service)
+- **Explicit Setup**: Use explicit mock configuration instead of complex chains
+- **Consistent Helpers**: Use helper functions for common mock scenarios
+- **Clear Boundaries**: Separate what's mocked vs. what's tested
+
+### Configuration Architecture
+
+- **Separate Configs**: Use `jest.database.config.js` for unit tests, `jest.api.config.js` for API tests
+- **Shared Setup**: API config extends database config for consistent foundation
+- **Environment Isolation**: Tests run in Node environment with proper polyfills
+- **Timeout Configuration**: Longer timeouts for API tests (45s) vs unit tests (30s)
+- **Coverage Separation**: Different coverage targets and directories
+
+### Reusability Patterns
+
+- Create test suites for common API patterns (CRUD operations, authentication flows)
+- Use helper functions for standard assertions (success, error, validation)
+- Build reusable request/response builders
+- Create mock data factories for consistent test data
+- Implement test utilities that can be imported across multiple test files
+
+### Performance Considerations
+
+- **Unit Tests**: Run frequently during development (< 30 seconds total)
+- **API Tests**: Run before commits (< 2 minutes total)
+- **Integration Tests**: Run in CI/CD pipeline (< 10 minutes total)
+- **E2E Tests**: Run nightly or before releases
+- Use `--testPathPattern` to run specific test categories
+
+### Error Handling Architecture
+
+- Standardized error response format testing
+- Consistent error assertion helpers
+- Mock external service failures appropriately
+- Test error boundaries and graceful degradation
+- Verify error logging and monitoring integration
+
+## Examples
+
+<example>
+```typescript
+// GOOD: Clear separation of concerns
+// File: __tests__/database-api-keys.test.ts (Unit test)
+describe('ApiKeyManager Business Logic', () => {
+  test('generateApiKey with valid input', async () => {
+    const result = await ApiKeyManager.generateApiKey(userId, options);
+    expect(result.keyId).toBeDefined();
+  });
+});
+
+// File: **tests**/api-user-keys.test.ts (API test)
+describe('API: User Keys Endpoint', () => {
+test('POST /api/user/api-keys returns 201', async () => {
+const { req, res } = createAPITest({ method: 'POST', body: data });
+await apiKeysHandler(req, res);
+responseAssertions.success(res, 201);
+});
+});
+
+// File: **tests**/integration-cli-workflow.test.ts (Integration test)
+describe('CLI Workflow Integration', () => {
+test('Generate key → Use key → Parse PRD', async () => {
+await withTransaction(async (sql) => {
+// Full workflow with real database
+});
+});
+});
+
+````
+</example>
+
+<example type="invalid">
+```typescript
+// BAD: Mixing different test types in one file
+describe('API Key Tests', () => {
+  test('Business logic', async () => {
+    const result = await ApiKeyManager.generateApiKey(); // Unit test
+  });
+
+  test('API endpoint', async () => {
+    await apiKeysHandler(req, res); // API test
+  });
+
+  test('Full workflow', async () => {
+    // Generate key, use key, make API call // Integration test
+  });
+});
+````
+
+</example>
+
+### Test Infrastructure Dependencies
+
+- **Database Tests** depend on: `jest.database.config.js`, proven Neon setup
+- **API Tests** depend on: `jest.api.config.js`, middleware mocks, Auth0 mocks
+- **Integration Tests** depend on: Real database, transaction rollback, full middleware stack
+- **All Tests** depend on: Proper environment variable setup, fetch polyfill, network unmocking
+
+### Debugging and Maintenance
+
+- Use consistent console logging patterns for test debugging
+- Include request/response logging in API test helpers
+- Provide clear error messages when assertions fail
+- Use descriptive test names that explain the scenario being tested
+- Document mock setup in comments for future maintainers
+
+### Scaling Considerations
+
+- Design test helpers to work across multiple API endpoints
+- Create reusable mock configurations for different environments
+- Build test data factories that can generate varied test scenarios
+- Plan for adding new API endpoints without duplicating test infrastructure
+- Consider test parallelization for large test suites
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - API test architecture
+- **`.cursor/docs/tools-guide.md`** - Testing tools guide
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Inspect schema for test architecture
+- **`.cursor/tools/check-schema-changes.sh`** - Schema validation
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (Prisma schema first!)
+- @300-testing-standards.mdc - General testing standards
+- @370-api-testing-database.mdc - API database testing
+- @375-api-test-first-time-right.mdc - API testing patterns (critical!)
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (foundation)
+2. **Architecture:** Follow @375-api-test-first-time-right.mdc
+3. **Framework:** Use @380-comprehensive-testing-standards.mdc

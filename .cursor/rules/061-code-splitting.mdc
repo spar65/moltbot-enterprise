@@ -1,0 +1,68 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply code splitting strategies when building features to optimize initial load time and bundle size
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Code Splitting Standards
+
+## Next.js Page-Level Splitting
+- Leverage automatic page-level code splitting
+- Use dynamic imports for heavy components not needed on initial render
+- Implement `React.lazy` and Suspense for component-level code splitting
+- Apply route-based splitting for feature modules
+
+## Dynamic Import Strategy
+- Use named exports with dynamic imports to enable better tree-shaking
+- Implement loading indicators for all dynamically imported components
+- Define error boundaries around dynamically loaded components
+- Specify chunk names for better debugging and monitoring
+
+## Bundle Analysis
+- Run bundle analysis before merging significant feature PRs
+- Keep initial JS payload under 150KB (compressed)
+- Document and justify any significant bundle size increases
+- Implement module/nomodule pattern for legacy browser support
+
+## Third-Party Library Management
+- Evaluate bundle impact before adding new dependencies
+- Consider using lightweight alternatives for large libraries
+- Load non-critical third-party scripts dynamically
+- Implement import cost tooling in development environment
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Code splitting patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### ⭐ NEW: Comprehensive Performance Guides
+- **`guides/Frontend-Performance-Complete-Guide.md`** ⭐ **MASTER GUIDE** - Code splitting strategies
+- **`guides/Core-Web-Vitals-Optimization-Guide.md`** - Bundle impact on LCP
+- **`guides/Next.js-Architecture-Guide.md`** - Next.js code splitting patterns
+
+### ⭐ NEW: Performance Automation Tools (USE THESE!)
+- **`.cursor/tools/check-bundle-size.sh`** ⭐ **CRITICAL:** Bundle size analysis & budget checking!
+- **`.cursor/tools/analyze-performance.sh`** ⭐ - Comprehensive analysis including bundle
+
+### ⭐ NEW: Core Performance Rules
+- @062-core-web-vitals.mdc - Bundle impact on Core Web Vitals
+- @062-rendering-strategies.mdc - SSR, SSG, RSC for code splitting
+- @067-runtime-optimization.mdc - Dynamic imports & React.lazy patterns
+
+### Related Rules (Existing)
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @060-performance-metrics.mdc - Performance budgets for bundles
+- @063-client-performance.mdc - Client-side optimization
+- @070-nextjs-architecture.mdc - **CRITICAL:** Next.js architecture patterns!
+- @071-nextjs-data-fetching.mdc - Data fetching optimization
+
+### Quick Start
+1. **Analyze:** Run `.cursor/tools/check-bundle-size.sh` for baseline
+2. **Split:** Use dynamic imports for heavy components
+3. **Monitor:** Track bundle sizes against budgets (< 300KB gzipped)
+4. **Optimize:** Follow Frontend Performance guide for strategies

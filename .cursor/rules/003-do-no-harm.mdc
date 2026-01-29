@@ -1,0 +1,515 @@
+---
+description: "CORE PRINCIPLE: Follow 'Do No Harm' principle - never delete or overwrite data without explicit permission across ALL development activities"
+globs: "**/*.{js,ts,tsx,jsx,bash,sh,sql,prisma,mdc,json,yaml,yml}"
+alwaysApply: true
+---
+
+# Do No Harm - Core Safety Principle
+
+**Priority**: P0 (REQUIRED - Core Principle)  
+**Domain**: Core Rules (000-series)  
+**Applies To**: All development activities - scripts, migrations, deployments, refactoring, file operations
+
+---
+
+## Why This is a Core Principle
+
+The "Do No Harm" principle is **fundamental to all software development**. Like the Hippocratic Oath in medicine, it establishes that **preventing harm takes priority over adding features**.
+
+### Universal Application
+
+This principle applies to:
+- ✅ Scripts and automation
+- ✅ Database migrations and schema changes
+- ✅ File operations and refactoring
+- ✅ Deployment procedures
+- ✅ Code cleanup and technical debt
+- ✅ Configuration changes
+- ✅ Data transformations
+
+### Catastrophic Consequences
+
+One violation can cause:
+- 🔥 **Permanent data loss** (user data, production databases)
+- 🔥 **Production outages** (deleted critical files)
+- 🔥 **Security breaches** (accidental exposure of secrets)
+- 🔥 **Business damage** (lost customer trust, legal liability)
+
+**Recovery from violations is often impossible or extremely costly.**
+
+---
+
+## Context
+
+- Scripts and automated processes can easily delete or overwrite important data
+- User-created content and production data are **invaluable and irreplaceable**
+- Database migrations can permanently corrupt data if not careful
+- Deployment scripts can destroy production environments
+- Refactoring tools can accidentally delete stable code
+- Data loss damages user trust and can have legal consequences
+
+---
+
+## Core Requirements
+
+### 1. Script Safety Requirements
+
+#### Never Delete Without Permission
+
+- Scripts MUST NOT delete files, directories, or data without explicit user confirmation
+- If cleanup is necessary, scripts MUST move files to a backup location instead
+- Temporary files MUST be clearly marked and documented
+- Database cleanup MUST use soft deletes or archival, not hard deletes
+
+**Examples:**
+```bash
+# ✅ CORRECT - Ask before deleting
+read -p "Delete $file? (y/N): " confirm
+[[ "$confirm" =~ ^[Yy]$ ]] && rm "$file" || echo "Skipped"
+
+# ✅ CORRECT - Move to backup instead of delete
+mkdir -p .backup
+mv "$old_directory" ".backup/$(date +%Y%m%d_%H%M%S)_backup"
+
+# ❌ WRONG - Delete without permission
+rm -rf "$directory"
+```
+
+#### Never Overwrite Without Checking
+
+- Before overwriting a file, MUST check if it exists and contains user content
+- If a file exists, scripts MUST either:
+  - Skip the file and notify the user
+  - Make a timestamped backup copy before overwriting
+  - Merge new content with existing content when possible
+- Database updates MUST preserve existing data unless explicitly requested
+
+**Examples:**
+```javascript
+// ✅ CORRECT - Check before overwriting
+if (fs.existsSync(path)) {
+  const backup = `${path}.backup.${Date.now()}`;
+  fs.copyFileSync(path, backup);
+  console.log(`Created backup: ${backup}`);
+}
+fs.writeFileSync(path, newContent);
+
+// ❌ WRONG - Overwrite without checking
+fs.writeFileSync(path, newContent);
+```
+
+#### Clear Notifications
+
+- Scripts MUST provide clear notifications when they detect potential data loss
+- User MUST be informed what files/data would be affected
+- Dry-run mode SHOULD be available to preview changes
+- Logs MUST record all destructive operations
+
+#### Backup Mechanism
+
+- Critical operations MUST include a backup mechanism
+- Backups MUST be timestamped and easily identifiable
+- Backup location MUST be documented and accessible
+- Backup validation SHOULD confirm data integrity
+
+---
+
+### 2. Database Migration Safety
+
+#### Schema Changes
+
+```sql
+-- ✅ CORRECT - Add new column with default, preserve existing data
+ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT false;
+
+-- ✅ CORRECT - Rename column safely (multi-step)
+-- Step 1: Add new column
+ALTER TABLE users ADD COLUMN full_name VARCHAR(255);
+-- Step 2: Copy data
+UPDATE users SET full_name = name;
+-- Step 3: Deploy code using full_name
+-- Step 4: (Later) Drop old column if needed
+
+-- ❌ WRONG - Drop column immediately (data loss!)
+ALTER TABLE users DROP COLUMN name;
+
+-- ❌ WRONG - Change column type without migration (data loss!)
+ALTER TABLE users ALTER COLUMN age TYPE VARCHAR(10);
+```
+
+#### Data Transformations
+
+```typescript
+// ✅ CORRECT - Backup before transformation
+await prisma.$executeRaw`
+  CREATE TABLE users_backup_${timestamp} AS SELECT * FROM users;
+`;
+await transformUserData();
+
+// ✅ CORRECT - Use transactions for safety
+await prisma.$transaction(async (tx) => {
+  await tx.user.updateMany({ where: { ... }, data: { ... } });
+  // If anything fails, automatic rollback
+});
+
+// ❌ WRONG - Transform without backup
+await prisma.user.updateMany({ data: { transformed: true } });
+```
+
+---
+
+### 3. Deployment Safety
+
+#### Production Deployments
+
+```bash
+# ✅ CORRECT - Database backup before deployment
+pg_dump $DATABASE_URL > "backup_$(date +%Y%m%d_%H%M%S).sql"
+./deploy.sh
+
+# ✅ CORRECT - Blue-green deployment (zero downtime)
+# Keep old version running, deploy new version, then switch
+
+# ❌ WRONG - Deploy directly without backup
+git pull && npm run build && pm2 restart all
+```
+
+#### Configuration Changes
+
+```bash
+# ✅ CORRECT - Backup config before changes
+cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
+echo "NEW_VAR=value" >> .env
+
+# ❌ WRONG - Overwrite config without backup
+echo "NEW_VAR=value" > .env  # Destroys existing config!
+```
+
+---
+
+### 4. Code Refactoring Safety
+
+#### File Operations
+
+```typescript
+// ✅ CORRECT - Use git for safety
+// Git provides automatic backup and recovery
+// Always commit before major refactoring
+
+// ✅ CORRECT - Deprecate before removing
+/**
+ * @deprecated Use newFunction() instead. Will be removed in v2.0
+ */
+export function oldFunction() { ... }
+
+// ❌ WRONG - Delete code without deprecation period
+// Just deleting oldFunction() breaks existing integrations
+```
+
+---
+
+### 5. Automation & CI/CD Safety
+
+#### Automated Cleanup
+
+```yaml
+# ✅ CORRECT - Archive before cleanup
+- name: Archive old logs
+  run: |
+    mkdir -p archives
+    tar -czf "archives/logs_$(date +%Y%m%d).tar.gz" logs/
+    rm logs/*.log
+
+# ❌ WRONG - Delete without archival
+- name: Clean logs
+  run: rm -rf logs/*
+```
+
+---
+
+## Implementation Guidelines
+
+### General Principles
+
+1. **Check First, Act Second**
+   - ALWAYS check for existence before destructive operations
+   - ALWAYS validate paths to prevent accidental system file operations
+
+2. **Backup Everything**
+   - Use timestamped backups: `file.backup.20241120_143022`
+   - Keep backups for reasonable retention period
+   - Document backup location and recovery procedures
+
+3. **Use Transactions**
+   - Database operations MUST use transactions
+   - File operations SHOULD use temporary files + atomic rename
+   - Configuration changes SHOULD be reversible
+
+4. **Provide Dry-Run Mode**
+   - All destructive scripts SHOULD have `--dry-run` flag
+   - Show what WOULD happen without actually doing it
+   - Require explicit `--force` flag for actual execution
+
+5. **Log Everything**
+   - Record all file operations with timestamps
+   - Log what was changed, by whom, when, and why
+   - Enable audit trails for compliance
+
+6. **Fail Safe**
+   - If in doubt, DON'T do it
+   - If an error occurs, STOP immediately
+   - If validation fails, ABORT the operation
+
+---
+
+## Examples
+
+### Script Safety
+
+<example>
+```bash
+#!/bin/bash
+# ✅ CORRECT - Safe cleanup script
+
+set -euo pipefail  # Exit on error, undefined vars, pipe failures
+
+DRY_RUN=true
+BACKUP_DIR=".backups/$(date +%Y%m%d_%H%M%S)"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --force) DRY_RUN=false; shift ;;
+    *) echo "Unknown option: $1"; exit 1 ;;
+  esac
+done
+
+# Function to safely remove files
+safe_remove() {
+  local target=$1
+  
+  if [[ ! -e "$target" ]]; then
+    echo "⚠️  $target does not exist, skipping"
+    return 0
+  fi
+  
+  if $DRY_RUN; then
+    echo "🔍 [DRY RUN] Would remove: $target"
+    return 0
+  fi
+  
+  # Create backup
+  mkdir -p "$BACKUP_DIR"
+  echo "📦 Backing up $target to $BACKUP_DIR"
+  cp -r "$target" "$BACKUP_DIR/"
+  
+  # Remove original
+  rm -rf "$target"
+  echo "✅ Removed: $target (backup available)"
+}
+
+# Usage
+safe_remove "old_directory"
+
+if $DRY_RUN; then
+  echo ""
+  echo "🔍 DRY RUN COMPLETE - No changes made"
+  echo "Run with --force to apply changes"
+fi
+```
+</example>
+
+### Database Migration Safety
+
+<example>
+```typescript
+// ✅ CORRECT - Safe migration with backup and validation
+
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+async function safeMigration() {
+  const timestamp = Date.now();
+  
+  try {
+    // 1. Create backup table
+    await prisma.$executeRaw`
+      CREATE TABLE users_backup_${timestamp} AS 
+      SELECT * FROM users;
+    `;
+    console.log('✅ Backup created');
+    
+    // 2. Validate data before migration
+    const userCount = await prisma.user.count();
+    console.log(`📊 Migrating ${userCount} users`);
+    
+    // 3. Perform migration in transaction
+    await prisma.$transaction(async (tx) => {
+      await tx.user.updateMany({
+        where: { email_verified: null },
+        data: { email_verified: false }
+      });
+      
+      // Validate migration
+      const nullCount = await tx.user.count({
+        where: { email_verified: null }
+      });
+      
+      if (nullCount > 0) {
+        throw new Error(`Migration failed: ${nullCount} null values remaining`);
+      }
+    });
+    
+    console.log('✅ Migration complete');
+    
+    // 4. Keep backup for 7 days, then drop
+    console.log(`📦 Backup table: users_backup_${timestamp}`);
+    console.log('⏰ Drop backup after 7 days if migration successful');
+    
+  } catch (error) {
+    console.error('❌ Migration failed:', error);
+    console.log('🔄 Restore from backup: users_backup_${timestamp}');
+    throw error;
+  }
+}
+```
+</example>
+
+### Invalid Examples
+
+<example type="invalid">
+```bash
+# ❌ WRONG - Dangerous cleanup without checks
+#!/bin/bash
+rm -rf /var/log/*  # Could delete critical logs
+find . -name "*.tmp" -delete  # No backup, no confirmation
+
+# ❌ WRONG - Overwrite without backup
+cat new_content > important_config.yaml
+
+# ❌ WRONG - Database changes without transaction
+UPDATE users SET deleted = true WHERE inactive = true;
+DELETE FROM sessions WHERE expired = true;
+```
+
+```typescript
+// ❌ WRONG - Destructive operations without safety
+await prisma.user.deleteMany({ where: { inactive: true } });  // Permanent!
+fs.rmSync('data/', { recursive: true, force: true });  // No backup!
+await prisma.$executeRaw`DROP TABLE old_table`;  // No migration path!
+```
+</example>
+
+---
+
+## Security Considerations
+
+- Scripts MUST run with **minimal privileges** needed
+- File operations MUST be restricted to the project directory
+- Absolute paths MUST be validated carefully to prevent accidental operations on system files
+- Database credentials MUST be protected (see @011-env-var-security.mdc)
+- Backup files MUST NOT contain secrets in plain text
+
+---
+
+## See Also
+
+### Related Core Rules
+- @000-core-guidelines.mdc - Fundamental development guidelines
+- @001-cursor-rules.mdc - Rules system format
+- @002-rule-application.mdc - **CRITICAL:** Source of Truth Hierarchy
+
+### Related Domain Rules
+- @100-feature-separation.mdc - Feature organization without data loss
+- @104-stable-interfaces.mdc - **CRITICAL:** Protecting stable interfaces
+- @150-technical-debt-prevention.mdc - Code cleanup without breaking changes
+- @202-rollback-procedures.mdc - **CRITICAL:** Emergency recovery procedures
+- @208-database-operations.mdc - **CRITICAL:** Database safety and backups
+- @212-backup-recovery-standards.mdc - Backup strategies
+- @066-database-migration-standards.mdc - Safe database migrations
+- @203-production-deployment-safety.mdc - Deployment safety standards
+- @011-env-var-security.mdc - Protect secrets during file operations
+
+### Tools & Documentation
+- **`.cursor/docs/ai-workflows.md`** - Safe automation workflows
+- **`.cursor/tools/check-backups.sh`** - Verify backup health
+- **`.cursor/tools/validate-migration.sh`** - Test migrations safely
+
+### Comprehensive Guides
+- **`guides/Safe-Automation-Guide.md`** ⭐ **Essential** - Safe script patterns
+- **`guides/Disaster-Recovery-Guide.md`** - Recovery procedures
+- **`guides/Database-Operations-Complete-Guide.md`** - Database safety
+- **`guides/Deployment-Safety-Guide.md`** - Safe deployment practices
+
+---
+
+## Quick Start - Safety Checklist
+
+### Before ANY Destructive Operation:
+
+1. ✅ **Backup First**: Create timestamped backup of affected data
+2. ✅ **Dry Run**: Test with `--dry-run` to preview changes
+3. ✅ **Validate**: Check that backup is complete and restorable
+4. ✅ **User Confirmation**: Require explicit confirmation for production
+5. ✅ **Transaction**: Use transactions for atomicity
+6. ✅ **Log**: Record what, when, who, why
+7. ✅ **Recovery Plan**: Know how to rollback if needed
+8. ✅ **Test Recovery**: Validate that rollback actually works
+
+### Script Template:
+```bash
+#!/bin/bash
+set -euo pipefail
+DRY_RUN=true
+BACKUP_DIR=".backups/$(date +%Y%m%d_%H%M%S)"
+
+# 1. Parse --force flag
+# 2. Create backup directory
+# 3. Backup affected files/data
+# 4. If dry-run, show changes and exit
+# 5. Perform operation
+# 6. Validate result
+# 7. Log operation
+```
+
+---
+
+## When to Use This Rule
+
+- ✅ **ALWAYS** - This is a core principle that applies universally
+- ✅ When writing any script or automation
+- ✅ When implementing file operations
+- ✅ When creating database migrations
+- ✅ When building deployment procedures
+- ✅ When refactoring or cleaning up code
+- ✅ When modifying configuration
+- ✅ When handling user data
+
+---
+
+## Do NOT Ignore This Rule
+
+- ❌ **NEVER** skip safety checks "just this once"
+- ❌ **NEVER** assume files/data are disposable
+- ❌ **NEVER** bypass confirmation prompts in production
+- ❌ **NEVER** delete without backup "because it's just test data"
+- ❌ **NEVER** assume you can "just restore from backup" (backups fail!)
+- ❌ **NEVER** rush through destructive operations under pressure
+
+**Remember: One mistake can cause irreversible damage. Always err on the side of caution!**
+
+---
+
+## Enforcement
+
+- **Code Reviews**: MUST check for violations of this principle
+- **CI/CD**: SHOULD detect destructive operations without safeguards
+- **Testing**: MUST include tests for backup/recovery procedures
+- **Incidents**: Violations MUST be treated as critical incidents with root cause analysis
+
+---
+
+**Last Updated**: 2024-11-20  
+**Status**: ✅ Core Principle (000-series)  
+**Priority**: P0 (REQUIRED)

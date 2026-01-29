@@ -1,0 +1,640 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply database resilience patterns when implementing database operations to ensure fault tolerance, graceful degradation, and reliable recovery from failures
+globs: "src/**/*.{ts,tsx}, src/lib/database/**/*.{ts,tsx}"
+___
+
+# Database Resilience Patterns
+
+## Context
+
+Database operations can fail due to various reasons such as connection issues, timeouts, deadlocks, or service unavailability. Implementing proper resilience patterns ensures the application can handle these failures gracefully, retry when appropriate, and maintain a good user experience even under degraded conditions.
+
+## Requirements
+
+### Circuit Breaker Pattern
+
+- Critical database operations MUST implement circuit breaker patterns
+- Circuit breakers MUST track failure rates and response times
+- Circuit breakers MUST prevent cascading failures during database outages
+- Circuit breakers SHOULD provide fallback mechanisms when possible
+- Circuit state changes MUST be logged and monitored
+
+### Retry Pattern
+
+- Transient database errors MUST be retried with appropriate backoff
+- Retry attempts MUST be limited to prevent overwhelming the database
+- Retry logic SHOULD differentiate between retryable and non-retryable errors
+- Retry attempts MUST be logged and monitored
+- Retry strategies SHOULD vary based on operation criticality
+
+### Timeout Management
+
+- All database operations MUST have appropriate timeouts
+- Timeouts MUST be enforced at the application level
+- Long-running queries MUST be optimized or executed asynchronously
+- Timeout durations SHOULD be configured based on operation type
+- Timeout exceptions MUST be handled gracefully
+
+### Fallback Mechanisms
+
+- Critical read operations SHOULD implement cache fallbacks
+- Degraded functionality MUST be provided during database unavailability
+- Fallbacks MUST maintain data consistency guarantees
+- Stale data usage during outages MUST be clearly documented
+- Recovery procedures MUST be implemented for fallback states
+
+### Connection Management
+
+- Database connection pools MUST be properly configured
+- Connection leaks MUST be prevented through proper resource management
+- Connection health MUST be verified before use
+- Connection recycling SHOULD be implemented for long-running processes
+- Connection pool metrics MUST be monitored
+
+## Examples
+
+<example>
+// Circuit breaker implementation
+import { PrismaClient } from '@prisma/client';
+import { CircuitBreaker } from '../utils/circuit-breaker';
+import { logger } from '../utils/logger';
+
+const prisma = new PrismaClient();
+
+// Create circuit breaker for database operations
+const databaseCircuitBreaker = new CircuitBreaker({
+  failureThreshold: 5,      // Number of failures before opening
+  resetTimeout: 30000,      // 30 seconds until attempting half-open state
+  maxSampleSize: 100,       // Track up to 100 operations
+  name: 'database-circuit'
+});
+
+// Repository with circuit breaker pattern
+export class UserRepository {
+  async findById(id: string, organizationId: string) {
+    return databaseCircuitBreaker.execute(async () => {
+      try {
+        return await prisma.user.findFirst({
+          where: {
+            id,
+            organizationId
+          }
+        });
+      } catch (error) {
+        logger.error('Error finding user by ID', {
+          userId: id,
+          organizationId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
+      }
+    });
+  }
+  
+  async findAll(organizationId: string, options = {}) {
+    return databaseCircuitBreaker.execute(
+      async () => {
+        return await prisma.user.findMany({
+          where: { organizationId },
+          ...options
+        });
+      },
+      // Fallback mechanism for read operations
+      async () => {
+        logger.warn('Using cache fallback for users list', {
+          organizationId
+        });
+        return await getCachedUsers(organizationId);
+      }
+    );
+  }
+}
+
+// Circuit breaker implementation
+class CircuitBreaker {
+  private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+  private failureCount = 0;
+  private lastFailureTime = 0;
+  private readonly options: any;
+  
+  constructor(options: any) {
+    this.options = {
+      failureThreshold: 5,
+      resetTimeout: 30000,
+      maxSampleSize: 100,
+      name: 'circuit-breaker',
+      ...options
+    };
+  }
+  
+  async execute<T>(
+    operation: () => Promise<T>,
+    fallback?: () => Promise<T>
+  ): Promise<T> {
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime >= this.options.resetTimeout) {
+        this.toHalfOpen();
+      } else if (fallback) {
+        return fallback();
+      } else {
+        throw new Error(`Circuit ${this.options.name} is open`);
+      }
+    }
+    
+    try {
+      const result = await operation();
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure();
+      
+      if (this.state === 'OPEN' && fallback) {
+        return fallback();
+      }
+      
+      throw error;
+    }
+  }
+  
+  private onSuccess() {
+    if (this.state === 'HALF_OPEN') {
+      this.toClose();
+    } else if (this.state === 'CLOSED') {
+      this.failureCount = Math.max(0, this.failureCount - 1);
+    }
+  }
+  
+  private onFailure() {
+    this.lastFailureTime = Date.now();
+    this.failureCount++;
+    
+    if (this.state === 'HALF_OPEN' || 
+        (this.state === 'CLOSED' && 
+         this.failureCount >= this.options.failureThreshold)) {
+      this.toOpen();
+    }
+  }
+  
+  private toClose() {
+    if (this.state !== 'CLOSED') {
+      logger.info(`Circuit ${this.options.name} closed`);
+      this.state = 'CLOSED';
+      this.failureCount = 0;
+    }
+  }
+  
+  private toOpen() {
+    if (this.state !== 'OPEN') {
+      logger.warn(`Circuit ${this.options.name} opened`);
+      this.state = 'OPEN';
+    }
+  }
+  
+  private toHalfOpen() {
+    if (this.state !== 'HALF_OPEN') {
+      logger.info(`Circuit ${this.options.name} half-open`);
+      this.state = 'HALF_OPEN';
+    }
+  }
+  
+  getState() {
+    return this.state;
+  }
+}
+
+// Cache fallback implementation
+async function getCachedUsers(organizationId: string) {
+  // Implementation of cache retrieval
+  // This would normally fetch from Redis, memory cache, etc.
+  return [];
+}
+</example>
+
+<example>
+// Retry pattern implementation
+import { PrismaClient } from '@prisma/client';
+import { logger } from '../utils/logger';
+
+const prisma = new PrismaClient();
+
+// Retry function with exponential backoff
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  options: {
+    maxRetries?: number;
+    initialDelay?: number;
+    maxDelay?: number;
+    backoffFactor?: number;
+    retryableErrors?: Array<string | RegExp>;
+  } = {}
+): Promise<T> {
+  const maxRetries = options.maxRetries ?? 3;
+  const initialDelay = options.initialDelay ?? 100;
+  const maxDelay = options.maxDelay ?? 5000;
+  const backoffFactor = options.backoffFactor ?? 2;
+  const retryableErrors = options.retryableErrors ?? [
+    'Connection refused',
+    'Connection terminated',
+    'Connection timeout',
+    'deadlock detected',
+    'too many connections',
+    'connect ETIMEDOUT',
+    'Connection terminated unexpectedly'
+  ];
+  
+  let attempt = 0;
+  let lastError: Error | null = null;
+  
+  while (attempt <= maxRetries) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      attempt++;
+      
+      // Check if the error is retryable
+      const errorMessage = lastError.message;
+      const isRetryable = retryableErrors.some(pattern => 
+        typeof pattern === 'string' 
+          ? errorMessage.includes(pattern) 
+          : pattern.test(errorMessage)
+      );
+      
+      // If not retryable or max retries reached, throw the error
+      if (!isRetryable || attempt > maxRetries) {
+        throw lastError;
+      }
+      
+      // Calculate delay with exponential backoff
+      const delay = Math.min(
+        initialDelay * Math.pow(backoffFactor, attempt - 1),
+        maxDelay
+      );
+      
+      logger.warn(`Database operation failed, retrying (${attempt}/${maxRetries})`, {
+        error: errorMessage,
+        delay,
+        attempt
+      });
+      
+      // Wait before next attempt
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  // This should never be reached, but TypeScript requires it
+  throw lastError;
+}
+
+// Repository with retry pattern
+export class ProjectRepository {
+  async create(data: any) {
+    return withRetry(
+      async () => await prisma.project.create({ data }),
+      {
+        maxRetries: 5,
+        initialDelay: 200
+      }
+    );
+  }
+  
+  async update(id: string, organizationId: string, data: any) {
+    return withRetry(
+      async () => await prisma.project.update({
+        where: { id, organizationId },
+        data
+      }),
+      {
+        maxRetries: 3,
+        initialDelay: 100
+      }
+    );
+  }
+  
+  async findWithRelatedData(id: string, organizationId: string) {
+    return withRetry(
+      async () => await prisma.project.findFirst({
+        where: { id, organizationId },
+        include: {
+          tasks: true,
+          assignees: true,
+          documents: true
+        }
+      }),
+      {
+        // Use more retries for complex queries
+        maxRetries: 4,
+        initialDelay: 250
+      }
+    );
+  }
+}
+</example>
+
+<example>
+// Timeout pattern implementation
+import { PrismaClient } from '@prisma/client';
+import { logger } from '../utils/logger';
+
+const prisma = new PrismaClient();
+
+// TimeoutError class
+class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TimeoutError';
+  }
+}
+
+// Timeout function
+async function withTimeout<T>(
+  operation: () => Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let isResolved = false;
+    
+    // Create timeout
+    const timeoutId = setTimeout(() => {
+      if (!isResolved) {
+        isResolved = true;
+        reject(new TimeoutError(`Operation timed out after ${timeoutMs}ms`));
+      }
+    }, timeoutMs);
+    
+    // Execute operation
+    operation()
+      .then(result => {
+        if (!isResolved) {
+          isResolved = true;
+          clearTimeout(timeoutId);
+          resolve(result);
+        }
+      })
+      .catch(error => {
+        if (!isResolved) {
+          isResolved = true;
+          clearTimeout(timeoutId);
+          reject(error);
+        }
+      });
+  });
+}
+
+// Repository with timeout pattern
+export class ReportRepository {
+  async generateReport(organizationId: string, filters: any) {
+    try {
+      // Use longer timeout for complex report generation
+      return await withTimeout(
+        async () => await prisma.$queryRaw`
+          SELECT 
+            p.name as project_name,
+            COUNT(t.id) as total_tasks,
+            SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) as completed_tasks,
+            AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)) / 3600) as avg_completion_hours
+          FROM projects p
+          LEFT JOIN tasks t ON p.id = t.project_id
+          WHERE p.organization_id = ${organizationId}
+          AND p.created_at >= ${filters.startDate}
+          AND p.created_at <= ${filters.endDate}
+          GROUP BY p.id, p.name
+          ORDER BY p.name
+        `,
+        30000 // 30 seconds timeout
+      );
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        logger.warn('Report generation timed out', {
+          organizationId,
+          filters
+        });
+        
+        // Provide partial data or fallback
+        return {
+          status: 'timeout',
+          message: 'Report generation timed out. Try with a smaller date range.',
+          partialData: await this.getBasicStats(organizationId, filters)
+        };
+      }
+      throw error;
+    }
+  }
+  
+  private async getBasicStats(organizationId: string, filters: any) {
+    // Simplified query that returns faster
+    return await prisma.$queryRaw`
+      SELECT 
+        COUNT(DISTINCT p.id) as total_projects,
+        COUNT(t.id) as total_tasks
+      FROM projects p
+      LEFT JOIN tasks t ON p.id = t.project_id
+      WHERE p.organization_id = ${organizationId}
+      AND p.created_at >= ${filters.startDate}
+      AND p.created_at <= ${filters.endDate}
+    `;
+  }
+}
+</example>
+
+<example>
+// Connection pooling and health check
+import { PrismaClient } from '@prisma/client';
+import { logger } from '../utils/logger';
+
+// Configure connection pool
+function getPrismaClient() {
+  // Parse database URL to add connection pool configuration
+  const databaseUrl = process.env.DATABASE_URL || '';
+  const url = new URL(databaseUrl);
+  
+  // Add connection pool parameters if not already present
+  if (!url.searchParams.has('connection_limit')) {
+    // Production settings
+    if (process.env.NODE_ENV === 'production') {
+      url.searchParams.set('connection_limit', '20');
+      url.searchParams.set('pool_timeout', '30');
+    } else {
+      // Development settings
+      url.searchParams.set('connection_limit', '5');
+      url.searchParams.set('pool_timeout', '10');
+    }
+  }
+  
+  return new PrismaClient({
+    datasources: {
+      db: {
+        url: url.toString()
+      }
+    },
+    log: process.env.NODE_ENV === 'development' 
+      ? ['query', 'info', 'warn', 'error']
+      : ['error']
+  });
+}
+
+const prisma = getPrismaClient();
+
+// Health check function
+export async function checkDatabaseHealth() {
+  try {
+    // Simple query to test connectivity
+    await prisma.$queryRaw`SELECT 1`;
+    return { status: 'healthy' };
+  } catch (error) {
+    logger.error('Database health check failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return {
+      status: 'unhealthy',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+// Connection recycling for long-running processes
+export function startConnectionRecycling(intervalMs = 3600000) {
+  const interval = setInterval(async () => {
+    try {
+      logger.info('Recycling database connections');
+      
+      // Disconnect and reconnect to refresh connections
+      await prisma.$disconnect();
+      await prisma.$connect();
+      
+      logger.info('Database connections recycled successfully');
+    } catch (error) {
+      logger.error('Error recycling database connections', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }, intervalMs);
+  
+  return () => clearInterval(interval);
+}
+
+// Start connection recycling in production
+if (process.env.NODE_ENV === 'production') {
+  startConnectionRecycling();
+}
+
+export { prisma };
+</example>
+
+<example type="invalid">
+// ❌ AVOID: No error handling for database operations
+async function createUser(userData) {
+  // Missing error handling, retry logic, or timeouts
+  return await prisma.user.create({ data: userData });
+}
+
+// ❌ AVOID: Unconfigured connection pool
+const prisma = new PrismaClient();
+// No connection pool configuration, using defaults which may not be optimal
+
+// ❌ AVOID: No timeout for potentially long-running query
+async function generateLargeReport() {
+  // Could run indefinitely, blocking resources
+  return await prisma.$queryRaw`
+    SELECT * FROM large_table
+    JOIN other_large_table ON large_table.id = other_large_table.large_id
+    WHERE complex_condition = true
+  `;
+}
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Naive retry that can overwhelm database
+async function createUserWithRetry(userData) {
+  const maxRetries = 5;
+  let attempts = 0;
+  
+  while (attempts < maxRetries) {
+    try {
+      return await prisma.user.create({ data: userData });
+    } catch (error) {
+      attempts++;
+      
+      // Bad practice: No delay between retries, can overwhelm database
+      // No differentiation between retryable and non-retryable errors
+      // No logging of retry attempts
+      
+      if (attempts >= maxRetries) {
+        throw error;
+      }
+    }
+  }
+}
+
+// ❌ AVOID: Missing circuit breaker for cascading failures
+function getAllProjects(organizationId) {
+  // During database degradation, all requests will attempt to connect
+  // potentially causing further degradation without circuit breaker
+  return prisma.project.findMany({
+    where: { organizationId }
+  });
+}
+</example>
+
+<example type="invalid">
+// ❌ AVOID: No fallback mechanism
+async function getUserProfile(userId, organizationId) {
+  try {
+    return await prisma.user.findFirst({
+      where: { id: userId, organizationId },
+      include: { profile: true }
+    });
+  } catch (error) {
+    // No fallback mechanism, just fails with error
+    console.error('Error fetching user profile:', error);
+    throw error;
+  }
+}
+
+// ❌ AVOID: Hardcoded timeout values
+setTimeout(() => {
+  if (!queryComplete) {
+    abortQuery();
+    throw new Error('Query timed out');
+  }
+}, 5000); // Hardcoded timeout not adjusted for query complexity
+</example>
+
+## Measuring Compliance
+
+- Track retry rates and success/failure patterns
+- Monitor circuit breaker state transitions
+- Measure timeout frequency and durations
+- Analyze fallback mechanism usage
+- Review connection pool metrics and utilization
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Resilience patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Comprehensive Guides
+- **`guides/Database-Resilience-Guide.md`** - **GOLD STANDARD:** Resilience patterns and strategies!
+- **`guides/Database-Error-Classification-Guide.md`** - **CRITICAL:** Error recovery patterns!
+- **`guides/Database-Integration-Guide.md`** - Resilient integration patterns
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @061-database-integration.mdc - Integration patterns
+- @067-database-security.mdc - Security resilience
+- @068-database-monitoring-standards.mdc - Monitoring for resilience
+- @090-error-handling.mdc - **CRITICAL:** General error handling!
+- @130-error-handling.mdc - Error handling standards
+- @140-troubleshooting-standards.mdc - Troubleshooting patterns
+
+### Quick Start
+1. **Patterns:** Follow `guides/Database-Resilience-Guide.md` (GOLD STANDARD!)
+2. **Error Recovery:** Use `guides/Database-Error-Classification-Guide.md`
+3. **Error Handling:** Implement @090-error-handling.mdc patterns
+4. **Monitor:** Set up monitoring per @068-database-monitoring-standards.mdc

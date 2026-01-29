@@ -1,0 +1,624 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+---
+description: |
+  Database Integration with Auth0 and Next.js
+  
+  This rule provides comprehensive guidance for implementing database integration
+  with Auth0 authentication in Next.js applications. It covers best practices,
+  security considerations, and production-ready patterns.
+
+  Key Features:
+  - Type-safe database operations with TypeScript
+  - Secure Auth0 session handling
+  - Comprehensive error handling and validation
+  - Production monitoring and health checks
+  - Advanced migration framework with rollbacks
+  - Performance optimization strategies
+
+globs:
+  - "src/lib/database.ts"
+  - "src/pages/api/user/**/*.ts" 
+  - "src/hooks/use*.ts"
+  - "scripts/*.js"
+  - "migrations/*.sql"
+  - "__tests__/**/*.test.ts"
+
+alwaysApply: true
+---
+
+## Database Integration Patterns
+
+### 1. Database Connection and Types
+
+Always use type-safe database connections with proper error handling:
+
+```typescript
+// src/lib/database.ts
+import { neon } from "@neondatabase/serverless";
+
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL environment variable is required');
+}
+
+const sql = neon(process.env.DATABASE_URL);
+
+// Custom error class for database operations
+export class DatabaseError extends Error {
+  constructor(message: string, public originalError?: any) {
+    super(message);
+    this.name = "DatabaseError";
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+  }
+}
+
+// Strong TypeScript interfaces
+export interface User {
+  id: string;
+  email: string;
+  name?: string | null;
+  nickname?: string | null;
+  profile_picture?: string | null;
+  email_verified: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Auth0User {
+  sub: string;
+  email: string;
+  name?: string;
+  picture?: string;
+  email_verified?: boolean;
+}
+```
+
+### 2. Database CRUD Operations
+
+Implement robust CRUD operations with proper error handling:
+
+```typescript
+export async function upsertUser(auth0User: Auth0User): Promise<User> {
+  try {
+    const result = await sql`
+      INSERT INTO users (id, email, name, profile_picture, email_verified)
+      VALUES (
+        ${auth0User.sub}, 
+        ${auth0User.email}, 
+        ${auth0User.name || null}, 
+        ${auth0User.picture || null}, 
+        ${Boolean(auth0User.email_verified)}
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        email = EXCLUDED.email,
+        name = EXCLUDED.name,
+        profile_picture = EXCLUDED.profile_picture,
+        email_verified = EXCLUDED.email_verified,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *
+    `;
+
+    if (!result[0]) {
+      throw new DatabaseError("Failed to create or update user");
+    }
+
+    return result[0] as User;
+  } catch (error) {
+    console.error("Error upserting user:", error);
+    throw new DatabaseError("Failed to upsert user", error);
+  }
+}
+```
+
+### 3. API Endpoint Patterns
+
+Structure API endpoints with comprehensive authentication and validation:
+
+```typescript
+// src/pages/api/user/profile.ts
+import { NextApiRequest, NextApiResponse } from "next";
+import { auth0 } from "../../../lib/auth0";
+import { getUser, upsertUser, updateUserProfile, Auth0User, DatabaseError } from "../../../lib/database";
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  try {
+    const session = await auth0.getSession(req);
+
+    // Enhanced authentication check
+    if (!session?.user?.email) {
+      return res.status(401).json({ 
+        error: "Authentication required",
+        message: "Please log in to access this resource"
+      });
+    }
+
+    if (req.method === "GET") {
+      // Ensure user exists in database
+      const auth0User: Auth0User = {
+        sub: session.user.sub,
+        email: session.user.email,
+        name: session.user.name,
+        picture: session.user.picture,
+        email_verified: session.user.email_verified,
+      };
+
+      await upsertUser(auth0User);
+      const user = await getUser(session.user.sub);
+
+      if (!user) {
+        return res.status(404).json({ 
+          error: "User not found",
+          message: "User profile could not be retrieved"
+        });
+      }
+
+      return res.status(200).json(user);
+    }
+
+    if (req.method === "PUT") {
+      const { name, nickname } = req.body;
+
+      // Input validation
+      if (name !== undefined && (typeof name !== 'string' || name.length > 255)) {
+        return res.status(400).json({
+          error: "Invalid input",
+          message: "Name must be a string with maximum 255 characters"
+        });
+      }
+
+      const updatedUser = await updateUserProfile(session.user.sub, {
+        name: name?.trim(),
+        nickname: nickname?.trim(),
+      });
+
+      return res.status(200).json(updatedUser);
+    }
+
+    res.setHeader('Allow', ['GET', 'PUT']);
+    return res.status(405).json({ 
+      error: "Method not allowed",
+      message: `Method ${req.method} is not supported for this endpoint`
+    });
+
+  } catch (error) {
+    console.error("Profile API error:", error);
+    
+    if (error instanceof DatabaseError) {
+      return res.status(500).json({
+        error: "Database error",
+        message: "Unable to process your request due to a database issue"
+      });
+    }
+
+    return res.status(500).json({
+      error: "Internal server error",
+      message: "An unexpected error occurred"
+    });
+  }
+}
+```
+
+### 4. Custom React Hooks
+
+Create reusable hooks for API interactions:
+
+```typescript
+// src/hooks/useProfile.ts
+import { useState, useEffect } from 'react';
+import { User } from '../lib/database';
+
+export function useProfile() {
+  const [profile, setProfile] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchProfile = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch('/api/user/profile');
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Please log in to view your profile');
+        }
+        throw new Error(`Failed to load profile: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      setProfile(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateProfile = async (updates: { name?: string; nickname?: string }) => {
+    try {
+      setError(null);
+      
+      const response = await fetch('/api/user/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to update profile: ${response.statusText}`);
+      }
+
+      const updatedProfile = await response.json();
+      setProfile(updatedProfile);
+      return updatedProfile;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update profile';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    }
+  };
+
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  return {
+    profile,
+    loading,
+    error,
+    updateProfile,
+    refetch: fetchProfile
+  };
+}
+```
+
+### 5. Migration Framework
+
+Implement a robust migration system with rollback capabilities:
+
+```javascript
+// scripts/migrate-schema.js
+require('dotenv').config({ path: '.env.local' });
+const { neon } = require('@neondatabase/serverless');
+const fs = require('fs');
+const path = require('path');
+
+class MigrationManager {
+  constructor() {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL environment variable is required');
+    }
+    this.sql = neon(process.env.DATABASE_URL);
+  }
+
+  async ensureMigrationsTable() {
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id SERIAL PRIMARY KEY,
+        migration_name TEXT UNIQUE NOT NULL,
+        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        checksum TEXT,
+        execution_time INTEGER
+      )
+    `;
+  }
+
+  calculateChecksum(content) {
+    const crypto = require('crypto');
+    return crypto.createHash('md5').update(content).digest('hex');
+  }
+
+  async applyMigration(migrationFile) {
+    const startTime = Date.now();
+    
+    try {
+      console.log(`🔄 Applying migration: ${migrationFile}`);
+
+      const migrationPath = path.join(__dirname, '..', 'migrations', migrationFile);
+      const migrationContent = fs.readFileSync(migrationPath, 'utf8');
+      const checksum = this.calculateChecksum(migrationContent);
+
+      // Check if migration was already applied
+      const existing = await this.sql`
+        SELECT checksum FROM schema_migrations WHERE migration_name = ${migrationFile}
+      `;
+
+      if (existing.length > 0) {
+        if (existing[0].checksum === checksum) {
+          console.log(`✅ Migration ${migrationFile} already applied, skipping`);
+          return true;
+        } else {
+          throw new Error(`Migration ${migrationFile} has been modified since it was applied`);
+        }
+      }
+
+      // Apply migration in a transaction
+      await this.sql.begin(async (transaction) => {
+        await transaction.unsafe(migrationContent);
+
+        const executionTime = Date.now() - startTime;
+        await transaction`
+          INSERT INTO schema_migrations (migration_name, checksum, execution_time) 
+          VALUES (${migrationFile}, ${checksum}, ${executionTime})
+        `;
+      });
+
+      console.log(`✅ Migration ${migrationFile} applied successfully`);
+      return true;
+    } catch (error) {
+      console.error(`❌ Migration ${migrationFile} failed:`, error.message);
+      return false;
+    }
+  }
+}
+```
+
+### 6. Testing Patterns
+
+Implement comprehensive testing for database operations:
+
+```typescript
+// __tests__/database.test.ts
+import { upsertUser, getUser, updateUserProfile } from '../src/lib/database';
+
+describe('Database Operations', () => {
+  const testUser = {
+    sub: 'test-user-123',
+    email: 'test@example.com',
+    name: 'Test User'
+  };
+
+  test('upsertUser creates and updates user correctly', async () => {
+    const result = await upsertUser(testUser);
+    
+    expect(result.id).toBe(testUser.sub);
+    expect(result.email).toBe(testUser.email);
+    expect(result.name).toBe(testUser.name);
+  });
+
+  test('updateUserProfile modifies user data', async () => {
+    const updates = { name: 'Updated Name', nickname: 'NewNick' };
+    const result = await updateUserProfile(testUser.sub, updates);
+    
+    expect(result.name).toBe(updates.name);
+    expect(result.nickname).toBe(updates.nickname);
+  });
+});
+```
+
+### 7. Error Handling Best Practices
+
+Always implement comprehensive error handling:
+
+```typescript
+// src/lib/errors.ts
+export class AppError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number = 500,
+    public code?: string,
+    public originalError?: any
+  ) {
+    super(message);
+    this.name = this.constructor.name;
+
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+  }
+}
+
+export class DatabaseError extends AppError {
+  constructor(message: string, originalError?: any) {
+    super(message, 500, "DATABASE_ERROR", originalError);
+  }
+}
+
+export class ValidationError extends AppError {
+  constructor(
+    message: string,
+    public fieldErrors?: Record<string, string>,
+    originalError?: any
+  ) {
+    super(message, 400, "VALIDATION_ERROR", originalError);
+    this.fieldErrors = fieldErrors;
+  }
+}
+
+export function handleApiError(error: any, res: any) {
+  console.error("API Error:", error);
+
+  if (error instanceof AppError) {
+    return res.status(error.statusCode).json({
+      error: {
+        message: error.message,
+        code: error.code,
+        ...(error instanceof ValidationError && {
+          fieldErrors: error.fieldErrors,
+        }),
+      },
+    });
+  }
+
+  return res.status(500).json({
+    error: {
+      message: "An unexpected error occurred",
+      code: "INTERNAL_SERVER_ERROR",
+    },
+  });
+}
+```
+
+### 8. Security Best Practices
+
+#### Input Validation
+```typescript
+function validateUserInput(data: any): { isValid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  
+  if (data.name && (typeof data.name !== 'string' || data.name.length > 255)) {
+    errors.push('Name must be a string with maximum 255 characters');
+  }
+  
+  if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+    errors.push('Email must be a valid email address');
+  }
+  
+  return { isValid: errors.length === 0, errors };
+}
+```
+
+#### Environment Variable Validation
+```typescript
+// src/lib/config.ts
+const requiredEnvVars = [
+  'DATABASE_URL',
+  'AUTH0_SECRET',
+  'AUTH0_DOMAIN',
+  'AUTH0_CLIENT_ID',
+  'AUTH0_CLIENT_SECRET'
+];
+
+export function validateEnvironment() {
+  const missing = requiredEnvVars.filter(varName => !process.env[varName]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+```
+
+### 9. Performance Optimization
+
+#### Database Indexing
+```sql
+-- migrations/003_performance_indexes.sql
+-- Add performance indexes for common queries
+
+CREATE INDEX IF NOT EXISTS idx_users_email_verified ON users(email_verified);
+CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
+CREATE INDEX IF NOT EXISTS idx_user_settings_theme ON user_settings(theme);
+
+-- Partial indexes for specific conditions
+CREATE INDEX IF NOT EXISTS idx_active_subscriptions 
+ON subscriptions(user_id) WHERE status = 'active';
+```
+
+#### API Response Caching
+```typescript
+// src/lib/cache.ts
+const cache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+export function getCachedData(key: string) {
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+export function setCachedData(key: string, data: any) {
+  cache.set(key, { data, timestamp: Date.now() });
+}
+```
+
+### 10. Monitoring and Health Checks
+
+```typescript
+// src/pages/api/health.ts
+import { NextApiRequest, NextApiResponse } from 'next';
+import { sql } from '../../lib/database';
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const start = Date.now();
+    await sql`SELECT 1 as test`;
+    const dbLatency = Date.now() - start;
+    
+    res.status(200).json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      database: {
+        status: 'connected',
+        latency: `${dbLatency}ms`
+      },
+      environment: process.env.NODE_ENV
+    });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    res.status(503).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      error: 'Database connection failed'
+    });
+  }
+}
+```
+
+## Key Principles
+
+1. **Type Safety**: Always use TypeScript interfaces for database operations
+2. **Error Handling**: Implement comprehensive error handling with custom error classes
+3. **Input Validation**: Validate all inputs at API boundaries
+4. **Security**: Never expose sensitive data, use parameterized queries
+5. **Performance**: Implement appropriate caching and database indexing
+6. **Testing**: Write tests for all database operations and API endpoints
+7. **Monitoring**: Include health checks and structured logging
+8. **Migration Safety**: Use transactions and checksums for database migrations
+
+## Common Patterns
+
+- Use `upsertUser` to ensure user exists before operations
+- Always check authentication in API routes
+- Implement proper loading and error states in React components
+- Use custom hooks for reusable API logic
+- Structure database operations with proper error boundaries
+- Include input validation for all user-provided data
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#schema-first-development`** - **CRITICAL:** Always inspect schema first!
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - **CRITICAL:** Inspect Prisma models BEFORE database work!
+  ```bash
+  ./.cursor/tools/inspect-model.sh YourModel
+  ./.cursor/tools/inspect-model.sh --list
+  ```
+- **`.cursor/tools/check-schema-changes.sh`** - Validate schema before committing
+
+### Comprehensive Guides
+- **`guides/Database-Integration-Guide.md`** - **CRITICAL:** Database integration patterns!
+- **`guides/ORM-Usage-Guide.md`** - **GOLD STANDARD:** Prisma patterns, repository pattern!
+- **`guides/Database-Schema-Guide.md`** - ER diagrams, schema design, multi-tenancy
+- **`guides/testing/API-Database-Testing-Complete-Guide.md`** - **GOLD STANDARD:** 40+ hours of testing lessons!
+
+### Related Rules
+- **@002-rule-application.mdc** - **CRITICAL:** Source of Truth Hierarchy (Prisma schema first!)
+- @025-multi-tenancy.mdc - **CRITICAL:** Organization scoping in all queries!
+- @065-database-access-patterns.mdc - **CRITICAL:** Repository pattern & data access
+- @066-database-migration-standards.mdc - Migration patterns
+- @067-database-security.mdc - **CRITICAL:** SQL injection prevention, security
+- @069-database-resilience-patterns.mdc - **CRITICAL:** Fault tolerance, retry logic
+- @081-data-versioning-standards.mdc - Audit trails & versioning
+- @208-database-operations.mdc - Operations, backups, monitoring
+- @376-database-test-isolation.mdc - Database testing patterns
+- @375-api-test-first-time-right.mdc - Schema-first testing
+
+### Quick Start
+1. **ALWAYS:** `.cursor/tools/inspect-model.sh YourModel` (before ANY database work!)
+2. **Schema First:** Prisma schema is source of truth (@002-rule-application.mdc)
+3. **Repository Pattern:** Follow patterns in `guides/ORM-Usage-Guide.md`
+4. **Multi-Tenancy:** Scope all queries by organizationId (@025-multi-tenancy.mdc)

@@ -1,0 +1,64 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply tax and compliance standards when implementing payment features to ensure proper tax handling and regulatory compliance
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Tax and Compliance Standards
+
+## Tax Calculation
+- Implement Stripe Tax for automatic tax calculation
+- Apply proper tax codes to products and services
+- Create consistent tax display in checkout flows
+- Document tax calculation logic and rules
+- Implement proper testing for various tax scenarios
+
+## Tax-Exempt Customers
+- Create standardized tax exemption workflow
+- Implement proper validation for exemption documentation
+- Apply consistent storage of exemption certificates
+- Document exemption renewal processes
+- Create proper audit trail for exemption status changes
+
+## Compliance Documentation
+- Implement required legal documentation in checkout flows
+- Apply consistent Terms of Service acceptance
+- Create proper records of customer agreements
+- Document compliance requirements by jurisdiction
+- Implement privacy policy notifications
+
+## Reporting and Remittance
+- Create standardized tax reporting capabilities
+- Implement proper record-keeping for tax obligations
+- Apply consistent formatting for tax documentation
+- Document tax filing requirements and deadlines
+- Create export capabilities for tax reporting
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Compliance patterns
+- **`.cursor/docs/security-checklist.md#payment-security-if-applicable`** - Compliance checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check tax data models
+- **`.cursor/tools/scan-secrets.sh`** - Check API keys
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @010-security-compliance.mdc - Core compliance standards
+- @020-payment-security.mdc - Payment security
+- @020-stripe-integration.mdc - Stripe patterns
+- @076-accounting-integration-standards.mdc - Accounting integration
+- @078-payment-testing-standards.mdc - Testing compliance
+- @331-high-risk-feature-testing.mdc - Critical testing
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (check tax models)
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Test:** See @078-payment-testing-standards.mdc

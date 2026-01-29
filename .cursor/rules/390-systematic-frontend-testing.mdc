@@ -1,0 +1,229 @@
+---
+
+description: Use browser console + terminal logs for systematic real-time testing when debugging complex data flow issues
+globs: "\*_/_.{ts,tsx,js,jsx}"
+
+---
+
+# Systematic Frontend Testing with Console Monitoring
+
+## Context
+
+- Complex data flow issues require real-time visibility into both frontend state and backend persistence
+- Browser console JavaScript + terminal logs provide powerful debugging combination
+- Systematic monitoring at each step catches issues at exact failure points
+- This methodology proven effective for PRD creation, task generation, and organization assignment debugging
+
+## Requirements
+
+### Real-Time Console Monitoring
+
+- Create monitoring functions that track data flow at each step
+- Use fetch() calls to check API endpoints and database state
+- Implement timestamp logging for temporal issue tracking
+- Store test session data in window variables for cross-step tracking
+
+### Systematic Step Verification
+
+- Monitor critical data points after each user action
+- Verify organization assignment consistency throughout workflows
+- Track status transitions and data persistence
+- Alert immediately when critical issues detected
+
+### Terminal Log Correlation
+
+- Monitor terminal logs for backend success/failure messages
+- Correlate frontend console data with backend database operations
+- Identify silent failures where logs show success but data doesn't persist
+- Use terminal logs to identify constraint violations and transaction rollbacks
+
+### Comprehensive Session Tracking
+
+- Initialize testing sessions with clear objectives
+- Track progress through all phases of complex workflows
+- Store intermediate results for cross-phase verification
+- Document issues with exact step and timestamp information
+
+## Implementation Guidelines
+
+### Console Monitoring Functions
+
+```javascript
+// Template for step-by-step monitoring
+const monitorWorkflowStep = (stepName, apiEndpoint) => {
+  fetch(apiEndpoint)
+    .then((r) => r.json())
+    .then((data) => {
+      console.log(`📊 ${stepName} - Status:`, {
+        timestamp: new Date().toLocaleTimeString(),
+        // Critical data points specific to workflow
+        organizationId: data.organization_id || "NULL",
+        userOrgId: data.userOrganization?.id || "NULL",
+        organizationMatch: data.organization_id === data.userOrganization?.id,
+        // Workflow-specific metrics
+        status: data.status,
+        dataIntegrity: !!data.requiredField,
+      });
+
+      // Critical alerts
+      if (!data.organization_id) {
+        console.log(`🚨 CRITICAL: Missing organization at ${stepName}`);
+      }
+    })
+    .catch((err) => console.error(`❌ ${stepName} monitor failed:`, err));
+};
+```
+
+### Real-Time Persistence Monitoring
+
+```javascript
+// Template for monitoring database persistence
+const monitorPersistence = (resourceType, checkEndpoint) => {
+  console.log(`⏱️ REAL-TIME ${resourceType.toUpperCase()} MONITORING STARTED`);
+
+  const checkPersistence = () => {
+    fetch(checkEndpoint)
+      .then((r) => r.json())
+      .then((data) => {
+        console.log(`⏱️ ${resourceType} Check:`, {
+          timestamp: new Date().toLocaleTimeString(),
+          count: data.summary?.total || data.count || 0,
+          success: data.success,
+          organizationMatch: data.organizationMatch,
+        });
+      });
+  };
+
+  const interval = setInterval(checkPersistence, 2000);
+  setTimeout(() => clearInterval(interval), 60000);
+
+  return interval;
+};
+```
+
+### Session Management
+
+```javascript
+// Template for testing session management
+const initializeTestSession = (testType, objective) => {
+  window.testSession = {
+    type: testType,
+    objective: objective,
+    startTime: Date.now(),
+    steps: [],
+    issues: [],
+    currentPhase: 1,
+  };
+
+  console.log(`🧪 ${testType} TESTING SESSION STARTED`);
+  console.log(`🎯 Objective: ${objective}`);
+  console.log(`🕐 Started: ${new Date().toLocaleTimeString()}`);
+};
+
+const recordTestStep = (stepName, data) => {
+  window.testSession.steps.push({
+    step: stepName,
+    timestamp: Date.now(),
+    data: data,
+  });
+
+  console.log(`📝 Recorded: ${stepName}`);
+};
+```
+
+## Examples
+
+<example>
+// Good: Comprehensive PRD creation monitoring
+const monitorPRDCreation = (stepNumber) => {
+  fetch('/api/tools/prd-basic/dashboard-list')
+    .then(r => r.json())
+    .then(data => {
+      const latestPrd = data.prds[0];
+      console.log(`📊 Step ${stepNumber} Complete:`, {
+        prdId: latestPrd?.id,
+        organizationId: latestPrd?.organization_id || 'NULL',
+        userOrgId: data.userOrganization?.id || 'NULL',
+        organizationMatch: latestPrd?.organization_id === data.userOrganization?.id,
+        currentStep: latestPrd?.current_step,
+        status: latestPrd?.status
+      });
+      
+      if (!latestPrd?.organization_id) {
+        console.log('🚨 CRITICAL: Organization missing at Step', stepNumber);
+      }
+    });
+};
+</example>
+
+<example>
+// Good: Real-time task persistence monitoring
+const monitorTaskPersistence = (prdId) => {
+  const checkTasks = () => {
+    fetch(`/api/tools/task-manager/tasks?prdId=${prdId}`)
+      .then(r => r.json())
+      .then(data => {
+        console.log('⏱️ Task Persistence:', {
+          timestamp: new Date().toLocaleTimeString(),
+          tasks: data.summary?.total_tasks || 0,
+          success: data.success,
+          organizationMatch: data.prd?.organization_id === data.userOrganization?.id
+        });
+      });
+  };
+  
+  setInterval(checkTasks, 3000);
+};
+</example>
+
+<example type="invalid">
+// Bad: No systematic monitoring
+// Just clicking through workflow without verification
+// No real-time data flow tracking
+// No organization consistency checking
+</example>
+
+## Integration with Other Rules
+
+- Works with [380-comprehensive-testing-standards.mdc](mdc:380-comprehensive-testing-standards.mdc) for overall testing approach
+- Supports [350-debug-test-failures.mdc](mdc:350-debug-test-failures.mdc) for systematic debugging
+- Complements [116-testing-environments.mdc](mdc:116-testing-environments.mdc) for test environment standards
+
+## Anti-Patterns to Avoid
+
+1. **Manual Testing Without Monitoring**: Testing workflows without real-time data verification
+2. **Single-Point Checks**: Only checking final results instead of step-by-step verification
+3. **Ignoring Terminal Logs**: Not correlating frontend console with backend logs
+4. **No Session Tracking**: Testing without storing intermediate results for analysis
+5. **Silent Failure Acceptance**: Accepting "success" logs without verifying actual data persistence
+
+## Success Validation
+
+- All critical data points monitored at each step
+- Organization consistency verified throughout workflow
+- Real-time detection of data persistence issues
+- Complete correlation between frontend state and backend reality
+- Systematic documentation of issues with exact step and timing information
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Frontend testing workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools
+- **`.cursor/tools/check-env-vars.sh`** - Test environment setup
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @042-ui-component-architecture.mdc - Component patterns to test
+- @054-accessibility-requirements.mdc - A11y testing
+- @300-testing-standards.mdc - General testing standards
+- @310-component-visual-testing.mdc - Visual testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @390-systematic-frontend-testing-enhanced.mdc - Enhanced patterns
+
+### Quick Start
+1. **Follow:** This rule's console + terminal logging patterns
+2. **Test:** Component + integration flows
+3. **Framework:** Use @380-comprehensive-testing-standards.mdc

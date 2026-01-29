@@ -1,0 +1,623 @@
+---
+description: Apply rollback procedures when deployments fail or cause issues to ensure rapid recovery and minimize user impact
+globs: "**/*"
+---
+
+# Rollback Procedures
+
+## Context
+Even with thorough testing, deployments can introduce issues. Fast, reliable rollback procedures are essential for minimizing downtime and user impact. This rule establishes clear rollback strategies, triggers, and procedures for safe recovery.
+
+**Critical Principles:**
+- Rollback should be faster than fixing forward (< 5 minutes)
+- Automated rollback for critical failures
+- Every deployment needs a rollback plan
+- Test rollback procedures regularly
+
+## Requirements
+
+### Rollback Triggers
+
+**Automated Rollback Triggers:**
+```yaml
+# Automatic rollback if any of these occur:
+- Error rate > 5% (compared to baseline)
+- Response time > 2x baseline
+- Health check failures > 3 consecutive
+- Critical alerts fire within 5 minutes of deploy
+- Database connection failures
+- Auth service failures
+```
+
+**Manual Rollback Triggers:**
+- Customer-reported critical issues
+- Business functionality broken
+- Data integrity concerns
+- Security vulnerability discovered
+- Performance degradation
+- Team decision (any team member can call rollback)
+
+<example>
+// ✅ GOOD: Clear automated rollback
+
+Deployment: v2.3.0 → v2.3.1 at 14:32 UTC
+
+Monitoring detected:
+- Error rate: 0.1% → 8.5% (trigger: > 5%)
+- Time: 14:34 UTC (2 minutes after deploy)
+
+Action: AUTOMATIC ROLLBACK INITIATED
+- Reverted to v2.3.0
+- Completed at 14:36 UTC
+- Total impact: 4 minutes
+- Errors stopped immediately
+
+---
+
+// ❌ BAD: No rollback despite clear issues
+
+Deployment: v2.3.1 at 14:32 UTC
+Errors increased to 8.5%
+Team tried to fix forward for 45 minutes
+Users affected for 45 minutes
+Should have rolled back in < 5 minutes
+</example>
+
+## Rollback Strategies
+
+### 1. Vercel Rollback (Instant)
+
+**For Application Code:**
+```bash
+# Via Vercel CLI
+vercel rollback
+
+# Or via Vercel Dashboard
+# Deployments → Previous deployment → Promote to Production
+
+# Rollback time: < 1 minute
+# Zero downtime
+# Instant traffic switch
+```
+
+**When to Use:**
+- Application code issues
+- UI bugs
+- API endpoint issues
+- No database migration involved
+
+**Limitations:**
+- Can't rollback database migrations
+- Can't rollback if new deployment deleted
+
+### 2. Git Revert (Forward Fix)
+
+**For Git-based Rollback:**
+```bash
+# 1. Identify bad commit
+git log --oneline -5
+
+# 2. Revert the commit (creates new commit)
+git revert <bad-commit-hash>
+
+# 3. Push and deploy
+git push origin main
+
+# Rollback time: 3-5 minutes
+# Preserves history
+# Safe for collaboration
+```
+
+**When to Use:**
+- When you want to preserve history
+- When multiple bad commits
+- When Vercel rollback not available
+
+**Example:**
+```bash
+# Bad deployment at commit abc123
+git revert abc123
+git commit -m "revert: rollback deployment that caused errors
+
+This reverts commit abc123 which introduced error rate spike.
+Will investigate and redeploy with fix.
+
+Incident: INC-2024-042"
+
+git push origin main
+# CI/CD automatically deploys the revert
+```
+
+### 3. Database Migration Rollback
+
+**Safe Migration Rollback:**
+```typescript
+// migrations/20240119_add_user_email.ts
+
+export async function up(prisma: PrismaClient) {
+  await prisma.$executeRaw`
+    ALTER TABLE users ADD COLUMN email VARCHAR(255);
+  `;
+}
+
+export async function down(prisma: PrismaClient) {
+  // ROLLBACK: Remove the column
+  await prisma.$executeRaw`
+    ALTER TABLE users DROP COLUMN email;
+  `;
+}
+```
+
+**Rollback Procedure:**
+```bash
+# 1. Check current migration status
+npx prisma migrate status
+
+# 2. Rollback last migration
+npx prisma migrate rollback
+
+# Or manual SQL if needed
+psql $DATABASE_URL -c "ALTER TABLE users DROP COLUMN email;"
+
+# 3. Verify schema
+npx prisma db pull
+```
+
+**Migration Rollback Rules:**
+- ✅ Always write `down` migration
+- ✅ Test rollback in staging
+- ✅ Backup database before migration
+- ✅ Use transactions for safety
+- ❌ Never rollback if data was written to new fields
+
+**Data Migration Rollback:**
+```typescript
+// If migration populated new field with data:
+// 1. Stop writes to new field
+// 2. Deploy code without new field usage
+// 3. Wait for all requests to complete
+// 4. Then rollback migration
+
+// ⚠️ IF DATA LOSS RISK:
+// Don't rollback migration, fix forward instead
+```
+
+### 4. Feature Flag Rollback (Instant)
+
+**Instant Rollback with Feature Flags:**
+```typescript
+// feature-flags.ts
+export const features = {
+  newCheckout: env.FEATURE_NEW_CHECKOUT === 'true',
+  aiRecommendations: env.FEATURE_AI_RECS === 'true',
+};
+
+// In code
+if (features.newCheckout) {
+  return <NewCheckoutFlow />;
+} else {
+  return <OldCheckoutFlow />; // Instant fallback
+}
+```
+
+**Rollback Procedure:**
+```bash
+# Instant rollback via env var
+vercel env rm FEATURE_NEW_CHECKOUT production
+
+# Or set to false
+vercel env add FEATURE_NEW_CHECKOUT false production
+
+# Rollback time: < 10 seconds
+# Zero downtime
+# No code deployment needed
+```
+
+**When to Use:**
+- New features with risk
+- Gradual rollouts (canary)
+- A/B testing
+- Instant kill switch needed
+
+### 5. Blue-Green Deployment Rollback
+
+**Blue-Green Strategy:**
+```
+Blue (current) ← 100% traffic
+Green (new) ← 0% traffic
+
+Deploy to Green → Test → Switch traffic → Blue becomes standby
+
+If issues: Switch back to Blue (instant)
+```
+
+**Vercel Blue-Green:**
+```bash
+# Vercel automatically keeps previous deployment alive
+# Rollback = promote previous deployment
+
+# Via Dashboard: Click "Promote to Production"
+# Via CLI: vercel rollback
+
+# Rollback time: < 1 minute
+```
+
+### 6. Canary Rollback (Gradual)
+
+**Canary Deployment:**
+```
+Canary: 5% traffic → Monitor → 25% → Monitor → 50% → Monitor → 100%
+
+If errors at any stage: Stop rollout, rollback
+```
+
+**Canary Monitoring:**
+```typescript
+// Monitor canary metrics
+const canaryMetrics = {
+  errorRate: 0.8%, // vs baseline 0.1%
+  p95Latency: 250ms, // vs baseline 200ms
+  conversionRate: 2.1%, // vs baseline 2.3%
+};
+
+// If any metric degrades > 20%: STOP CANARY, ROLLBACK
+if (canaryMetrics.errorRate > baseline * 1.2) {
+  rollbackCanary();
+}
+```
+
+## Rollback Decision Tree
+
+```
+Deployment has issues?
+  ├─ Can fix in < 5 min? → Try quick fix, monitor closely
+  │   └─ Still broken? → ROLLBACK
+  │
+  ├─ Database migration involved?
+  │   ├─ New data written? → CAN'T ROLLBACK, fix forward
+  │   └─ No data written? → Rollback migration, then code
+  │
+  ├─ Feature flag available?
+  │   └─ Disable feature flag (instant rollback)
+  │
+  ├─ Application code only?
+  │   └─ Vercel rollback (< 1 min)
+  │
+  └─ Unclear cause?
+      └─ ROLLBACK FIRST, investigate later
+```
+
+## Rollback Procedures by Scenario
+
+### Scenario 1: High Error Rate After Deploy
+
+```markdown
+## IMMEDIATE ACTION (< 5 min)
+
+1. **Declare Incident** (30 seconds)
+   - Post in #incidents: "🚨 Error rate spike after v2.3.1 deploy"
+   - Incident lead: Person who notices
+
+2. **Check Metrics** (1 minute)
+   - Error rate: Baseline vs current
+   - Response time: Baseline vs current
+   - Health checks: Passing or failing?
+
+3. **Decision** (30 seconds)
+   - If errors > 5% over baseline: ROLLBACK
+   - If unclear: ROLLBACK (investigate after)
+
+4. **Execute Rollback** (2 minutes)
+   ```bash
+   # Vercel rollback
+   vercel rollback
+   
+   # Or via dashboard
+   # Deployments → v2.3.0 → Promote
+   ```
+
+5. **Verify** (1 minute)
+   - Error rate back to baseline?
+   - Health checks passing?
+   - Users reporting issues stopped?
+
+6. **Communicate** (30 seconds)
+   - #incidents: "✅ Rolled back to v2.3.0, errors stopped"
+   - Status page: Update
+
+Total time: < 5 minutes
+```
+
+### Scenario 2: Database Migration Caused Issue
+
+```markdown
+## CAREFUL ROLLBACK (10-15 min)
+
+1. **Assess Data Risk** (2 minutes)
+   - Was new column/table populated with data?
+   - Are users actively writing to new fields?
+   - Would rollback cause data loss?
+
+2. **If NO data written:**
+   ```bash
+   # Safe to rollback
+   
+   # 1. Rollback code
+   vercel rollback
+   
+   # 2. Rollback migration
+   npx prisma migrate rollback
+   
+   # 3. Verify schema
+   npx prisma db pull
+   ```
+
+3. **If data WAS written:**
+   ```bash
+   # CAN'T rollback migration safely
+   # Must fix forward
+   
+   # 1. Stop writes to new field (feature flag)
+   vercel env add FEATURE_USE_NEW_FIELD false production
+   
+   # 2. Deploy hotfix
+   # 3. Migrate data back if needed
+   # 4. Then rollback migration
+   ```
+
+4. **Verify**
+   - Database schema correct?
+   - Application working?
+   - No data loss?
+```
+
+### Scenario 3: Performance Degradation
+
+```markdown
+## MEASURED ROLLBACK (5-10 min)
+
+1. **Measure Impact** (2 minutes)
+   - Response time: How much slower?
+   - Which endpoints affected?
+   - User impact: Noticeable or severe?
+
+2. **Quick Fix Possible?** (3 minutes)
+   - Can identify slow query?
+   - Can add index quickly?
+   - Can disable feature?
+
+3. **If no quick fix:**
+   ```bash
+   # Rollback to restore performance
+   vercel rollback
+   ```
+
+4. **Monitor** (5 minutes)
+   - Performance back to baseline?
+   - Users satisfied?
+
+5. **Investigate** (after rollback)
+   - What caused slowdown?
+   - Load test fix before redeploying
+```
+
+### Scenario 4: Security Vulnerability Discovered
+
+```markdown
+## IMMEDIATE ROLLBACK (< 2 min)
+
+1. **Assess Severity** (30 seconds)
+   - Exploitable now?
+   - User data at risk?
+   - Public knowledge?
+
+2. **Immediate Rollback** (1 minute)
+   ```bash
+   # Don't wait, rollback immediately
+   vercel rollback
+   ```
+
+3. **Security Actions** (5 minutes)
+   - Rotate affected credentials
+   - Check for exploitation attempts
+   - Notify security team
+
+4. **Fix and Redeploy** (30-60 min)
+   - Fix vulnerability
+   - Security review
+   - Deploy with fix
+```
+
+## Post-Rollback Actions
+
+**Immediate (Within 1 hour):**
+- [ ] Verify system stability
+- [ ] Monitor metrics for 30 minutes
+- [ ] Update status page
+- [ ] Notify stakeholders
+- [ ] Create incident report
+
+**Short-term (Within 24 hours):**
+- [ ] Identify root cause
+- [ ] Develop fix
+- [ ] Test fix thoroughly
+- [ ] Plan redeployment
+- [ ] Schedule post-mortem
+
+**Post-Mortem (Within 48 hours):**
+```markdown
+## Rollback Post-Mortem
+
+**What Happened:**
+- v2.3.1 deployed at 14:32 UTC
+- Error rate spiked from 0.1% to 8.5%
+- Rolled back at 14:36 UTC (4 min impact)
+
+**Root Cause:**
+- N+1 query introduced in user dashboard
+- Not caught in staging (low data volume)
+
+**What Went Well:**
+- ✅ Fast detection (2 minutes)
+- ✅ Fast rollback (4 minutes total)
+- ✅ Automated monitoring triggered
+- ✅ Clear rollback procedure followed
+
+**What To Improve:**
+- ❌ Should have load tested with realistic data
+- ❌ Should have canary deployed first
+- ❌ Should have query performance tests
+
+**Action Items:**
+- [ ] Add query performance tests to CI/CD
+- [ ] Implement canary deployment for backend changes
+- [ ] Seed staging with realistic data volume
+- [ ] Add N+1 query detection to linting
+```
+
+## Rollback Testing
+
+**Monthly Rollback Drill:**
+```markdown
+## Rollback Drill Procedure
+
+1. **Schedule** (non-peak hours)
+   - Announce to team
+   - Set up monitoring
+   - Prepare rollback commands
+
+2. **Execute Test Rollback**
+   ```bash
+   # Deploy test version
+   git tag test-rollback-v1
+   git push origin test-rollback-v1
+   
+   # Wait for deploy
+   # Then rollback
+   vercel rollback
+   ```
+
+3. **Measure**
+   - Rollback time: < 5 minutes?
+   - Downtime: Zero?
+   - Monitoring detected change?
+   - Team response time?
+
+4. **Document**
+   - What worked well?
+   - What needs improvement?
+   - Update procedures
+
+5. **Improve**
+   - Fix any gaps found
+   - Update documentation
+   - Train team on changes
+```
+
+## Rollback Communication Templates
+
+**Internal (Team):**
+```markdown
+#incidents
+
+🚨 ROLLBACK IN PROGRESS
+
+**Deployment:** v2.3.1 → v2.3.0
+**Reason:** Error rate 8.5% (baseline 0.1%)
+**Action:** Rolling back now
+**ETA:** 2 minutes
+**Lead:** @engineer-name
+
+---
+
+✅ ROLLBACK COMPLETE
+
+**Status:** v2.3.0 restored
+**Time:** 4 minutes total downtime
+**Impact:** Error rate back to 0.1%
+**Next:** Root cause analysis in 1 hour
+```
+
+**External (Status Page):**
+```markdown
+## Investigating - 14:32 UTC
+We're investigating increased error rates affecting some users.
+
+## Identified - 14:34 UTC
+We've identified the issue and are rolling back the recent deployment.
+
+## Monitoring - 14:36 UTC
+The rollback is complete and errors have stopped. We're monitoring 
+to ensure stability.
+
+## Resolved - 15:06 UTC
+The issue is fully resolved. All systems are operating normally.
+We're conducting a review to prevent recurrence.
+```
+
+## Best Practices
+
+**DO:**
+- ✅ Rollback quickly when issues detected
+- ✅ Automate rollback for critical failures
+- ✅ Test rollback procedures monthly
+- ✅ Write down migrations for every up migration
+- ✅ Monitor closely for 30 min after rollback
+- ✅ Document every rollback
+- ✅ Learn from rollbacks (post-mortems)
+
+**DON'T:**
+- ❌ Try to fix forward if > 5 min
+- ❌ Rollback database migrations with data written
+- ❌ Rollback without monitoring impact
+- ❌ Rollback without communication
+- ❌ Skip post-mortem analysis
+- ❌ Deploy without rollback plan
+
+## Metrics to Track
+
+**Rollback Metrics:**
+- Number of rollbacks per month (target: < 2)
+- Time to rollback (target: < 5 minutes)
+- Downtime per rollback (target: < 5 minutes)
+- Rollback success rate (target: 100%)
+
+**Deployment Health:**
+- Deployments without rollback (target: > 95%)
+- Time between issue and rollback decision (target: < 2 min)
+- Automated vs manual rollbacks (track ratio)
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Deployment workflows
+- **`003-cursor-system-overview.mdc`** ⭐ - System overview
+
+### Complete Guides
+- **`guides/Deployment-Complete-Guide.md`** ⭐ - Complete deployment guide
+- **`guides/Incident-Response-Complete-Guide.md`** ⭐ - Incident response
+
+### Related Rules
+- @804-hotfix-procedures.mdc - Emergency hotfix process
+- @200-deployment-infrastructure.mdc - Deployment setup
+- @201-vercel-deployment-standards.mdc - Vercel deployment
+- @221-application-monitoring.mdc - Monitoring for rollback triggers
+- @222-metrics-alerting.mdc - Automated rollback alerts
+
+### Tools
+- **`.cursor/tools/check-deployment-health.sh`** - Post-deploy verification
+- **`.cursor/tools/backup-database.sh`** - Pre-migration backup
+
+### Quick Start
+1. **Fast Detection:** Monitor for 5 min after every deploy
+2. **Fast Decision:** If errors > 5%, rollback immediately
+3. **Fast Execution:** < 5 min total rollback time
+4. **Fast Communication:** Update team and users
+
+## Priority
+**P0 (Required)** - Rollback procedures are critical for deployment safety and minimizing user impact when issues occur.
+
+## References
+- [Google SRE - Rollback Strategies](https://sre.google/sre-book/release-engineering/)
+- [Vercel Rollback Documentation](https://vercel.com/docs/deployments/rollbacks)
+- [Database Migration Best Practices](https://www.prisma.io/docs/guides/migrate)

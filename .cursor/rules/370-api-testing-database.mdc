@@ -1,0 +1,206 @@
+---
+description: Use when implementing API endpoint tests with database integration to ensure reliable, maintainable test coverage
+globs: "**/__tests__/**/api-*.test.ts, **/tests/api/**/*.test.ts, **/__tests__/**/*-api.test.ts"
+---
+
+# API Testing with Database Integration
+
+## Context
+
+- API endpoints require testing of HTTP request/response flows with database interactions
+- Middleware dependencies (auth, rate limiting) must be properly mocked for isolated testing
+- Authentication testing requires both session-based (web) and API key-based (CLI) scenarios
+- Database operations in API tests should use proven patterns from our database testing infrastructure
+- API tests are integration tests that verify the full request → middleware → business logic → response flow
+
+## Requirements
+
+### Test Organization and Naming
+
+- Name API test files with `api-` prefix: `__tests__/api-user-keys.test.ts`
+- Use descriptive test names: `✅ POST /api/user/api-keys - Generate new API key`
+- Group tests by API endpoint with clear success (✅) and error (❌) scenarios
+- Include HTTP method and path in test descriptions for clarity
+- Separate authentication scenarios (session vs API key) into distinct test cases
+
+### Configuration and Setup
+
+- Use `jest.api.config.js` configuration that extends our proven database patterns
+- Configure `testEnvironment: 'node'` for API testing (required for database connections)
+- Mock middleware dependencies BEFORE any imports in `jest.api.setup.js`
+- Extend `jest.database.setup.js` to inherit proven database testing infrastructure
+- Configure longer timeouts (45000ms) for API operations that include database calls
+
+### Middleware Mocking Strategy
+
+```typescript
+// Mock middleware dependencies at module level in jest.api.setup.js
+jest.mock("@/middleware/api-auth", () => ({
+  validateApiKey: jest.fn(),
+  extractAuthInfo: jest.fn(),
+}));
+
+jest.mock("@auth0/nextjs-auth0", () => ({
+  getSession: jest.fn(),
+  withApiAuthRequired: jest.fn((handler) => handler),
+}));
+```
+
+### Authentication Testing Patterns
+
+- Test both authentication methods: session-based (web users) and API key-based (CLI users)
+- Use `mockAuth.session()` helper for web authentication scenarios
+- Use `mockAuth.apiKey()` helper for CLI authentication scenarios
+- Always test unauthorized access scenarios with `mockAuth.failed()`
+- Verify proper HTTP status codes: 200/201 for success, 401 for auth failures, 403 for forbidden
+
+### Database Integration Patterns
+
+- Use proven explicit mock setup pattern from database testing infrastructure
+- Set up database mocks in sequence: count check → insert/update → audit log
+- Use `dbTestUtils.setupMocks()` to configure bcrypt and basic database mocking
+- Clear mocks between tests with `jest.clearAllMocks()` in `beforeEach`
+- Use `dbTestUtils.createUserData()` and `dbTestUtils.createApiKeyData()` for consistent test data
+
+### Request/Response Testing
+
+- Use `createAPITest()` helper to create request/response mocks consistently
+- Include proper headers: `content-type: application/json` and authentication headers
+- Test request body validation and error responses for invalid input
+- Use `responseAssertions.success()` and `responseAssertions.error()` for consistent assertions
+- Verify response structure and expected data fields, not just status codes
+
+### Error Scenario Coverage
+
+- Test authentication failures (invalid session, invalid API key)
+- Test authorization failures (valid auth but insufficient permissions)
+- Test rate limiting scenarios using `middlewareUtils.rateLimitExceeded()`
+- Test validation errors for malformed request bodies
+- Test database error scenarios with appropriate error mocking
+
+### Performance and Rate Limiting
+
+- Test normal rate limiting scenarios with `middlewareUtils.rateLimit(true, remaining)`
+- Test rate limit exceeded scenarios and verify 429 status codes
+- Verify rate limit headers are included in responses
+- Test concurrent request scenarios when relevant to the endpoint
+- Include rate limiting state in response assertions
+
+## Examples
+
+<example>
+```typescript
+import apiKeysHandler from '../pages/api/user/api-keys';
+import { createAPITest, mockAuth, dbTestUtils, responseAssertions } from '../tests/helpers/api-test-helpers';
+
+describe('API: User API Keys Management', () => {
+let mockSql: jest.Mock;
+
+beforeEach(() => {
+jest.clearAllMocks();
+mockSql = dbTestUtils.setupMocks();
+});
+
+test('✅ POST /api/user/api-keys - Generate new API key', async () => {
+// Set up authentication
+mockAuth.session({ sub: 'user-123', email: 'test@example.com' });
+
+    // Set up database mocks (proven pattern)
+    mockSql
+      .mockResolvedValueOnce([{ count: 0 }]) // Count check
+      .mockResolvedValueOnce([{ id: 'new-key-123', created_at: new Date() }]) // Insert
+      .mockResolvedValueOnce([]); // Audit log
+
+    // Create API request
+    const { req, res } = createAPITest({
+      method: 'POST',
+      body: { keyName: 'My CLI Key', environment: 'test' }
+    });
+
+    // Execute and assert
+    await apiKeysHandler(req, res);
+    const data = responseAssertions.success(res, 201);
+    expect(data.id).toBe('new-key-123');
+    expect(data.key).toMatch(/^vibe_test_/);
+
+});
+});
+
+````
+</example>
+
+<example type="invalid">
+```typescript
+// BAD: Testing API endpoint without proper setup
+import apiHandler from '../pages/api/some-endpoint';
+
+test('API test', async () => {
+  // This will fail with missing middleware errors
+  const { req, res } = createMocks({ method: 'POST' });
+  await apiHandler(req, res); // Missing auth mocks, DB mocks, etc.
+});
+````
+
+</example>
+
+<example type="invalid">
+```typescript
+// BAD: Mixing unit tests and API tests in same file
+describe('Mixed Tests', () => {
+  test('Core logic test', async () => {
+    // Testing ApiKeyManager directly (should be unit test)
+    const result = await ApiKeyManager.generateApiKey(userId, options);
+  });
+  
+  test('API endpoint test', async () => {
+    // Testing API handler (should be API test)
+    await apiKeysHandler(req, res);
+  });
+});
+```
+</example>
+
+## Integration with Database Testing
+
+- Extends proven database testing patterns from `Database-Testing-Infrastructure-Guide.md`
+- Use `withTransaction()` for integration tests that require real database operations
+- Leverage `TransactionTestManager` for complex test data setup with automatic rollback
+- Combine API testing with transaction rollback for end-to-end integration scenarios
+- Use database mocking for fast feedback, real database for comprehensive integration testing
+
+## Error Handling Patterns
+
+- Always test both success and failure scenarios for each endpoint
+- Use consistent error response format checking with `responseAssertions.error()`
+- Test validation errors with specific field validation
+- Verify error messages are helpful and don't expose sensitive information
+- Test database error scenarios and ensure graceful degradation
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Complete API testing workflow
+- **`.cursor/docs/ai-workflows.md#database-test-patterns`** - Database testing patterns
+- **`.cursor/docs/tools-guide.md`** - Schema inspection guide
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - CRITICAL: Inspect schema BEFORE tests!
+  ```bash
+  ./.cursor/tools/inspect-model.sh YourModel
+  # Get exact field names, types, relationships
+  ```
+- **`.cursor/tools/check-schema-changes.sh`** - Validate schema changes
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (Prisma schema first!)
+- @300-testing-standards.mdc - General testing standards
+- @371-api-test-architecture.mdc - API test architecture
+- @375-api-test-first-time-right.mdc - API testing (95% first-run success!)
+- @376-database-test-isolation.mdc - Database testing patterns (critical!)
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Quick Start
+1. **ALWAYS:** `.cursor/tools/inspect-model.sh YourModel` (schema first!)
+2. **Follow:** @375-api-test-first-time-right.mdc (schema-first testing)
+3. **Isolate:** Use @376-database-test-isolation.mdc patterns

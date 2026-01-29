@@ -1,0 +1,871 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Authentication Architecture Patterns
+
+## Context
+- When designing authentication architecture for web applications
+- When deciding between server-side and client-side authentication
+- When implementing secure token handling
+- When building protected routes and components
+
+## Core Requirements
+
+### 1. Authentication Approach Decision Tree 
+
+Choose the right authentication approach using this decision tree:
+
+| Factor | Server-Side Auth | Client-Side Auth |
+|--------|------------------|------------------|
+| SEO requirements | ✅ Better for SEO | ⚠️ May require extra steps |
+| Initial page load | ✅ Faster with auth state | ⚠️ Requires client-side auth check |
+| API security | ✅ Can hide credentials from client | ⚠️ Tokens visible in browser |
+| SPA experience | ⚠️ May require extra steps | ✅ Smoother transitions |
+| Sensitive operations | ✅ More secure | ⚠️ Less secure |
+
+### 2. Server-Side Authentication Pattern
+
+Implement secure server-side authentication:
+
+```typescript
+// src/lib/auth/server.ts
+import { GetServerSidePropsContext, NextApiRequest, NextApiResponse } from 'next';
+import { getSession, withApiAuthRequired, withPageAuthRequired } from '@auth0/nextjs-auth0';
+import { User } from './types';
+
+/**
+ * Get the authenticated user on the server
+ */
+export async function getServerUser(
+  req: NextApiRequest | GetServerSidePropsContext['req'],
+  res?: NextApiResponse | GetServerSidePropsContext['res']
+): Promise<User | null> {
+  try {
+    const session = await getSession(req, res);
+    
+    if (!session?.user) {
+      return null;
+    }
+    
+    // Map auth provider user to your application user model
+    return {
+      id: session.user.sub,
+      email: session.user.email,
+      name: session.user.name,
+      picture: session.user.picture,
+      // Add any other user properties you need
+    };
+  } catch (error) {
+    console.error('Error getting server user:', error);
+    return null;
+  }
+}
+
+/**
+ * Protect an API route with authentication
+ */
+export const withApiAuth = withApiAuthRequired;
+
+/**
+ * Protect a page with authentication
+ */
+export const withPageAuth = withPageAuthRequired;
+
+/**
+ * Check if user has required permissions
+ */
+export function hasPermissions(
+  user: User | null,
+  requiredPermissions: string[]
+): boolean {
+  if (!user || !user.permissions) {
+    return false;
+  }
+  
+  return requiredPermissions.every(
+    permission => user.permissions.includes(permission)
+  );
+}
+
+/**
+ * Protect an API route with specific permissions
+ */
+export function withApiPermissions(requiredPermissions: string[]) {
+  return withApiAuthRequired(async function permissionsMiddleware(
+    req: NextApiRequest,
+    res: NextApiResponse
+  ) {
+    const user = await getServerUser(req, res);
+    
+    if (!hasPermissions(user, requiredPermissions)) {
+      return res.status(403).json({
+        error: 'Insufficient permissions'
+      });
+    }
+    
+    // Add user to request for downstream handlers
+    (req as any).user = user;
+    
+    return;
+  });
+}
+```
+
+### 3. Client-Side Authentication Pattern
+
+Implement secure client-side authentication:
+
+```typescript
+// src/lib/auth/client.ts
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
+import { User } from './types';
+
+/**
+ * Hook for client-side authentication
+ */
+export function useAuth() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  
+  useEffect(() => {
+    async function loadUser() {
+      try {
+        setLoading(true);
+        
+        // Fetch the user from your authentication API
+        const response = await fetch('/api/auth/me');
+        
+        if (!response.ok) {
+          if (response.status === 401) {
+            setUser(null);
+            return;
+          }
+          
+          throw new Error('Failed to load user');
+        }
+        
+        const userData = await response.json();
+        setUser(userData);
+      } catch (err) {
+        console.error('Error loading user:', err);
+        setError(err instanceof Error ? err : new Error('Unknown error'));
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    loadUser();
+  }, []);
+  
+  /**
+   * Redirect to login if not authenticated
+   */
+  function requireAuth(redirectTo?: string) {
+    const router = useRouter();
+    
+    useEffect(() => {
+      if (!loading && !user) {
+        const loginPath = `/api/auth/login?returnTo=${
+          redirectTo || router.asPath
+        }`;
+        router.push(loginPath);
+      }
+    }, [user, loading, router, redirectTo]);
+    
+    return { user, loading };
+  }
+  
+  /**
+   * Check if user has required permissions
+   */
+  function hasPermissions(requiredPermissions: string[]): boolean {
+    if (!user || !user.permissions) {
+      return false;
+    }
+    
+    return requiredPermissions.every(
+      permission => user.permissions.includes(permission)
+    );
+  }
+  
+  return {
+    user,
+    loading,
+    error,
+    requireAuth,
+    hasPermissions
+  };
+}
+
+/**
+ * HOC to protect a component with authentication
+ */
+export function withClientAuth<P>(
+  Component: React.ComponentType<P>,
+  options?: { redirectTo?: string }
+): React.FC<P> {
+  return function ProtectedComponent(props: P) {
+    const { user, loading, requireAuth } = useAuth();
+    requireAuth(options?.redirectTo);
+    
+    if (loading) {
+      return <div>Loading...</div>;
+    }
+    
+    if (!user) {
+      return null; // Will redirect in useEffect
+    }
+    
+    return <Component {...props} />;
+  };
+}
+```
+
+### 4. Hybrid Authentication Pattern
+
+Implement a hybrid approach that leverages both server and client authentication:
+
+```typescript
+// src/lib/auth/hybrid.ts
+import { GetServerSideProps, GetServerSidePropsContext, GetServerSidePropsResult } from 'next';
+import { getServerUser } from './server';
+import { User } from './types';
+
+interface WithAuthProps {
+  user: User | null;
+  [key: string]: any;
+}
+
+/**
+ * SSR authentication that passes user to client components
+ */
+export function withHybridAuth<P extends WithAuthProps = WithAuthProps>(
+  getServerSidePropsFunc?: (
+    context: GetServerSidePropsContext,
+    user: User
+  ) => Promise<GetServerSidePropsResult<P>>
+): GetServerSideProps<P> {
+  return async (context: GetServerSidePropsContext) => {
+    const { req, res } = context;
+    
+    // Get user on the server
+    const user = await getServerUser(req, res);
+    
+    // Redirect to login if not authenticated
+    if (!user) {
+      return {
+        redirect: {
+          destination: `/api/auth/login?returnTo=${context.resolvedUrl}`,
+          permanent: false,
+        },
+      };
+    }
+    
+    // Call the page's getServerSideProps if provided
+    if (getServerSidePropsFunc) {
+      const result = await getServerSidePropsFunc(context, user);
+      
+      // Handle redirect
+      if ('redirect' in result) {
+        return result;
+      }
+      
+      // Handle notFound
+      if ('notFound' in result) {
+        return result;
+      }
+      
+      // Merge user with other props
+      return {
+        props: {
+          ...result.props,
+          user,
+        },
+      };
+    }
+    
+    // Just return the user if no getServerSideProps provided
+    return {
+      props: { user } as any,
+    };
+  };
+}
+
+/**
+ * Client component that uses server-provided user
+ */
+export function useHybridAuth<P extends WithAuthProps>(props: P) {
+  const { user, ...restProps } = props;
+  
+  /**
+   * Check if user has required permissions
+   */
+  function hasPermissions(requiredPermissions: string[]): boolean {
+    if (!user || !user.permissions) {
+      return false;
+    }
+    
+    return requiredPermissions.every(
+      permission => user.permissions.includes(permission)
+    );
+  }
+  
+  return {
+    user,
+    hasPermissions,
+    isAuthenticated: !!user,
+    ...restProps
+  };
+}
+```
+
+### 5. Secure Token Handling
+
+Implement secure token storage and handling:
+
+```typescript
+// src/lib/auth/token.ts
+
+/**
+ * SECURITY CONSIDERATIONS FOR TOKEN HANDLING
+ * 
+ * 1. DO NOT store tokens in localStorage or sessionStorage
+ *    - Vulnerable to XSS attacks
+ *    - Accessible to any JavaScript on the page
+ * 
+ * 2. DO store tokens in HTTP-only cookies
+ *    - Not accessible to JavaScript
+ *    - Can be secured with SameSite and Secure flags
+ * 
+ * 3. DO use short-lived access tokens
+ *    - Limit damage if tokens are compromised
+ *    - Use refresh tokens for long-lived sessions
+ * 
+ * 4. DO implement proper CSRF protection
+ *    - Use CSRF tokens for cookie-based auth
+ *    - Set SameSite=Strict or SameSite=Lax on cookies
+ * 
+ * 5. DO validate tokens properly
+ *    - Verify signature
+ *    - Check expiration
+ *    - Validate issuer and audience
+ */
+
+import { serialize, parse } from 'cookie';
+import { NextApiResponse } from 'next';
+
+/**
+ * Set a secure HTTP-only cookie
+ */
+export function setAuthCookie(
+  res: NextApiResponse,
+  name: string,
+  value: string,
+  options: {
+    maxAge?: number;
+    path?: string;
+    domain?: string;
+  } = {}
+): void {
+  const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    maxAge: options.maxAge || 7 * 24 * 60 * 60, // 1 week
+    path: options.path || '/',
+    domain: options.domain || undefined
+  };
+  
+  res.setHeader('Set-Cookie', serialize(name, value, cookieOptions));
+}
+
+/**
+ * Clear an auth cookie
+ */
+export function clearAuthCookie(
+  res: NextApiResponse,
+  name: string,
+  options: {
+    path?: string;
+    domain?: string;
+  } = {}
+): void {
+  const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    maxAge: 0, // Expire immediately
+    path: options.path || '/',
+    domain: options.domain || undefined
+  };
+  
+  res.setHeader('Set-Cookie', serialize(name, '', cookieOptions));
+}
+```
+
+### 6. Authentication Middleware
+
+Implement middleware-based authentication for Next.js:
+
+```typescript
+// src/middleware.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { verifyAuthToken } from './lib/auth/token';
+
+/**
+ * Authentication middleware for Next.js
+ */
+export async function middleware(req: NextRequest) {
+  // Define protected paths that require authentication
+  const protectedPaths = [
+    '/dashboard',
+    '/profile',
+    '/settings',
+    '/api/user'
+  ];
+  
+  // Define authentication exempt paths
+  const authExemptPaths = [
+    '/api/auth',
+    '/api/public',
+    '/login',
+    '/register',
+    '/_next',
+    '/static'
+  ];
+  
+  const { pathname } = req.nextUrl;
+  
+  // Skip middleware for auth-exempt paths
+  if (authExemptPaths.some(path => pathname.startsWith(path))) {
+    return NextResponse.next();
+  }
+  
+  // Check if this path requires authentication
+  const isProtectedPath = protectedPaths.some(path => pathname.startsWith(path));
+  
+  if (isProtectedPath) {
+    // Get auth token from cookie
+    const authToken = req.cookies.get('auth_token')?.value;
+    
+    if (!authToken) {
+      // No token, redirect to login
+      const loginUrl = new URL('/login', req.url);
+      loginUrl.searchParams.set('returnTo', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    
+    try {
+      // Verify token
+      const user = await verifyAuthToken(authToken);
+      
+      if (!user) {
+        // Invalid token, redirect to login
+        const loginUrl = new URL('/login', req.url);
+        loginUrl.searchParams.set('returnTo', pathname);
+        return NextResponse.redirect(loginUrl);
+      }
+      
+      // Valid user, continue
+      const response = NextResponse.next();
+      
+      // Add user info to headers for API routes
+      response.headers.set('x-user-id', user.id);
+      
+      return response;
+    } catch (error) {
+      console.error('Auth middleware error:', error);
+      
+      // Error verifying token, redirect to login
+      const loginUrl = new URL('/login', req.url);
+      loginUrl.searchParams.set('returnTo', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+  }
+  
+  // Not a protected path, continue
+  return NextResponse.next();
+}
+
+// Configure which paths middleware runs on
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except those starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    '/((?!_next/static|_next/image|favicon.ico).*)',
+  ],
+};
+```
+
+### 7. Role-Based Access Control (RBAC)
+
+Implement role-based access control:
+
+```typescript
+// src/lib/auth/rbac.ts
+import { User } from './types';
+
+/**
+ * Role hierarchy and permissions
+ */
+export const ROLES = {
+  GUEST: 'guest',
+  USER: 'user',
+  EDITOR: 'editor',
+  ADMIN: 'admin'
+};
+
+/**
+ * Role hierarchy (higher index roles include permissions of lower index roles)
+ */
+export const ROLE_HIERARCHY = [
+  ROLES.GUEST,
+  ROLES.USER,
+  ROLES.EDITOR,
+  ROLES.ADMIN
+];
+
+/**
+ * Permissions by role
+ */
+export const ROLE_PERMISSIONS: Record<string, string[]> = {
+  [ROLES.GUEST]: [
+    'read:public'
+  ],
+  [ROLES.USER]: [
+    'read:own',
+    'write:own'
+  ],
+  [ROLES.EDITOR]: [
+    'read:any',
+    'write:any',
+    'publish:any'
+  ],
+  [ROLES.ADMIN]: [
+    'manage:users',
+    'manage:content',
+    'manage:settings'
+  ]
+};
+
+/**
+ * Check if a role has a specific permission
+ */
+export function roleHasPermission(
+  role: string,
+  permission: string
+): boolean {
+  // Get the role's index in the hierarchy
+  const roleIndex = ROLE_HIERARCHY.indexOf(role);
+  
+  if (roleIndex === -1) {
+    return false;
+  }
+  
+  // Check if any role up to and including the provided role has the permission
+  for (let i = 0; i <= roleIndex; i++) {
+    const currentRole = ROLE_HIERARCHY[i];
+    if (ROLE_PERMISSIONS[currentRole]?.includes(permission)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a user has a specific permission
+ */
+export function userHasPermission(
+  user: User | null,
+  permission: string
+): boolean {
+  if (!user || !user.roles || user.roles.length === 0) {
+    // Default to guest permissions
+    return roleHasPermission(ROLES.GUEST, permission);
+  }
+  
+  // Check if any of the user's roles has the permission
+  return user.roles.some(role => roleHasPermission(role, permission));
+}
+
+/**
+ * Component to conditionally render based on permissions
+ */
+export function PermissionGate({ 
+  permission, 
+  user, 
+  children 
+}: { 
+  permission: string;
+  user: User | null;
+  children: React.ReactNode;
+}) {
+  if (!userHasPermission(user, permission)) {
+    return null;
+  }
+  
+  return <>{children}</>;
+}
+```
+
+### 8. Authentication Providers Configuration
+
+Centralize authentication configuration:
+
+```typescript
+// src/lib/auth/config.ts
+
+/**
+ * Authentication provider configuration
+ */
+export const AUTH_CONFIG = {
+  // Auth0 configuration
+  auth0: {
+    clientId: process.env.AUTH0_CLIENT_ID || '',
+    clientSecret: process.env.AUTH0_CLIENT_SECRET || '',
+    domain: process.env.AUTH0_DOMAIN || '',
+    audience: process.env.AUTH0_AUDIENCE || '',
+    scope: 'openid profile email',
+    redirectUri: process.env.AUTH0_REDIRECT_URI || 'http://localhost:3000/api/auth/callback',
+    postLogoutRedirectUri: process.env.AUTH0_POST_LOGOUT_REDIRECT_URI || 'http://localhost:3000',
+    sessionCookieName: 'appSession',
+    sessionCookieSecret: process.env.SESSION_COOKIE_SECRET || '',
+    sessionCookieLifetime: 7 * 24 * 60 * 60, // 1 week
+    sessionCookiePath: '/',
+    sessionCookieSameSite: 'lax' as const,
+    sessionCookieHttpOnly: true,
+    sessionCookieSecure: process.env.NODE_ENV === 'production'
+  },
+  
+  // Firebase configuration
+  firebase: {
+    apiKey: process.env.FIREBASE_API_KEY || '',
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN || '',
+    projectId: process.env.FIREBASE_PROJECT_ID || '',
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || '',
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || '',
+    appId: process.env.FIREBASE_APP_ID || '',
+    redirectUri: process.env.FIREBASE_REDIRECT_URI || 'http://localhost:3000/login'
+  },
+  
+  // Clerk configuration
+  clerk: {
+    publishableKey: process.env.CLERK_PUBLISHABLE_KEY || '',
+    secretKey: process.env.CLERK_SECRET_KEY || '',
+    frontendApi: process.env.CLERK_FRONTEND_API || '',
+    jsUrl: process.env.CLERK_JS_URL || 'https://js.clerk.dev',
+    apiUrl: process.env.CLERK_API_URL || 'https://api.clerk.dev',
+  },
+  
+  // General auth settings
+  settings: {
+    loginPath: '/login',
+    logoutPath: '/logout',
+    callbackPath: '/api/auth/callback',
+    defaultReturnTo: '/',
+    protectedPaths: [
+      '/dashboard',
+      '/profile',
+      '/settings',
+      '/api/user'
+    ],
+    publicPaths: [
+      '/',
+      '/login',
+      '/register',
+      '/about',
+      '/api/public'
+    ]
+  }
+};
+```
+
+## Examples
+
+<example>
+// Good implementation of server-side authentication
+
+// pages/dashboard.tsx
+import { withPageAuth } from '@auth0/nextjs-auth0';
+import { GetServerSideProps } from 'next';
+import { User } from '../lib/auth/types';
+import { hasPermissions } from '../lib/auth/server';
+import { DashboardLayout } from '../components/layouts/DashboardLayout';
+
+interface DashboardProps {
+  user: User;
+  dashboardData: any;
+}
+
+export default function Dashboard({ user, dashboardData }: DashboardProps) {
+  return (
+    <DashboardLayout user={user}>
+      <h1>Welcome, {user.name}!</h1>
+      
+      {/* Conditionally render based on permissions */}
+      {hasPermissions(user, ['manage:users']) && (
+        <section>
+          <h2>User Management</h2>
+          {/* Admin-only content */}
+        </section>
+      )}
+      
+      <section>
+        <h2>Your Dashboard</h2>
+        {/* Dashboard content */}
+      </section>
+    </DashboardLayout>
+  );
+}
+
+export const getServerSideProps: GetServerSideProps = withPageAuth({
+  async getServerSideProps({ req, res }) {
+    try {
+      // Fetch additional data needed for the page
+      const dashboardData = await fetchDashboardData(req);
+      
+      return {
+        props: {
+          dashboardData
+        }
+      };
+    } catch (error) {
+      console.error('Error in dashboard getServerSideProps:', error);
+      return {
+        props: {
+          dashboardData: null
+        }
+      };
+    }
+  }
+});
+
+async function fetchDashboardData(req: any) {
+  // Implementation of data fetching
+  return { stats: [/* data */] };
+}
+</example>
+
+<example type="invalid">
+// Poor implementation mixing client and server authentication without clear boundaries
+
+// pages/dashboard.js
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import axios from 'axios';
+
+// Problems:
+// 1. No server-side auth check, leading to flash of unauthenticated content
+// 2. Token stored in localStorage (security risk)
+// 3. No error handling
+// 4. No loading state
+// 5. No type safety
+// 6. Multiple auth checks in different places
+
+export default function Dashboard() {
+  const router = useRouter();
+  const [user, setUser] = useState(null);
+  const [data, setData] = useState(null);
+  
+  // Client-side auth check with no loading state
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+    
+    // Fetch user data with token in localStorage
+    axios.get('/api/me', {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(res => {
+      setUser(res.data);
+    }).catch(err => {
+      // Redirect on error with no error handling
+      router.push('/login');
+    });
+  }, []);
+  
+  // Separate data fetching with duplicate auth logic
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    
+    if (token) {
+      axios.get('/api/dashboard-data', {
+        headers: { Authorization: `Bearer ${token}` }
+      }).then(res => {
+        setData(res.data);
+      });
+    }
+  }, []);
+  
+  // No loading state
+  if (!user) {
+    return null;
+  }
+  
+  return (
+    <div>
+      <h1>Welcome, {user.name}!</h1>
+      {/* Dashboard content */}
+    </div>
+  );
+}
+</example>
+
+## Key Principles
+
+1. **Clear Boundaries**: Maintain clear boundaries between server and client authentication
+2. **Security First**: Prioritize security in all authentication decisions
+3. **Secure Token Handling**: Never store tokens in localStorage or sessionStorage
+4. **SSR for Protected Content**: Use server-side rendering for protected content to avoid flashes of unauthenticated content
+5. **Type Safety**: Use TypeScript for authentication code
+6. **Permission Checks**: Implement consistent permission checking
+7. **Error Handling**: Add robust error handling for authentication failures
+8. **Configurability**: Make authentication behavior configurable
+9. **Separation of Concerns**: Separate authentication logic from components
+10. **Testing**: Write tests for authentication logic
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Architecture patterns
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Implementation checklist
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate authentication architecture
+- **`.cursor/tools/check-env-vars.sh`** - Ensure proper configuration
+- **`.cursor/tools/inspect-model.sh`** - Check user/session data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @014-third-party-auth.mdc - Authentication implementation standards
+- @019-auth0-integration.mdc - Auth0 integration patterns
+- @046-session-validation.mdc - Session security patterns
+- @072-auth-security.mdc - Auth security standards
+- @080-authentication-integration.mdc - Integration patterns
+- @110-middleware-architecture.mdc - Middleware patterns for auth
+- @374-authentication-architecture-standards.mdc - Detailed architecture standards
+- @400-auth-testing-patterns.mdc - Testing auth architecture
+
+### Quick Start
+1. **Review:** @374-authentication-architecture-standards.mdc (detailed patterns)
+2. **Validate:** `.cursor/tools/check-auth-config.sh`
+3. **Follow:** `.cursor/docs/security-workflows.md#auth0-integration-workflow`
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH_ARCHITECTURE_PATTERNS_GUIDE.md`** - **CRITICAL:** Auth architecture patterns!
+- **`guides/AUTH0_CURRENT_IMPLEMENTATION.md`** - Current Auth0 setup and configuration
+- **`guides/auth0/03-Advanced-Auth0-Integration.md`** - Advanced integration patterns

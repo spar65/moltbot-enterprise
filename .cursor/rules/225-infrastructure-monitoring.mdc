@@ -1,0 +1,783 @@
+---
+description: Implement comprehensive infrastructure monitoring when deploying services to ensure visibility, reliability, and proactive issue detection
+globs: "**/*.{ts,tsx,js,jsx,yaml,yml}"
+priority: P1
+---
+
+# Infrastructure Monitoring Standards
+
+## Context
+Apply comprehensive infrastructure monitoring standards when deploying and operating services to ensure system visibility, reliability, proactive issue detection, and efficient troubleshooting.
+
+## Requirements
+
+### 1. Infrastructure Metrics
+
+#### 1.1 Server/Container Metrics
+```typescript
+// Essential infrastructure metrics to collect
+interface InfrastructureMetrics {
+  // Compute resources
+  compute: {
+    cpu: {
+      usage: number;        // Percentage (0-100)
+      throttling: number;   // Percentage of time throttled
+      loadAverage: number[];  // 1min, 5min, 15min
+    };
+    
+    memory: {
+      used: number;         // Bytes
+      available: number;    // Bytes
+      percentage: number;   // 0-100
+      swapUsed: number;     // Bytes
+    };
+    
+    disk: {
+      used: number;         // Bytes
+      available: number;    // Bytes
+      percentage: number;   // 0-100
+      iops: number;         // Operations per second
+      throughput: number;   // Bytes per second
+    };
+  };
+  
+  // Network metrics
+  network: {
+    throughput: {
+      inbound: number;      // Bytes per second
+      outbound: number;     // Bytes per second
+    };
+    
+    connections: {
+      active: number;
+      established: number;
+      timeWait: number;
+    };
+    
+    errors: {
+      dropped: number;
+      retransmits: number;
+    };
+  };
+  
+  // Container metrics (if applicable)
+  container: {
+    restarts: number;
+    oomKills: number;
+    startupTime: number;  // Milliseconds
+  };
+}
+
+// Collect infrastructure metrics
+async function collectInfraMetrics(): Promise<InfrastructureMetrics> {
+  return {
+    compute: await getComputeMetrics(),
+    network: await getNetworkMetrics(),
+    container: await getContainerMetrics()
+  };
+}
+```
+
+#### 1.2 Database Metrics
+```typescript
+// Database-specific monitoring
+interface DatabaseMetrics {
+  // Connection pool
+  connections: {
+    active: number;
+    idle: number;
+    waiting: number;
+    total: number;
+    maxPoolSize: number;
+  };
+  
+  // Query performance
+  queries: {
+    avgDuration: number;      // Milliseconds
+    slowQueries: number;      // Count (> 1s)
+    failedQueries: number;
+    qps: number;              // Queries per second
+  };
+  
+  // Database health
+  health: {
+    replicationLag: number;   // Milliseconds
+    lockWaits: number;
+    deadlocks: number;
+    cacheHitRatio: number;    // Percentage
+  };
+  
+  // Storage
+  storage: {
+    size: number;             // Bytes
+    growth: number;           // Bytes per day
+    tableSizes: Record<string, number>;
+    indexSizes: Record<string, number>;
+  };
+}
+
+// Monitor database health
+async function monitorDatabase(): Promise<void> {
+  const metrics = await getDatabaseMetrics();
+  
+  // Alert on connection pool exhaustion
+  if (metrics.connections.waiting > 10) {
+    await sendAlert({
+      severity: 'warning',
+      message: `${metrics.connections.waiting} queries waiting for connections`,
+      metric: 'db-connection-pool',
+      value: metrics.connections.waiting
+    });
+  }
+  
+  // Alert on slow queries
+  if (metrics.queries.slowQueries > 100) {
+    await sendAlert({
+      severity: 'warning',
+      message: `${metrics.queries.slowQueries} slow queries detected`,
+      metric: 'db-slow-queries',
+      value: metrics.queries.slowQueries
+    });
+  }
+  
+  // Alert on replication lag
+  if (metrics.health.replicationLag > 60000) {  // 1 minute
+    await sendAlert({
+      severity: 'critical',
+      message: `Replication lag: ${metrics.health.replicationLag}ms`,
+      metric: 'db-replication-lag',
+      value: metrics.health.replicationLag
+    });
+  }
+}
+```
+
+### 2. Service Health Checks
+
+#### 2.1 Health Check Endpoints
+```typescript
+// Implement comprehensive health checks
+interface HealthCheckResult {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  timestamp: Date;
+  checks: {
+    database: HealthStatus;
+    cache: HealthStatus;
+    externalAPIs: HealthStatus;
+    storage: HealthStatus;
+  };
+  metrics: {
+    uptime: number;
+    responseTime: number;
+  };
+}
+
+interface HealthStatus {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  latency: number;
+  error?: string;
+}
+
+// Health check endpoint implementation
+export async function GET(request: Request) {
+  const startTime = Date.now();
+  
+  try {
+    // Check all dependencies
+    const [database, cache, externalAPIs, storage] = await Promise.all([
+      checkDatabase(),
+      checkCache(),
+      checkExternalAPIs(),
+      checkStorage()
+    ]);
+    
+    const allHealthy = [database, cache, externalAPIs, storage]
+      .every(check => check.status === 'healthy');
+    
+    const anyUnhealthy = [database, cache, externalAPIs, storage]
+      .some(check => check.status === 'unhealthy');
+    
+    const overallStatus = anyUnhealthy ? 'unhealthy' 
+      : allHealthy ? 'healthy' 
+      : 'degraded';
+    
+    const result: HealthCheckResult = {
+      status: overallStatus,
+      timestamp: new Date(),
+      checks: {
+        database,
+        cache,
+        externalAPIs,
+        storage
+      },
+      metrics: {
+        uptime: process.uptime(),
+        responseTime: Date.now() - startTime
+      }
+    };
+    
+    // Return appropriate status code
+    const statusCode = 
+      overallStatus === 'healthy' ? 200 
+      : overallStatus === 'degraded' ? 200 
+      : 503;
+    
+    return Response.json(result, { status: statusCode });
+    
+  } catch (error) {
+    console.error('❌ Health check failed:', error);
+    
+    return Response.json({
+      status: 'unhealthy',
+      timestamp: new Date(),
+      error: 'Health check execution failed',
+      metrics: {
+        uptime: process.uptime(),
+        responseTime: Date.now() - startTime
+      }
+    }, { status: 503 });
+  }
+}
+
+// Individual dependency checks
+async function checkDatabase(): Promise<HealthStatus> {
+  const startTime = Date.now();
+  
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    
+    return {
+      status: 'healthy',
+      latency: Date.now() - startTime
+    };
+  } catch (error) {
+    return {
+      status: 'unhealthy',
+      latency: Date.now() - startTime,
+      error: 'Database connection failed'
+    };
+  }
+}
+```
+
+#### 2.2 Load Balancer Integration
+```typescript
+// Health check configuration for load balancers
+interface LoadBalancerHealthCheck {
+  // Endpoint configuration
+  endpoint: '/api/health';
+  interval: 30;           // Seconds
+  timeout: 5;             // Seconds
+  healthyThreshold: 2;    // Consecutive successes
+  unhealthyThreshold: 3;  // Consecutive failures
+  
+  // Response expectations
+  expectedStatus: [200, 299];
+  expectedBody?: string;
+  
+  // Advanced settings
+  gracePeriod: 60;        // Seconds after deployment
+  draining: 30;           // Seconds before removal
+}
+
+// Implement graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('🛑 SIGTERM received, starting graceful shutdown');
+  
+  // 1. Stop accepting new requests
+  server.close();
+  
+  // 2. Mark as unhealthy for load balancer
+  healthCheckStatus = 'unhealthy';
+  
+  // 3. Wait for in-flight requests to complete
+  await waitForRequests(30000);  // 30 seconds
+  
+  // 4. Close database connections
+  await prisma.$disconnect();
+  
+  // 5. Exit
+  process.exit(0);
+});
+```
+
+### 3. Log Aggregation
+
+#### 3.1 Structured Logging for Infrastructure
+```typescript
+// Infrastructure-specific logging
+interface InfrastructureLog {
+  timestamp: Date;
+  level: 'info' | 'warn' | 'error' | 'critical';
+  component: 'server' | 'database' | 'cache' | 'storage' | 'network';
+  event: string;
+  metadata: Record<string, any>;
+  environment: string;
+  region: string;
+  instance: string;
+}
+
+// Log infrastructure events
+function logInfraEvent(log: InfrastructureLog): void {
+  // Add standard fields
+  const enrichedLog = {
+    ...log,
+    environment: process.env.NODE_ENV,
+    region: process.env.VERCEL_REGION,
+    instance: process.env.HOSTNAME
+  };
+  
+  // Send to log aggregation service
+  console.log(JSON.stringify(enrichedLog));
+}
+
+// Example: Log CPU throttling
+logInfraEvent({
+  timestamp: new Date(),
+  level: 'warn',
+  component: 'server',
+  event: 'cpu_throttling',
+  metadata: {
+    cpuUsage: 95,
+    throttlePercentage: 15,
+    duration: 120  // seconds
+  },
+  environment: process.env.NODE_ENV!,
+  region: process.env.VERCEL_REGION!,
+  instance: process.env.HOSTNAME!
+});
+```
+
+#### 3.2 Log Retention and Analysis
+```typescript
+// Log retention policies
+interface LogRetentionPolicy {
+  // By severity
+  critical: 365;    // Days
+  error: 180;
+  warn: 90;
+  info: 30;
+  debug: 7;
+  
+  // By component
+  security: 365;    // Security logs kept longer
+  audit: 2555;      // 7 years for compliance
+  access: 90;
+  
+  // Storage tiers
+  hotStorage: 7;    // Days in fast storage
+  coldStorage: 90;  // Days in cheaper storage
+  archive: 365;     // Days in long-term storage
+}
+
+// Automated log analysis
+async function analyzeInfraLogs(): Promise<LogAnalysis> {
+  // Detect patterns
+  const patterns = await detectPatterns({
+    timeWindow: '1h',
+    minOccurrences: 10,
+    components: ['server', 'database', 'network']
+  });
+  
+  // Identify anomalies
+  const anomalies = await detectAnomalies({
+    baseline: '7d',
+    sensitivity: 'medium',
+    metrics: ['error_rate', 'latency', 'throughput']
+  });
+  
+  return {
+    patterns,
+    anomalies,
+    recommendations: generateRecommendations(patterns, anomalies)
+  };
+}
+```
+
+### 4. Resource Utilization Tracking
+
+#### 4.1 Cost Monitoring
+```typescript
+// Track infrastructure costs
+interface CostMetrics {
+  // By resource type
+  compute: {
+    serverless: number;   // USD per month
+    containers: number;
+    instances: number;
+  };
+  
+  database: {
+    storage: number;
+    compute: number;
+    backups: number;
+    dataTransfer: number;
+  };
+  
+  storage: {
+    objectStorage: number;
+    blockStorage: number;
+    cdn: number;
+  };
+  
+  network: {
+    dataTransfer: number;
+    loadBalancing: number;
+  };
+  
+  // Total
+  total: number;
+  projectedMonthly: number;
+}
+
+// Alert on cost anomalies
+async function monitorCosts(): Promise<void> {
+  const costs = await getCurrentCosts();
+  const baseline = await getBaselineCosts();
+  
+  // Alert if costs spike > 50%
+  if (costs.total > baseline.total * 1.5) {
+    await sendAlert({
+      severity: 'warning',
+      message: `Infrastructure costs increased ${
+        ((costs.total / baseline.total - 1) * 100).toFixed(1)
+      }%`,
+      metric: 'infrastructure-cost',
+      value: costs.total
+    });
+  }
+}
+```
+
+#### 4.2 Capacity Planning
+```typescript
+// Forecast resource needs
+interface CapacityForecast {
+  // Current utilization
+  current: {
+    cpu: number;          // Percentage
+    memory: number;       // Percentage
+    storage: number;      // Percentage
+    network: number;      // Percentage
+  };
+  
+  // Growth trends
+  trends: {
+    cpuGrowth: number;        // Percentage per month
+    memoryGrowth: number;
+    storageGrowth: number;
+    networkGrowth: number;
+  };
+  
+  // Forecasted capacity needs
+  forecast: {
+    30days: ResourceNeeds;
+    90days: ResourceNeeds;
+    180days: ResourceNeeds;
+  };
+  
+  // Recommendations
+  recommendations: string[];
+}
+
+interface ResourceNeeds {
+  cpu: number;
+  memory: number;  // GB
+  storage: number; // GB
+  estimatedCost: number;  // USD per month
+}
+
+// Generate capacity forecast
+async function forecastCapacity(): Promise<CapacityForecast> {
+  const historicalData = await getHistoricalMetrics(90);  // 90 days
+  const trends = calculateTrends(historicalData);
+  
+  return {
+    current: await getCurrentUtilization(),
+    trends,
+    forecast: {
+      30days: calculateForecast(trends, 30),
+      90days: calculateForecast(trends, 90),
+      180days: calculateForecast(trends, 180)
+    },
+    recommendations: generateCapacityRecommendations(trends)
+  };
+}
+```
+
+### 5. Distributed Tracing
+
+#### 5.1 Request Tracing
+```typescript
+// Implement distributed tracing
+interface Trace {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  operation: string;
+  startTime: Date;
+  duration: number;
+  tags: Record<string, string>;
+  logs: TraceLog[];
+}
+
+interface TraceLog {
+  timestamp: Date;
+  event: string;
+  metadata: Record<string, any>;
+}
+
+// Create trace context
+function createTraceContext(): TraceContext {
+  return {
+    traceId: generateTraceId(),
+    spanId: generateSpanId(),
+    startTime: Date.now()
+  };
+}
+
+// Example: Trace API request
+async function handleRequest(req: Request): Promise<Response> {
+  const trace = createTraceContext();
+  
+  try {
+    // Database span
+    const dbSpan = startSpan(trace, 'database-query');
+    const data = await queryDatabase();
+    endSpan(dbSpan);
+    
+    // External API span
+    const apiSpan = startSpan(trace, 'external-api-call');
+    const externalData = await callExternalAPI();
+    endSpan(apiSpan);
+    
+    // Processing span
+    const processSpan = startSpan(trace, 'data-processing');
+    const result = processData(data, externalData);
+    endSpan(processSpan);
+    
+    return Response.json(result);
+    
+  } finally {
+    // Send trace to collector
+    await sendTrace(trace);
+  }
+}
+```
+
+### 6. Synthetic Monitoring
+
+#### 6.1 Synthetic Tests
+```typescript
+// Define synthetic monitoring tests
+interface SyntheticTest {
+  name: string;
+  type: 'api' | 'browser' | 'transaction';
+  frequency: number;  // Minutes
+  locations: string[];  // Geographic regions
+  
+  // Test definition
+  steps: TestStep[];
+  
+  // Success criteria
+  assertions: {
+    maxResponseTime: number;  // Milliseconds
+    expectedStatus: number;
+    expectedContent?: string;
+  };
+}
+
+interface TestStep {
+  action: 'navigate' | 'click' | 'type' | 'wait' | 'assert';
+  target: string;
+  value?: string;
+}
+
+// Example: API endpoint monitoring
+const apiSyntheticTest: SyntheticTest = {
+  name: 'Health Check API',
+  type: 'api',
+  frequency: 5,  // Every 5 minutes
+  locations: ['us-east', 'us-west', 'eu-west', 'ap-south'],
+  
+  steps: [
+    {
+      action: 'navigate',
+      target: 'https://api.example.com/health'
+    }
+  ],
+  
+  assertions: {
+    maxResponseTime: 500,
+    expectedStatus: 200,
+    expectedContent: '"status":"healthy"'
+  }
+};
+
+// Run synthetic test
+async function runSyntheticTest(
+  test: SyntheticTest
+): Promise<SyntheticResult> {
+  const startTime = Date.now();
+  
+  try {
+    const response = await fetch(test.steps[0].target);
+    const duration = Date.now() - startTime;
+    
+    const passed = 
+      response.status === test.assertions.expectedStatus &&
+      duration <= test.assertions.maxResponseTime;
+    
+    if (!passed) {
+      await sendAlert({
+        severity: 'critical',
+        message: `Synthetic test failed: ${test.name}`,
+        metric: 'synthetic-test',
+        test: test.name,
+        duration,
+        status: response.status
+      });
+    }
+    
+    return {
+      test: test.name,
+      passed,
+      duration,
+      status: response.status,
+      timestamp: new Date()
+    };
+    
+  } catch (error) {
+    await sendAlert({
+      severity: 'critical',
+      message: `Synthetic test error: ${test.name}`,
+      metric: 'synthetic-test',
+      test: test.name,
+      error
+    });
+    
+    return {
+      test: test.name,
+      passed: false,
+      duration: Date.now() - startTime,
+      error,
+      timestamp: new Date()
+    };
+  }
+}
+```
+
+## Tools & Documentation
+
+### Related Tools
+- `.cursor/tools/check-infrastructure.sh` - Verify infrastructure health
+- `.cursor/tools/analyze-logs.sh` - Parse and analyze infrastructure logs
+- `.cursor/tools/forecast-capacity.sh` - Generate capacity forecasts
+
+### Related Guides
+- `guides/Infrastructure-Monitoring-Complete-Guide.md` - Comprehensive monitoring guide
+- `guides/Observability-Best-Practices.md` - Observability patterns
+
+### Related Rules
+- @221-application-monitoring.mdc - Application-level monitoring
+- @222-metrics-alerting.mdc - Metrics and alerting standards
+- @223-health-checks.mdc - Health check implementation
+- @212-backup-recovery-standards.mdc - Backup monitoring
+
+## Examples
+
+<example>
+**Good: Comprehensive health checks**
+
+```typescript
+// Check all dependencies
+export async function GET() {
+  const checks = await Promise.all([
+    checkDatabase(),
+    checkCache(),
+    checkExternalAPIs(),
+    checkStorage()
+  ]);
+  
+  const status = determineOverallStatus(checks);
+  return Response.json({ status, checks });
+}
+```
+
+Why: Load balancer gets complete health picture, can route traffic appropriately
+</example>
+
+<example>
+**Good: Infrastructure cost monitoring**
+
+```typescript
+// Alert on cost spikes
+async function monitorCosts() {
+  const current = await getCurrentCosts();
+  const baseline = await getBaselineCosts();
+  
+  if (current.total > baseline.total * 1.5) {
+    await sendAlert({ /* cost spike */ });
+  }
+}
+```
+
+Why: Prevents unexpected billing, catches resource leaks early
+</example>
+
+<example type="invalid">
+**Bad: Simple health check**
+
+```typescript
+// Only checks if server is running
+export async function GET() {
+  return Response.json({ status: 'ok' });
+}
+```
+
+Why: Doesn't check dependencies, load balancer routes to broken instances
+</example>
+
+<example type="invalid">
+**Bad: No infrastructure monitoring**
+
+```typescript
+// No metrics, no logging, no monitoring
+// "We'll check the logs if something breaks"
+```
+
+Why: No visibility, issues go undetected, troubleshooting is impossible
+</example>
+
+## Quick Start
+
+1. **Implement health checks**
+   ```bash
+   # Add health check endpoint
+   # Configure load balancer
+   # Test health check logic
+   ```
+
+2. **Set up infrastructure monitoring**
+   ```bash
+   ./.cursor/tools/check-infrastructure.sh
+   ```
+
+3. **Configure log aggregation**
+   - Structured logging
+   - Log retention policies
+   - Log analysis automation
+
+4. **Enable synthetic monitoring**
+   - Critical API endpoints
+   - Key user workflows
+   - Multi-region checks
+
+## Success Metrics
+
+### Key Performance Indicators
+- Infrastructure uptime: > 99.9%
+- Mean time to detection (MTTD): < 5 minutes
+- Mean time to resolution (MTTR): < 30 minutes
+- False positive rate: < 1%
+- Health check reliability: 100%

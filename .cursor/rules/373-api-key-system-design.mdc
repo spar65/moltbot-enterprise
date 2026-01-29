@@ -1,0 +1,385 @@
+---
+description: Use when designing and implementing API key management systems to ensure security, scalability, and maintainability
+globs: "src/lib/*api-key*.ts,src/middleware/*api*.ts,pages/api/**/*api-key*.ts,migrations/**/*api*.sql"
+---
+
+# API Key System Design & Implementation Standards
+
+## Context
+- Apply when designing API key generation, validation, and management systems
+- Use for authentication middleware, database schema design, and business logic implementation
+- Follow when implementing dual authentication (sessions + API keys)
+- Reference when building enterprise-grade key management features
+
+## Requirements
+
+### Security Architecture
+- Use bcrypt with minimum 12 rounds for key hashing (`BCRYPT_ROUNDS = 12`)
+- Implement environment-specific key prefixes: `vibe_{environment}_{64_hex_chars}`
+- Never store raw API keys in database - only bcrypt hashes
+- Hash IP addresses with HMAC-SHA256 for GDPR-compliant audit logging
+- Implement environment isolation (live/test/dev keys cannot cross-validate)
+- Use cryptographically secure random generation (`crypto.randomBytes(32)`)
+
+### Database Schema Design
+- Create separate tables for keys (`user_api_keys`) and audit logs (`api_key_audit_log`)
+- Implement database constraints for business rules (max 2 keys per user/environment)
+- Add performance indexes on frequently queried fields (user_id, environment, is_active)
+- Include audit trail with IP hashing, user agents, and metadata
+- Use UUID primary keys for better security and scalability
+- Implement soft deletion with revoked_at timestamps
+
+### Business Logic Patterns
+- Enforce maximum key limits per environment (default: 2 per user per environment)
+- Implement automatic expiration with configurable grace periods (default: 90 days)
+- Support key rotation with grace periods for zero-downtime updates
+- Track usage statistics (last_used_at, usage_count) for monitoring
+- Provide key hints for user identification without exposing sensitive data
+
+### API Design Patterns
+- Implement dual authentication support (Auth0 sessions OR API keys)
+- Return API keys only once during generation for security
+- Provide comprehensive error codes and messages for all failure scenarios
+- Support environment-specific rate limiting with burst allowance
+- Implement proper HTTP status codes (201 for creation, 401 for auth failures)
+- Include validation for all input parameters with clear error messages
+
+### Middleware Architecture
+- Create reusable authentication middleware supporting both session and API key auth
+- Implement rate limiting with environment-specific limits
+- Extract client IP addresses properly handling proxy headers
+- Provide standardized error response formats
+- Support HOC pattern for easy endpoint protection
+- Cache validation results when appropriate for performance
+
+### Error Handling Standards
+- Provide specific error codes for different failure types
+- Include helpful hints for common resolution steps
+- Log errors appropriately without exposing sensitive information
+- Implement graceful degradation for non-critical operations
+- Return consistent error response structures across all endpoints
+
+## Examples
+
+<example>
+// ✅ Good: Secure key generation with proper format
+export class ApiKeyManager {
+  static async generateApiKey(userId: string, options: {
+    keyName?: string;
+    environment?: "live" | "test" | "dev";
+    expirationDays?: number;
+  }) {
+    // Generate cryptographically secure key
+    const randomBytes = crypto.randomBytes(API_KEY_LENGTH);
+    const apiKey = `vibe_${environment}_${randomBytes.toString('hex')}`;
+    
+    // Create secure hash for storage
+    const keyHash = await bcrypt.hash(apiKey, BCRYPT_ROUNDS);
+    
+    // Never store raw key, only hash
+    const result = await sql`
+      INSERT INTO user_api_keys (user_id, key_hash, environment, expires_at)
+      VALUES (${userId}, ${keyHash}, ${environment}, ${expiresAt})
+      RETURNING id, created_at
+    `;
+    
+    return {
+      keyId: result[0].id,
+      apiKey, // Only returned once!
+      environment,
+      expiresAt: expiresAt?.toISOString()
+    };
+  }
+}
+</example>
+
+<example>
+// ✅ Good: Database schema with security constraints
+CREATE TABLE user_api_keys (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  key_hash VARCHAR(255) NOT NULL UNIQUE, -- bcrypt hash only
+  key_hint VARCHAR(12), -- e.g., "vibe_...abc123"
+  environment VARCHAR(10) DEFAULT 'live',
+  is_active BOOLEAN DEFAULT true,
+  expires_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '90 days'),
+  
+  -- Security constraints
+  CONSTRAINT valid_environment CHECK (environment IN ('live', 'test', 'dev')),
+  CONSTRAINT max_keys_per_env UNIQUE (user_id, environment, key_name) 
+    DEFERRABLE INITIALLY DEFERRED
+);
+
+-- Performance indexes
+CREATE INDEX idx_user_api_keys_user_env_active 
+  ON user_api_keys(user_id, environment, is_active);
+</example>
+
+<example>
+// ✅ Good: Dual authentication middleware
+export function withApiKeyAuth(handler: NextApiHandler) {
+  return async (req: NextApiRequest, res: NextApiResponse) => {
+    // Try API key authentication first
+    const apiKeyResult = await validateApiKeyFromHeaders(req);
+    if (apiKeyResult.success) {
+      req.user = {
+        sub: apiKeyResult.userId,
+        authType: 'api_key',
+        keyId: apiKeyResult.keyId,
+        environment: apiKeyResult.environment
+      };
+      return handler(req, res);
+    }
+
+    // Fall back to session authentication
+    const session = await getSession(req, res);
+    if (session?.user) {
+      req.user = {
+        sub: session.user.sub,
+        authType: 'session',
+        email: session.user.email
+      };
+      return handler(req, res);
+    }
+
+    // No valid authentication
+    return res.status(401).json({
+      error: 'Authentication required',
+      code: 'NO_AUTH',
+      hint: 'Provide valid API key or authenticate with session'
+    });
+  };
+}
+</example>
+
+<example>
+// ✅ Good: GDPR-compliant audit logging
+static async logAuditEvent(
+  userId: string,
+  keyId: string,
+  action: string,
+  metadata?: {
+    ip?: string;
+    userAgent?: string;
+    success?: boolean;
+  }
+) {
+  await sql`
+    INSERT INTO api_key_audit_log (
+      user_id, key_id, action, success,
+      ip_address_hash, user_agent, metadata
+    ) VALUES (
+      ${userId}, ${keyId}, ${action}, ${metadata?.success ?? true},
+      ${metadata?.ip ? this.hashIpAddress(metadata.ip) : null},
+      ${metadata?.userAgent || null},
+      ${metadata ? JSON.stringify(metadata) : null}
+    )
+  `;
+}
+
+static hashIpAddress(ip: string): string {
+  const salt = process.env.IP_HASH_SALT || 'default-salt-change-in-production';
+  return crypto.createHmac('sha256', salt).update(ip).digest('hex');
+}
+</example>
+
+<example type="invalid">
+// ❌ Bad: Storing raw API keys in database
+await sql`
+  INSERT INTO user_api_keys (user_id, api_key, environment)
+  VALUES (${userId}, ${apiKey}, ${environment})
+`;
+// NEVER store raw keys - security vulnerability!
+</example>
+
+<example type="invalid">
+// ❌ Bad: Weak key generation
+const apiKey = `vibe_${Date.now()}_${Math.random()}`;
+// Predictable, not cryptographically secure
+</example>
+
+<example type="invalid">
+// ❌ Bad: No environment isolation
+const isValid = await bcrypt.compare(providedKey, storedHash);
+// Missing environment validation - allows cross-environment usage
+</example>
+
+## Architecture Patterns
+
+### Separation of Concerns
+- **ApiKeyManager**: Core business logic and database operations
+- **Authentication Middleware**: Request/response handling and validation
+- **API Endpoints**: HTTP interface and input validation
+- **Audit System**: Compliance logging and monitoring
+
+### Environment Management
+- **Live**: Production keys with strict rate limits
+- **Test**: Development keys with relaxed limits for testing
+- **Dev**: Local development with minimal restrictions
+
+### Rate Limiting Strategy
+- **Per-minute limits**: Prevent burst attacks
+- **Per-hour limits**: Manage sustained usage
+- **Burst allowance**: Handle legitimate traffic spikes
+- **Environment-specific**: Different limits per environment
+
+### Error Classification
+- **Authentication Errors**: 401 with specific auth failure reasons
+- **Validation Errors**: 400 with field-specific error messages
+- **Business Logic Errors**: 400 with actionable guidance
+- **System Errors**: 500 with safe error messages (no sensitive data)
+
+## Security Checklist
+
+### Key Generation
+- [ ] Use cryptographically secure random generation
+- [ ] Implement proper key format with environment prefixes
+- [ ] Hash keys with bcrypt (minimum 12 rounds)
+- [ ] Never log or expose raw keys after generation
+
+### Storage Security
+- [ ] Store only bcrypt hashes, never raw keys
+- [ ] Implement database constraints for business rules
+- [ ] Use UUIDs for non-guessable key IDs
+- [ ] Encrypt sensitive metadata in audit logs
+
+### Validation Security
+- [ ] Validate environment prefixes before hash comparison
+- [ ] Implement constant-time comparison (bcrypt handles this)
+- [ ] Check key expiration and active status
+- [ ] Rate limit validation attempts
+
+### Audit Compliance
+- [ ] Log all key operations (generation, usage, revocation)
+- [ ] Hash IP addresses for GDPR compliance
+- [ ] Include sufficient metadata for security analysis
+- [ ] Implement log retention policies
+
+## Performance Considerations
+
+### Database Optimization
+- Index frequently queried fields (user_id, environment, is_active)
+- Use connection pooling for high-traffic scenarios
+- Implement query result caching where appropriate
+- Monitor slow queries and optimize as needed
+
+### Caching Strategy
+- Cache valid key validation results (with short TTL)
+- Cache rate limit counters in memory or Redis
+- Invalidate caches on key revocation or updates
+
+### Scalability Patterns
+- Design for horizontal scaling with stateless validation
+- Use distributed rate limiting for multi-instance deployments
+- Implement async audit logging for high-throughput scenarios
+
+## Migration and Deployment
+
+### Schema Migration
+- Create tables with proper constraints and indexes
+- Implement data migration scripts for existing systems
+- Test migrations in staging environment first
+- Plan rollback procedures for failed deployments
+
+### Feature Rollout
+- Implement feature flags for gradual rollout
+- Monitor error rates and performance metrics
+- Have rollback plans for authentication failures
+- Test dual authentication scenarios thoroughly
+
+### Monitoring and Alerting
+- Monitor key generation and validation rates
+- Alert on authentication failure spikes
+- Track key expiration and rotation needs
+- Monitor rate limit threshold breaches
+## See Also
+
+### Related Rules
+
+- **@002-rule-application.mdc** - Source of Truth Hierarchy (CRITICAL: Check schema first!)
+- **@012-api-security.mdc** - API security patterns and best practices
+- **@011-env-var-security.mdc** - Environment variable security for API keys
+- **@224-secrets-management.mdc** - Secrets management lifecycle
+- **@372-api-key-testing-standards.mdc** - Comprehensive API key testing patterns
+- **@374-authentication-architecture-standards.mdc** - Dual authentication architecture
+- **@375-api-test-first-time-right.mdc** - Building bulletproof API tests
+- **@376-database-test-isolation.mdc** - Database testing patterns
+- **@060-api-standards.mdc** - RESTful API design standards
+- **@105-typescript-linter-standards.mdc** - TypeScript best practices
+- **@130-error-handling.mdc** - API error handling patterns
+- **@130-logging-standards.mdc** - Secure logging (don't log API keys!)
+
+### Tools & Documentation
+
+- **`.cursor/tools/inspect-model.sh`** - Inspect API key database schema
+  ```bash
+  ./.cursor/tools/inspect-model.sh ApiKey
+  # Shows exact field names, types, relationships
+  ```
+
+- **`.cursor/tools/scan-secrets.sh`** - Detect hardcoded API keys
+  ```bash
+  ./.cursor/tools/scan-secrets.sh
+  # Scans for exposed secrets in code and git history
+  ```
+
+- **`.cursor/tools/check-env-vars.sh`** - Validate environment configuration
+  ```bash
+  ./.cursor/tools/check-env-vars.sh
+  # Ensures API key config vars are properly set
+  ```
+
+- **`.cursor/tools/validate-api-keys.sh`** - Validate API key implementation
+  ```bash
+  ./.cursor/tools/validate-api-keys.sh
+  # Checks format, hashing, rotation, and security
+  ```
+
+- **`.cursor/docs/security-workflows.md`** - API key security workflows
+- **`.cursor/docs/ai-workflows.md`** - AI-assisted implementation patterns
+
+### Comprehensive Guides
+
+- **`guides/API-Key-Management-Complete-Guide.md`** ⭐ **Essential** - Complete API key system implementation
+- **`guides/api-key-management/Complete-API-Key-System-Documentation.md`** - Design & implementation reference
+- **`guides/Secrets-Management-Complete-Guide.md`** - Secrets lifecycle management
+- **`guides/API-Design-Guide.md`** - RESTful API design principles
+- **`guides/Multi-Tenant-Architecture-Complete-Guide.md`** - Multi-tenant isolation patterns
+
+### Quick Start - API Key System Implementation
+
+```bash
+# 1. Inspect database schema FIRST
+./.cursor/tools/inspect-model.sh ApiKey
+# Shows: id, key_hash, environment, user_id, etc.
+
+# 2. Generate secure API keys (see code example below)
+# Use crypto.randomBytes(32) for cryptographic security
+
+# 3. Test implementation
+npm test -- api-key
+# Follows @372-api-key-testing-standards.mdc
+
+# 4. Validate security
+./.cursor/tools/scan-secrets.sh
+./.cursor/tools/validate-api-keys.sh
+
+# 5. Deploy with rotation plan
+# Document rotation schedule (30-90 days)
+```
+
+**Quick Implementation Pattern:**
+```typescript
+// 1. Generate key
+const key = crypto.randomBytes(32).toString('hex');
+const apiKey = `your_prefix_${environment}_${key}`;
+
+// 2. Hash for storage (NEVER store raw key!)
+const keyHash = await bcrypt.hash(apiKey, 12);
+
+// 3. Store only hash
+await db.insert({ key_hash: keyHash, user_id, environment });
+
+// 4. Return key only once
+return { apiKey, keyId }; // Never show again!
+```

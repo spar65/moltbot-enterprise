@@ -1,0 +1,633 @@
+---
+description: Optimize runtime performance when building interactive features to ensure responsive user experience
+globs: "app/**/*.{ts,tsx,js,jsx}"
+---
+
+# Runtime Optimization
+
+## Context
+Runtime performance determines how responsive and smooth the application feels during user interaction. Poor runtime performance causes janky animations, slow interactions, and high CPU/memory usage. This rule establishes patterns for React optimization, memory management, and computational efficiency.
+
+**Runtime Performance Areas:**
+- React rendering optimization
+- Memory management
+- Long task optimization
+- Event handler optimization
+- Virtual scrolling for large lists
+
+## Requirements
+
+### React Rendering Optimization
+
+**React.memo - Prevent Unnecessary Re-renders:**
+```typescript
+// components/ExpensiveComponent.tsx
+import { memo } from 'react';
+
+interface Props {
+  data: ComplexData;
+  onAction: () => void;
+}
+
+// ✅ Prevents re-render if props haven't changed
+export const ExpensiveComponent = memo(function ExpensiveComponent({ data, onAction }: Props) {
+  console.log('ExpensiveComponent rendered');
+  
+  return (
+    <div>
+      <ComplexVisualization data={data} />
+      <button onClick={onAction}>Action</button>
+    </div>
+  );
+});
+```
+
+**useMemo - Memoize Expensive Computations:**
+```typescript
+'use client';
+
+import { useMemo } from 'react';
+
+export function DataTable({ data }: { data: Item[] }) {
+  // ✅ Only recompute when data changes
+  const sortedData = useMemo(() => {
+    console.log('Sorting data...');
+    return data.sort((a, b) => a.name.localeCompare(b.name));
+  }, [data]);
+  
+  const expensiveStats = useMemo(() => {
+    return calculateComplexStatistics(sortedData);
+  }, [sortedData]);
+  
+  return (
+    <>
+      <Stats data={expensiveStats} />
+      <Table data={sortedData} />
+    </>
+  );
+}
+```
+
+**useCallback - Stable Function References:**
+```typescript
+'use client';
+
+import { useCallback, useState } from 'react';
+
+export function TodoList() {
+  const [todos, setTodos] = useState<Todo[]>([]);
+  
+  // ✅ Stable reference - won't trigger child re-renders
+  const handleToggle = useCallback((id: string) => {
+    setTodos(prev => prev.map(todo =>
+      todo.id === id ? { ...todo, completed: !todo.completed } : todo
+    ));
+  }, []);
+  
+  return (
+    <ul>
+      {todos.map(todo => (
+        // MemoizedTodoItem won't re-render if handleToggle reference is stable
+        <MemoizedTodoItem
+          key={todo.id}
+          todo={todo}
+          onToggle={handleToggle}
+        />
+      ))}
+    </ul>
+  );
+}
+
+const MemoizedTodoItem = memo(TodoItem);
+```
+
+<example>
+// ✅ GOOD: Complete React optimization pattern
+'use client';
+
+import { memo, useMemo, useCallback } from 'react';
+
+interface DataGridProps {
+  items: Item[];
+  onItemClick: (id: string) => void;
+}
+
+export const DataGrid = memo(function DataGrid({ items, onItemClick }: DataGridProps) {
+  // Memoize expensive computation
+  const processedItems = useMemo(() => {
+    return items.map(item => ({
+      ...item,
+      displayName: formatDisplayName(item),
+    }));
+  }, [items]);
+  
+  // Stable callback
+  const handleClick = useCallback((id: string) => {
+    console.log('Clicked:', id);
+    onItemClick(id);
+  }, [onItemClick]);
+  
+  return (
+    <div className="grid">
+      {processedItems.map(item => (
+        <GridItem
+          key={item.id}
+          item={item}
+          onClick={handleClick}
+        />
+      ))}
+    </div>
+  );
+});
+
+const GridItem = memo(function GridItem({ item, onClick }: GridItemProps) {
+  return (
+    <div onClick={() => onClick(item.id)}>
+      {item.displayName}
+    </div>
+  );
+});
+</example>
+
+<example type="invalid">
+// ❌ BAD: Re-renders on every parent render
+export function DataGrid({ items, onItemClick }: DataGridProps) {
+  // Creates new array every render - expensive!
+  const processedItems = items.map(item => ({
+    ...item,
+    displayName: formatDisplayName(item),
+  }));
+  
+  // Creates new function every render - breaks memo!
+  const handleClick = (id: string) => {
+    onItemClick(id);
+  };
+  
+  return (
+    <div className="grid">
+      {processedItems.map(item => (
+        <GridItem item={item} onClick={handleClick} />
+      ))}
+    </div>
+  );
+}
+</example>
+
+### Virtual Scrolling for Large Lists
+
+**React Window for Large Lists:**
+```typescript
+'use client';
+
+import { FixedSizeList } from 'react-window';
+
+interface VirtualListProps {
+  items: Item[];
+}
+
+export function VirtualList({ items }: VirtualListProps) {
+  const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => (
+    <div style={style}>
+      <ItemCard item={items[index]} />
+    </div>
+  );
+  
+  return (
+    <FixedSizeList
+      height={600}
+      itemCount={items.length}
+      itemSize={80}
+      width="100%"
+    >
+      {Row}
+    </FixedSizeList>
+  );
+}
+```
+
+**When to Use Virtual Scrolling:**
+- Lists with 100+ items
+- Each item is expensive to render
+- Performance issues with regular scrolling
+
+<example>
+// ✅ GOOD: Virtual scrolling for large dataset
+import { FixedSizeList } from 'react-window';
+
+export function AssessmentList({ assessments }: { assessments: Assessment[] }) {
+  if (assessments.length < 50) {
+    // Regular rendering for small lists
+    return (
+      <div>
+        {assessments.map(a => <AssessmentCard key={a.id} assessment={a} />)}
+      </div>
+    );
+  }
+  
+  // Virtual scrolling for large lists
+  return (
+    <FixedSizeList
+      height={800}
+      itemCount={assessments.length}
+      itemSize={120}
+      width="100%"
+    >
+      {({ index, style }) => (
+        <div style={style}>
+          <AssessmentCard assessment={assessments[index]} />
+        </div>
+      )}
+    </FixedSizeList>
+  );
+}
+</example>
+
+### Web Workers for CPU-Intensive Tasks
+
+**Offload Heavy Computation:**
+```typescript
+// workers/calculation.worker.ts
+self.addEventListener('message', (event) => {
+  const { data } = event;
+  
+  // Heavy computation
+  const result = performComplexCalculation(data);
+  
+  self.postMessage(result);
+});
+
+// Usage in component
+'use client';
+
+import { useEffect, useState } from 'react';
+
+export function HeavyCalculation({ data }: { data: number[] }) {
+  const [result, setResult] = useState<number | null>(null);
+  
+  useEffect(() => {
+    const worker = new Worker(
+      new URL('../workers/calculation.worker.ts', import.meta.url)
+    );
+    
+    worker.postMessage(data);
+    
+    worker.addEventListener('message', (event) => {
+      setResult(event.data);
+      worker.terminate();
+    });
+    
+    return () => worker.terminate();
+  }, [data]);
+  
+  if (result === null) {
+    return <LoadingSpinner />;
+  }
+  
+  return <Result value={result} />;
+}
+```
+
+### Event Handler Optimization
+
+**Debouncing Input Events:**
+```typescript
+'use client';
+
+import { useState, useCallback } from 'react';
+import { debounce } from 'lodash';
+
+export function SearchInput() {
+  const [query, setQuery] = useState('');
+  
+  // Debounce expensive search operation
+  const debouncedSearch = useCallback(
+    debounce((searchTerm: string) => {
+      performSearch(searchTerm);
+    }, 300),
+    []
+  );
+  
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setQuery(value); // Update input immediately
+    debouncedSearch(value); // Search after 300ms delay
+  };
+  
+  return (
+    <input
+      type="text"
+      value={query}
+      onChange={handleChange}
+      placeholder="Search..."
+    />
+  );
+}
+```
+
+**Throttling Scroll Events:**
+```typescript
+'use client';
+
+import { useEffect } from 'react';
+import { throttle } from 'lodash';
+
+export function InfiniteScroll() {
+  useEffect(() => {
+    const handleScroll = throttle(() => {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
+        loadMore();
+      }
+    }, 200); // Max once per 200ms
+    
+    window.addEventListener('scroll', handleScroll);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      handleScroll.cancel();
+    };
+  }, []);
+  
+  return <div>...</div>;
+}
+```
+
+**Passive Event Listeners:**
+```typescript
+useEffect(() => {
+  const handleWheel = (e: WheelEvent) => {
+    // Handle wheel event
+  };
+  
+  // Passive listener - won't block scrolling
+  window.addEventListener('wheel', handleWheel, { passive: true });
+  
+  return () => window.removeEventListener('wheel', handleWheel);
+}, []);
+```
+
+### React Transitions for Non-Urgent Updates
+
+**useTransition for Better UX:**
+```typescript
+'use client';
+
+import { useState, useTransition } from 'react';
+
+export function FilteredList({ items }: { items: Item[] }) {
+  const [filter, setFilter] = useState('');
+  const [isPending, startTransition] = useTransition();
+  
+  const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    
+    // Urgent: Update input immediately
+    setFilter(value);
+    
+    // Non-urgent: Filter results
+    startTransition(() => {
+      setFilteredResults(filterItems(items, value));
+    });
+  };
+  
+  return (
+    <>
+      <input
+        type="text"
+        value={filter}
+        onChange={handleFilterChange}
+      />
+      {isPending && <LoadingIndicator />}
+      <Results items={filteredResults} />
+    </>
+  );
+}
+```
+
+### Memory Management
+
+**Cleanup Effects:**
+```typescript
+'use client';
+
+import { useEffect } from 'react';
+
+export function RealTimeData() {
+  useEffect(() => {
+    const ws = new WebSocket('wss://api.example.com');
+    const interval = setInterval(() => fetchData(), 5000);
+    
+    // ✅ Cleanup on unmount
+    return () => {
+      ws.close();
+      clearInterval(interval);
+    };
+  }, []);
+  
+  return <div>...</div>;
+}
+```
+
+**Avoid Memory Leaks:**
+```typescript
+// ❌ BAD: Memory leak
+useEffect(() => {
+  const interval = setInterval(() => {
+    // This closure captures state, preventing GC
+    setState(prev => prev + 1);
+  }, 1000);
+  // Missing cleanup!
+}, []);
+
+// ✅ GOOD: Proper cleanup
+useEffect(() => {
+  const interval = setInterval(() => {
+    setState(prev => prev + 1);
+  }, 1000);
+  
+  return () => clearInterval(interval);
+}, []);
+```
+
+### Long Task Optimization
+
+**Break Up Long Tasks:**
+```typescript
+// Break computation into chunks
+async function processLargeDataset(items: Item[]) {
+  const chunkSize = 100;
+  const results: ProcessedItem[] = [];
+  
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    const processed = processChunk(chunk);
+    results.push(...processed);
+    
+    // Yield to main thread
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  
+  return results;
+}
+```
+
+**requestIdleCallback for Background Work:**
+```typescript
+function performBackgroundWork() {
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback((deadline) => {
+      while (deadline.timeRemaining() > 0 && workQueue.length > 0) {
+        const work = workQueue.shift();
+        processWork(work);
+      }
+    });
+  } else {
+    // Fallback
+    setTimeout(() => {
+      const work = workQueue.shift();
+      if (work) processWork(work);
+    }, 1);
+  }
+}
+```
+
+### Performance Profiling
+
+**React DevTools Profiler:**
+```typescript
+// Wrap components to profile
+import { Profiler } from 'react';
+
+function onRenderCallback(
+  id: string,
+  phase: 'mount' | 'update',
+  actualDuration: number,
+) {
+  console.log(`${id} (${phase}) took ${actualDuration}ms`);
+}
+
+export function App() {
+  return (
+    <Profiler id="Dashboard" onRender={onRenderCallback}>
+      <Dashboard />
+    </Profiler>
+  );
+}
+```
+
+## Common Patterns
+
+### Pattern 1: Optimized Data Grid
+```typescript
+const DataGrid = memo(function DataGrid({ data }: { data: Item[] }) {
+  const sortedData = useMemo(() => sortData(data), [data]);
+  
+  return (
+    <FixedSizeList
+      height={600}
+      itemCount={sortedData.length}
+      itemSize={50}
+      width="100%"
+    >
+      {({ index, style }) => (
+        <Row style={style} item={sortedData[index]} />
+      )}
+    </FixedSizeList>
+  );
+});
+```
+
+### Pattern 2: Optimistic Updates
+```typescript
+const handleUpdate = useCallback(async (id: string, data: UpdateData) => {
+  // Optimistically update UI
+  setItems(prev => prev.map(item =>
+    item.id === id ? { ...item, ...data } : item
+  ));
+  
+  try {
+    await updateItem(id, data);
+  } catch (error) {
+    // Rollback on error
+    setItems(prevItems);
+  }
+}, []);
+```
+
+### Pattern 3: Intersection Observer for Lazy Loading
+```typescript
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+
+export function LazyImage({ src, alt }: { src: string; alt: string }) {
+  const [isVisible, setIsVisible] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '50px' }
+    );
+    
+    if (ref.current) {
+      observer.observe(ref.current);
+    }
+    
+    return () => observer.disconnect();
+  }, []);
+  
+  return (
+    <div ref={ref}>
+      {isVisible ? (
+        <img src={src} alt={alt} />
+      ) : (
+        <div className="placeholder" />
+      )}
+    </div>
+  );
+}
+```
+
+## Tools & Documentation
+
+### Required Tools (USE THESE!)
+- **React DevTools Profiler** - Identify slow components
+- **Chrome DevTools Performance** - Profile runtime performance
+- **`.cursor/tools/run-lighthouse.sh`** - Overall performance audit
+
+### Complete Workflow Documentation
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master performance guide
+- **`guides/Core-Web-Vitals-Optimization-Guide.md`** - INP optimization
+- **`.cursor/docs/ai-workflows.md#runtime-optimization`** - Proven patterns
+
+### Quick Start
+1. **Profile:** Use React DevTools to find slow components
+2. **Optimize:** Add memo, useMemo, useCallback
+3. **Virtualize:** Use react-window for large lists
+4. **Test:** Measure INP improvements
+
+## See Also
+
+### Documentation
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master guide
+- **`guides/Core-Web-Vitals-Optimization-Guide.md`** - INP optimization
+
+### Related Rules
+- @062-core-web-vitals.mdc - Core Web Vitals (INP)
+- @062-rendering-strategies.mdc - Server vs client rendering
+- @042-ui-component-architecture.mdc - Component patterns
+
+## Priority
+**P1 (Important)** - Runtime optimization directly impacts user experience and INP (Core Web Vital).
+
+## References
+- [React Performance Optimization](https://react.dev/learn/render-and-commit)
+- [React.memo](https://react.dev/reference/react/memo)
+- [useMemo](https://react.dev/reference/react/useMemo)
+- [useCallback](https://react.dev/reference/react/useCallback)
+- [react-window](https://github.com/bvaughn/react-window)
+- [Web Workers](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API)

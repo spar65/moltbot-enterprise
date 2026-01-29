@@ -1,0 +1,663 @@
+---
+description:
+globs: ""
+alwaysApply: false
+---
+
+---
+
+description: Use when implementing error handling, diagnostic tools, and troubleshooting flows for both developers and users
+globs: "\*_/_.{tsx,ts,jsx,js}"
+
+---
+
+# Troubleshooting Standards
+
+## Context
+
+- AgentMinder requires consistent, developer-friendly troubleshooting tools
+- Users need clear error messages and recovery paths
+- Support teams need diagnostic information to resolve issues
+- Common problems should have documented solutions
+- Troubleshooting should be efficient and systematic
+
+## Requirements
+
+### User-Facing Error Handling
+
+- Provide clear, actionable error messages for users
+- Include error codes for reference when communicating with support
+- Implement graceful fallbacks for recoverable errors
+- Add contextual help for common error scenarios
+- Avoid technical jargon in user-facing messages
+
+```typescript
+// Good: User-friendly error handling with supportability
+function PaymentForm() {
+  const [error, setError] = useState<ErrorWithCode | null>(null);
+
+  const handleSubmit = async (data) => {
+    try {
+      await processPayment(data);
+    } catch (err) {
+      // Convert to standard error format with code
+      const standardError = normalizeError(err);
+      setError(standardError);
+
+      // Log the full error for diagnostics
+      logger.error("Payment processing failed", err, {
+        errorCode: standardError.code,
+        paymentMethod: data.method,
+        // Don't log sensitive payment details
+      });
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* Form fields */}
+
+      {error && (
+        <ErrorPanel
+          title={mapErrorToUserMessage(error.code)}
+          description={error.userMessage}
+          errorCode={error.code}
+          helpLink={getHelpLink(error.code)}
+          recoveryOptions={getRecoveryOptions(error.code)}
+        />
+      )}
+    </form>
+  );
+}
+
+// Error mapping function
+function mapErrorToUserMessage(code: string): string {
+  switch (code) {
+    case "PAYMENT_DECLINED":
+      return "Your payment was declined";
+    case "INSUFFICIENT_FUNDS":
+      return "Insufficient funds in your account";
+    case "INVALID_CARD":
+      return "The card information appears to be invalid";
+    case "NETWORK_ERROR":
+      return "Connection issue while processing payment";
+    default:
+      return "Unable to process payment";
+  }
+}
+
+// Recovery options based on error
+function getRecoveryOptions(code: string): RecoveryOption[] {
+  switch (code) {
+    case "PAYMENT_DECLINED":
+      return [
+        { text: "Try another card", action: "SWITCH_PAYMENT_METHOD" },
+        { text: "Contact your bank", action: "EXTERNAL_ACTION" },
+      ];
+    case "NETWORK_ERROR":
+      return [
+        { text: "Try again", action: "RETRY" },
+        { text: "Save for later", action: "SAVE_DRAFT" },
+      ];
+    default:
+      return [{ text: "Contact support", action: "SUPPORT" }];
+  }
+}
+```
+
+### Error Codes System
+
+- Implement consistent error codes across the application
+- Use prefixes to indicate subsystem (e.g., AUTH*, PAY*, API\_)
+- Include error codes in logs, user interfaces, and APIs
+- Document all error codes with causes and solutions
+- Make error codes searchable in documentation
+
+```typescript
+// Error codes definition
+export const ErrorCodes = {
+  // Authentication errors
+  AUTH_INVALID_CREDENTIALS: "AUTH_001",
+  AUTH_ACCOUNT_LOCKED: "AUTH_002",
+  AUTH_SESSION_EXPIRED: "AUTH_003",
+  AUTH_INSUFFICIENT_PERMISSIONS: "AUTH_004",
+
+  // Payment errors
+  PAY_DECLINED: "PAY_001",
+  PAY_INSUFFICIENT_FUNDS: "PAY_002",
+  PAY_INVALID_DETAILS: "PAY_003",
+  PAY_PROVIDER_ERROR: "PAY_004",
+
+  // API errors
+  API_RATE_LIMITED: "API_001",
+  API_VALIDATION_FAILED: "API_002",
+  API_NOT_FOUND: "API_003",
+  API_SERVER_ERROR: "API_004",
+
+  // Data errors
+  DATA_NOT_FOUND: "DATA_001",
+  DATA_VALIDATION_FAILED: "DATA_002",
+  DATA_CONFLICT: "DATA_003",
+
+  // System errors
+  SYS_NETWORK_ERROR: "SYS_001",
+  SYS_TIMEOUT: "SYS_002",
+  SYS_UNEXPECTED: "SYS_999",
+};
+
+// Extended error class with code support
+export class AppError extends Error {
+  code: string;
+  userMessage: string;
+  technical: unknown;
+
+  constructor(code: string, userMessage: string, technical?: unknown) {
+    super(userMessage);
+    this.name = "AppError";
+    this.code = code;
+    this.userMessage = userMessage;
+    this.technical = technical;
+  }
+}
+
+// Error normalization
+export function normalizeError(error: unknown): AppError {
+  if (error instanceof AppError) {
+    return error;
+  }
+
+  // Handle API errors
+  if (isApiError(error)) {
+    return new AppError(
+      error.code || ErrorCodes.API_SERVER_ERROR,
+      error.message || "An API error occurred",
+      error
+    );
+  }
+
+  // Handle network errors
+  if (error instanceof TypeError && error.message.includes("fetch")) {
+    return new AppError(
+      ErrorCodes.SYS_NETWORK_ERROR,
+      "A network error occurred. Please check your connection.",
+      error
+    );
+  }
+
+  // Generic fallback
+  return new AppError(
+    ErrorCodes.SYS_UNEXPECTED,
+    "An unexpected error occurred",
+    error
+  );
+}
+```
+
+### Developer Tools & Debugging
+
+- Implement developer-specific logging in non-production environments
+- Create debug panels that can be toggled with URL parameters or keyboard shortcuts
+- Add performance measurement for critical operations
+- Include component state inspection tools
+- Provide easy access to relevant diagnostic data
+
+```typescript
+// Good: Debug panel for development
+function DebugPanel() {
+  // Only render in development or when debug parameter is present
+  if (process.env.NODE_ENV === "production" && !isDebugMode()) {
+    return null;
+  }
+
+  const { state, dispatch } = useAppState();
+  const debugInfo = useDebugInfo();
+
+  return (
+    <div className="fixed bottom-0 right-0 bg-black/80 text-white p-4 max-w-md max-h-[50vh] overflow-auto text-xs">
+      <div className="flex justify-between mb-2">
+        <h3 className="text-sm font-bold">Debug Panel</h3>
+        <button onClick={() => toggleDebugPanel()}>Close</button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <h4 className="font-bold">App State</h4>
+          <pre>{JSON.stringify(state, null, 2)}</pre>
+        </div>
+
+        <div>
+          <h4 className="font-bold">Performance</h4>
+          <ul>
+            {debugInfo.performance.map((metric) => (
+              <li key={metric.name}>
+                {metric.name}: {metric.value}ms
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-2">
+        <h4 className="font-bold">Actions</h4>
+        <div className="flex gap-2 mt-1">
+          <button
+            className="bg-red-500 px-2 py-1 rounded text-xs"
+            onClick={() => dispatch({ type: "RESET_STATE" })}
+          >
+            Reset State
+          </button>
+          <button
+            className="bg-blue-500 px-2 py-1 rounded text-xs"
+            onClick={() => debugInfo.refreshMetrics()}
+          >
+            Refresh Metrics
+          </button>
+          <button
+            className="bg-green-500 px-2 py-1 rounded text-xs"
+            onClick={() => console.log(state)}
+          >
+            Log State
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Debug mode detection
+function isDebugMode(): boolean {
+  if (typeof window === "undefined") return false;
+
+  // Check URL parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.has("debug")) return true;
+
+  // Check localStorage flag
+  try {
+    return localStorage.getItem("debug_mode") === "true";
+  } catch {
+    return false;
+  }
+}
+
+// Toggle debug panel visibility
+function toggleDebugPanel(): void {
+  try {
+    const current = localStorage.getItem("debug_mode") === "true";
+    localStorage.setItem("debug_mode", (!current).toString());
+    window.location.reload();
+  } catch {
+    console.error("Could not toggle debug mode");
+  }
+}
+
+// Hook for collecting debug information
+function useDebugInfo() {
+  const [metrics, setMetrics] = useState([]);
+
+  const refreshMetrics = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    // Collect performance metrics
+    const navigationTiming = performance.getEntriesByType("navigation")[0];
+    const paintMetrics = performance.getEntriesByType("paint");
+
+    const newMetrics = [
+      { name: "Page Load", value: navigationTiming.duration.toFixed(2) },
+      {
+        name: "DOM Content Loaded",
+        value: navigationTiming.domContentLoadedEventEnd.toFixed(2),
+      },
+      {
+        name: "First Paint",
+        value:
+          paintMetrics
+            .find((m) => m.name === "first-paint")
+            ?.startTime.toFixed(2) || "N/A",
+      },
+      {
+        name: "First Contentful Paint",
+        value:
+          paintMetrics
+            .find((m) => m.name === "first-contentful-paint")
+            ?.startTime.toFixed(2) || "N/A",
+      },
+      // Add more metrics as needed
+    ];
+
+    setMetrics(newMetrics);
+  }, []);
+
+  useEffect(() => {
+    refreshMetrics();
+  }, [refreshMetrics]);
+
+  return {
+    performance: metrics,
+    refreshMetrics,
+  };
+}
+```
+
+### Progressive Troubleshooting
+
+- Implement a progressive troubleshooting system
+- Start with simple solutions before complex ones
+- Group related errors with similar solutions
+- Provide automated self-repair when possible
+- Guide users through common resolution workflows
+
+```typescript
+// Good: Progressive troubleshooting for connection issues
+function ConnectionTroubleshooter() {
+  const [step, setStep] = useState(1);
+  const [status, setStatus] = useState<
+    "idle" | "checking" | "success" | "failure"
+  >("idle");
+  const [results, setResults] = useState<Record<string, boolean>>({});
+
+  async function runConnectionCheck() {
+    setStatus("checking");
+
+    // Step 1: Basic connectivity check
+    try {
+      const result = await checkInternetConnectivity();
+      setResults((prev) => ({ ...prev, internet: result }));
+
+      if (!result) {
+        setStatus("failure");
+        return; // Stop here if basic connectivity fails
+      }
+
+      // Step 2: API connectivity
+      const apiResult = await checkApiConnectivity();
+      setResults((prev) => ({ ...prev, api: apiResult }));
+
+      if (!apiResult) {
+        setStatus("failure");
+        return; // Stop here if API connectivity fails
+      }
+
+      // Step 3: Authentication
+      const authResult = await checkAuthentication();
+      setResults((prev) => ({ ...prev, auth: authResult }));
+
+      if (!authResult) {
+        setStatus("failure");
+        return; // Stop here if authentication fails
+      }
+
+      setStatus("success");
+    } catch (error) {
+      setStatus("failure");
+      logger.error("Troubleshooter error", error);
+    }
+  }
+
+  // Get recommended actions based on check results
+  function getRecommendedActions() {
+    if (!results.internet) {
+      return [
+        {
+          label: "Check your internet connection",
+          action: () => window.open("https://fast.com"),
+        },
+        { label: "Restart your router", action: null },
+      ];
+    }
+
+    if (!results.api) {
+      return [
+        { label: "Check service status", action: () => window.open("/status") },
+        { label: "Try again later", action: null },
+      ];
+    }
+
+    if (!results.auth) {
+      return [
+        { label: "Re-login", action: () => logout() },
+        { label: "Contact support", action: () => openSupportChat() },
+      ];
+    }
+
+    return [];
+  }
+
+  return (
+    <div className="troubleshooter p-4 border rounded-lg">
+      <h2 className="text-lg font-semibold mb-4">Connection Troubleshooter</h2>
+
+      <div className="steps mb-4">
+        <div className={`step ${status !== "idle" ? "active" : ""}`}>
+          <div className="step-indicator">
+            {status === "checking" && <SpinnerIcon />}
+            {status === "success" && <CheckIcon className="text-green-500" />}
+            {status === "failure" && <XIcon className="text-red-500" />}
+          </div>
+          <div className="step-content">
+            <h3 className="font-medium">Checking connection...</h3>
+            <div className="text-sm text-gray-500">
+              {results.internet === false &&
+                "Internet connection issue detected"}
+              {results.api === false && "Cannot reach our servers"}
+              {results.auth === false && "Authentication issue detected"}
+              {status === "success" && "All systems operational"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {status === "idle" && (
+        <button
+          className="px-4 py-2 bg-blue-500 text-white rounded"
+          onClick={runConnectionCheck}
+        >
+          Start Diagnosis
+        </button>
+      )}
+
+      {status === "failure" && (
+        <div className="recommendations mt-4">
+          <h3 className="font-medium mb-2">Recommended actions:</h3>
+          <ul className="space-y-2">
+            {getRecommendedActions().map((action, i) => (
+              <li key={i} className="flex items-center">
+                <span>{action.label}</span>
+                {action.action && (
+                  <button
+                    className="ml-2 text-blue-500 text-sm"
+                    onClick={action.action}
+                  >
+                    Try now
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {status === "success" && (
+        <div className="success-message text-green-600">
+          <p>Your connection is working properly.</p>
+          <button
+            className="mt-2 text-blue-500 text-sm"
+            onClick={() => window.location.reload()}
+          >
+            Reload Application
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+## Testing Requirements
+
+Troubleshooting components and error handling should be tested extensively:
+
+```typescript
+// Testing error handling
+describe("Error Handling", () => {
+  it("should display user-friendly messages for known error codes", () => {
+    const { getByText } = render(<ErrorDisplay code="PAY_DECLINED" />);
+    expect(getByText("Your payment was declined")).toBeInTheDocument();
+  });
+
+  it("should provide recovery options based on error type", () => {
+    const { getByText } = render(<ErrorDisplay code="NETWORK_ERROR" />);
+    expect(getByText("Try again")).toBeInTheDocument();
+  });
+
+  it("should normalize errors to standard format", () => {
+    const networkError = new TypeError("Failed to fetch");
+    const normalized = normalizeError(networkError);
+
+    expect(normalized).toBeInstanceOf(AppError);
+    expect(normalized.code).toBe("SYS_NETWORK_ERROR");
+  });
+});
+```
+
+## Documentation Standards
+
+### API Error Documentation
+
+- Document all API error responses
+- Include HTTP status codes, error codes, and descriptions
+- Add example error responses in documentation
+- Provide troubleshooting guidance for each error
+- Link to related documentation
+
+````
+# API Error Documentation Example
+
+## Payment API Errors
+
+| HTTP Status | Error Code     | Description                                  | Troubleshooting                              |
+|-------------|----------------|----------------------------------------------|----------------------------------------------|
+| 400         | PAY_003        | Invalid payment details                       | Verify card number, expiry date, and CVV     |
+| 402         | PAY_001        | Payment declined by provider                  | Contact card issuer or try another method    |
+| 402         | PAY_002        | Insufficient funds                            | Check account balance or try another method  |
+| 500         | PAY_004        | Payment provider error                        | Wait and retry or contact support            |
+
+### Example Error Response
+
+```json
+{
+  "error": {
+    "code": "PAY_001",
+    "message": "Payment was declined by the card issuer",
+    "requestId": "req_5f7a142b9d",
+    "details": {
+      "declineCode": "insufficient_funds",
+      "suggestedAction": "use_different_card"
+    }
+  }
+}
+````
+
+## Security Considerations
+
+- Avoid exposing system internals in error messages
+- Implement proper authentication for accessing diagnostic tools
+- Use secure channels for transmitting diagnostic data
+- Always sanitize logs and diagnostic data for sensitive information
+- Apply rate limiting for error reporting to prevent abuse
+
+## Measuring Troubleshooting Effectiveness
+
+- Track error resolution rates
+- Measure time to resolution for different error types
+- Collect feedback on error message clarity
+- Monitor self-service troubleshooting success rates
+- Identify common unresolved errors for improvement
+
+## Common Pitfalls to Avoid
+
+1. **Generic error messages**: Provide specific, actionable information
+2. **Exposing sensitive info**: Always sanitize error details
+3. **Technical jargon**: Use plain language for user-facing errors
+4. **Missing error codes**: Include unique identifiers for support reference
+5. **Incomplete logging**: Ensure errors have contextual information
+6. **No recovery options**: Provide users with next steps when possible
+
+## See Also
+
+### Related Rules
+
+**Error Handling & Debugging**:
+
+- @090-error-handling.mdc - Error classes and patterns
+- @130-error-handling.mdc - User-facing error handling
+- @135-error-monitoring-observability.mdc - Error monitoring with Sentry
+- @139-error-context-debugging.mdc - Error context capture for rapid debugging
+- @141-error-testing-strategies.mdc - Testing error scenarios
+
+**Logging & Monitoring**:
+
+- @130-logging-standards.mdc - Logging standards and structured logging
+- @221-application-monitoring.mdc - Application monitoring
+- @222-metrics-alerting.mdc - Metrics and alerting
+
+**Operations**:
+
+- @210-operations-incidents.mdc - Incident response procedures
+- @202-rollback-procedures.mdc - Emergency rollback procedures
+
+**Recovery & Resilience**:
+
+- @136-error-recovery-resilience.mdc - Circuit breakers, retry patterns
+
+### Tools & Documentation
+
+**Troubleshooting Tools**:
+
+- **`.cursor/tools/analyze-errors.sh`** - Analyze error patterns and trends
+  ```bash
+  ./.cursor/tools/analyze-errors.sh --error-code PAY_001 --last 7d
+  # Shows: Frequency, affected users, resolution patterns
+  ```
+- **`.cursor/tools/check-error-rates.sh`** - Check current error rates
+  ```bash
+  ./.cursor/tools/check-error-rates.sh
+  # Shows: Real-time error rates, anomalies, alerts
+  ```
+
+**Documentation**:
+
+- **`.cursor/docs/ai-workflows.md`** - AI-assisted troubleshooting patterns
+
+### Comprehensive Guides
+
+**Essential Guides**:
+
+- **`guides/Error-Handling-Complete-Guide.md`** ⭐ **ESSENTIAL** - Complete error handling and troubleshooting strategy
+- **`guides/Production-Monitoring-Complete-Guide.md`** - Production monitoring and alerting
+- **`guides/Incident-Response-Complete-Guide.md`** - Incident response procedures
+
+### Quick Start - Troubleshooting Workflow
+
+```bash
+# 1. Check error rates
+./.cursor/tools/check-error-rates.sh
+
+# 2. Analyze specific error
+./.cursor/tools/analyze-errors.sh --error-code ERROR_CODE
+
+# 3. Check Sentry for context
+# View error in Sentry dashboard for full context
+
+# 4. Review logs
+# Search logs for correlation ID and trace request flow
+
+# 5. Implement fix and verify
+# Deploy fix, monitor error rate reduction
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important)  
+**Last Updated**: November 20, 2025

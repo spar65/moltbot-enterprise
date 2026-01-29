@@ -1,0 +1,365 @@
+---
+description: Apply code review standards when reviewing or submitting code to ensure consistent quality and knowledge sharing
+globs: "**/*.{ts,tsx,js,jsx,py,go,java}"
+---
+
+# Code Review Standards
+
+## Context
+Code reviews are the primary quality gatekeeper and knowledge-sharing mechanism in software development. Effective code reviews catch bugs early, maintain code quality, spread knowledge, and build team culture. This rule establishes standards for both reviewers and authors.
+
+**Benefits:**
+- Catch bugs before production (60% of bugs caught in review)
+- Maintain consistent code quality
+- Share knowledge across team
+- Mentor junior developers
+- Prevent technical debt
+- Build better solutions through collaboration
+
+## Requirements
+
+### For Authors (Before Requesting Review)
+
+**1. Self-Review First:**
+```bash
+# Pre-review checklist
+✅ Code compiles/runs without errors
+✅ All tests pass locally
+✅ Linter passes with no warnings
+✅ Type checking passes (TypeScript)
+✅ No console.logs or debug code
+✅ No commented-out code (unless intentional with explanation)
+✅ Git history is clean (squash if needed)
+✅ PR description is complete
+```
+
+**2. PR Size Guidelines:**
+- **Ideal:** < 200 lines changed
+- **Maximum:** < 400 lines changed
+- **If larger:** Break into multiple PRs or explain why
+
+<example>
+// ✅ GOOD: Small, focused PR
+PR #123: Add user email validation
+- Files changed: 3
+- Lines changed: 85
+- Description: Adds Zod validation for email format in user registration
+
+Review time: ~15 minutes
+Easy to understand and review thoroughly
+</example>
+
+<example type="invalid">
+// ❌ BAD: Too large, multiple concerns
+PR #456: Add user feature and refactor database
+- Files changed: 47
+- Lines changed: 2,341
+- Description: "Various improvements"
+
+Review time: 2+ hours
+Hard to review thoroughly, likely to miss issues
+Should be split into multiple PRs
+</example>
+
+**3. PR Description Template:**
+```markdown
+## What
+Brief description of the change (1-2 sentences)
+
+## Why
+Business justification or problem being solved
+
+## How
+Technical approach (if not obvious from code)
+
+## Testing
+- [ ] Unit tests added/updated
+- [ ] Integration tests added/updated
+- [ ] Manual testing completed
+- [ ] Edge cases considered
+
+## Screenshots/Videos
+(If UI change)
+
+## Checklist
+- [ ] Self-reviewed the code
+- [ ] Tests pass locally
+- [ ] Documentation updated
+- [ ] No breaking changes (or documented if necessary)
+- [ ] Related issue/ticket: #XYZ
+```
+
+**4. Respond to Feedback Promptly:**
+- Respond within 24 hours
+- Mark resolved comments as resolved
+- Re-request review when ready
+- Thank reviewers for their time
+
+### For Reviewers
+
+**1. Review Turnaround Time:**
+- **Target:** Within 24 hours of request
+- **Maximum:** Within 48 hours
+- **Urgent:** Within 4 hours (if marked urgent)
+
+**2. Review Checklist:**
+
+**Code Quality:**
+- [ ] Code is readable and maintainable
+- [ ] Variable/function names are descriptive
+- [ ] No unnecessary complexity
+- [ ] Follows project coding standards
+- [ ] No code smells (long functions, deep nesting, etc.)
+
+**Functionality:**
+- [ ] Code does what PR description says
+- [ ] Edge cases are handled
+- [ ] Error handling is appropriate
+- [ ] No obvious bugs
+
+**Testing:**
+- [ ] Appropriate tests are included
+- [ ] Tests actually test the code
+- [ ] Tests are maintainable
+- [ ] Critical paths are covered
+
+**Security:**
+- [ ] No security vulnerabilities
+- [ ] Input validation present
+- [ ] Authentication/authorization correct
+- [ ] No sensitive data exposed
+- [ ] Secrets not hardcoded
+
+**Performance:**
+- [ ] No obvious performance issues
+- [ ] Database queries optimized
+- [ ] No N+1 queries
+- [ ] Appropriate caching if needed
+
+**Documentation:**
+- [ ] Complex logic is commented
+- [ ] Public APIs are documented
+- [ ] README updated if needed
+- [ ] Breaking changes documented
+
+**3. Feedback Guidelines:**
+
+**Be Kind and Constructive:**
+```markdown
+// ❌ BAD: Harsh, not constructive
+"This is terrible code. Rewrite it."
+
+// ✅ GOOD: Specific, constructive
+"This function is hard to follow because of deep nesting. 
+Consider extracting the validation logic into a separate function 
+for better readability. Would you like me to show an example?"
+```
+
+**Use Conventional Comments:**
+- **nit:** Minor issue, not blocking (style, naming)
+- **suggestion:** Optional improvement
+- **question:** Asking for clarification
+- **issue:** Problem that should be fixed
+- **blocking:** Must be fixed before merge
+
+<example>
+// ✅ GOOD: Clear, specific feedback with examples
+
+**nit:** Consider using a more descriptive name
+```typescript
+// Current
+const d = new Date();
+
+// Suggestion
+const createdAt = new Date();
+```
+
+**issue:** Missing error handling
+This fetch call should handle network errors. Consider wrapping in try/catch.
+
+**suggestion:** Performance optimization opportunity
+This could be memoized since the calculation is expensive and props don't change often.
+Consider using useMemo?
+</example>
+
+**4. Approval Criteria:**
+
+**Approve if:**
+- All blocking issues resolved
+- Tests pass in CI/CD
+- Code meets quality standards
+- Minor nits can be fixed in follow-up
+
+**Request Changes if:**
+- Security vulnerabilities present
+- Tests failing or insufficient
+- Significant bugs found
+- Breaking changes without discussion
+
+**Comment (no approval) if:**
+- Have questions but code looks okay
+- Want to see discussion before approving
+- Waiting for another reviewer
+
+### Review Process
+
+**1. Initial Review (15-30 min):**
+- Read PR description
+- Understand the context
+- Review changed files
+- Check tests
+- Run locally if needed
+
+**2. Provide Feedback:**
+- Start with positive feedback
+- Be specific and actionable
+- Provide examples or suggestions
+- Use appropriate severity (nit, issue, blocking)
+
+**3. Re-review (5-10 min):**
+- Verify changes address feedback
+- Don't introduce new requirements
+- Approve or continue discussion
+
+**4. Approval:**
+- Explicit approval comment
+- Use GitHub "Approve" feature
+- Mention if you tested locally
+
+### Special Cases
+
+**Hotfixes:**
+- Fast-track review (< 1 hour)
+- Focus on: Does it fix the issue? Any new bugs?
+- Security check
+- Can fix minor issues in follow-up
+
+**Refactoring PRs:**
+- Verify behavior doesn't change
+- Check test coverage
+- Approve if tests pass and code is clearer
+
+**Documentation PRs:**
+- Check accuracy
+- Check clarity
+- Verify examples work
+- Fast approval (< 30 min)
+
+**Dependency Updates:**
+- Check changelog for breaking changes
+- Verify tests pass
+- Check bundle size impact
+- Security vulnerabilities fixed?
+
+## Common Review Patterns
+
+### Pattern 1: The Teaching Moment
+```markdown
+**suggestion:** This works, but there's a more idiomatic way in TypeScript.
+
+Current:
+```typescript
+const names = users.map(function(u) { return u.name; });
+```
+
+Suggestion:
+```typescript
+const names = users.map(user => user.name);
+```
+
+The arrow function is more concise and `this` binding is clearer.
+```
+
+### Pattern 2: The Security Concern
+```markdown
+**blocking:** SQL injection vulnerability
+
+This code is vulnerable to SQL injection attacks:
+```typescript
+const query = `SELECT * FROM users WHERE id = ${userId}`;
+```
+
+Use parameterized queries instead:
+```typescript
+const query = 'SELECT * FROM users WHERE id = $1';
+const result = await db.query(query, [userId]);
+```
+```
+
+### Pattern 3: The Performance Issue
+```markdown
+**issue:** N+1 query problem
+
+This will cause N+1 queries (one for each user):
+```typescript
+for (const user of users) {
+  const posts = await prisma.post.findMany({ where: { userId: user.id } });
+}
+```
+
+Fetch all posts in one query:
+```typescript
+const posts = await prisma.post.findMany({
+  where: { userId: { in: users.map(u => u.id) } }
+});
+```
+```
+
+## Metrics to Track
+
+**Review Efficiency:**
+- Time to first review: < 24 hours (target)
+- Number of review rounds: 1-2 (ideal)
+- PR size: < 200 lines (ideal)
+
+**Code Quality:**
+- Bugs caught in review vs production
+- Test coverage trends
+- Technical debt accumulation
+
+**Team Health:**
+- Review participation (all team members reviewing)
+- Knowledge sharing (learning from reviews)
+- Cycle time (idea to production)
+
+## Tools
+
+**Required:**
+- GitHub/GitLab/Bitbucket PR features
+- CI/CD integration (tests, linting)
+- Code coverage reporting
+
+**Recommended:**
+- Danger JS (automate common checks)
+- CodeClimate (code quality metrics)
+- SonarQube (security scanning)
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Review workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview
+
+### Complete Guides
+- **`guides/Code-Review-Complete-Guide.md`** ⭐ - Comprehensive review guide
+- **`guides/Git-Workflow-Complete-Guide.md`** - Git workflow including PRs
+
+### Related Rules
+- @802-git-workflow-standards.mdc - Git branching and workflow
+- @803-pull-request-workflow.mdc - PR creation and management
+- @100-coding-patterns.mdc - Coding standards to review against
+- @105-typescript-linter-standards.mdc - TypeScript standards
+- @012-api-security.mdc - Security review checklist
+
+### Quick Start
+1. **As Author:** Use PR template, self-review, keep PRs small
+2. **As Reviewer:** Review within 24h, be constructive, use checklist
+3. **Both:** Focus on collaboration, not perfection
+
+## Priority
+**P0 (Required)** - Code reviews are the primary quality gatekeeper and must be done consistently for all code changes.
+
+## References
+- [Google Engineering Practices - Code Review](https://google.github.io/eng-practices/review/)
+- [Conventional Comments](https://conventionalcomments.org/)
+- [The Art of Giving and Receiving Code Reviews](https://www.alexandra-hill.com/2018/06/25/the-art-of-giving-and-receiving-code-reviews/)

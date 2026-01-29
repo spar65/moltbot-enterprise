@@ -1,0 +1,708 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Authentication Integration
+
+## Context
+- When implementing authentication in web applications
+- When integrating any authentication provider (Auth0, Firebase, Clerk, etc.)
+- When implementing protected routes or API endpoints
+- When handling user sessions and authentication state
+
+## Core Requirements
+
+### 1. Provider-Agnostic Architecture
+
+Structure your authentication code to minimize provider-specific dependencies:
+
+```typescript
+// src/lib/auth/types.ts
+export interface AuthUser {
+  id: string;           // Unique identifier (sub, uid, etc.)
+  email: string;        // User's email
+  name?: string;        // User's display name
+  picture?: string;     // Profile picture URL
+  email_verified?: boolean; // Email verification status
+}
+
+export interface AuthSession {
+  user: AuthUser;
+  expires: string | Date; // Session expiration
+  accessToken?: string;   // Access token (if applicable)
+}
+
+export interface AuthClient {
+  // Core authentication methods
+  getSession(): Promise<AuthSession | null>;
+  signIn(options?: any): Promise<any>;
+  signOut(options?: any): Promise<any>;
+  
+  // Additional methods can be provider-specific
+  // but should be wrapped in a consistent interface
+}
+```
+
+### 2. Auth Provider Implementations
+
+Implement consistent interfaces for different providers:
+
+```typescript
+// src/lib/auth/auth0.ts
+import { Auth0Client } from '@auth0/auth0-spa-js';
+import { AuthClient, AuthSession, AuthUser } from './types';
+
+export class Auth0ClientWrapper implements AuthClient {
+  private client: Auth0Client;
+  
+  constructor(config: any) {
+    this.client = new Auth0Client({
+      domain: config.domain,
+      clientId: config.clientId,
+      // ... other config options
+    });
+  }
+  
+  async getSession(): Promise<AuthSession | null> {
+    try {
+      const isAuthenticated = await this.client.isAuthenticated();
+      
+      if (!isAuthenticated) {
+        return null;
+      }
+      
+      const user = await this.client.getUser();
+      const claims = await this.client.getIdTokenClaims();
+      
+      if (!user || !claims) {
+        return null;
+      }
+      
+      return {
+        user: {
+          id: user.sub,
+          email: user.email,
+          name: user.name,
+          picture: user.picture,
+          email_verified: user.email_verified
+        },
+        expires: new Date(claims.exp * 1000),
+        accessToken: await this.client.getTokenSilently()
+      };
+    } catch (error) {
+      console.error('Error getting session:', error);
+      return null;
+    }
+  }
+  
+  async signIn(options?: any): Promise<any> {
+    return this.client.loginWithRedirect(options);
+  }
+  
+  async signOut(options?: any): Promise<any> {
+    return this.client.logout(options);
+  }
+}
+
+// src/lib/auth/firebase.ts
+import { 
+  getAuth, 
+  signInWithPopup, 
+  signOut as firebaseSignOut,
+  GoogleAuthProvider 
+} from 'firebase/auth';
+import { AuthClient, AuthSession, AuthUser } from './types';
+
+export class FirebaseAuthClient implements AuthClient {
+  private auth: any;
+  
+  constructor(app: any) {
+    this.auth = getAuth(app);
+  }
+  
+  async getSession(): Promise<AuthSession | null> {
+    const user = this.auth.currentUser;
+    
+    if (!user) {
+      return null;
+    }
+    
+    return {
+      user: {
+        id: user.uid,
+        email: user.email,
+        name: user.displayName,
+        picture: user.photoURL,
+        email_verified: user.emailVerified
+      },
+      expires: new Date(user.stsTokenManager.expirationTime),
+      accessToken: await user.getIdToken()
+    };
+  }
+  
+  async signIn(options?: any): Promise<any> {
+    const provider = new GoogleAuthProvider();
+    return signInWithPopup(this.auth, provider);
+  }
+  
+  async signOut(options?: any): Promise<any> {
+    return firebaseSignOut(this.auth);
+  }
+}
+
+// Create similar implementations for other providers
+```
+
+### 3. Authentication Context Provider
+
+Create a React context for authentication state:
+
+```typescript
+// src/lib/auth/AuthContext.tsx
+import { createContext, useContext, useEffect, useState } from 'react';
+import { AuthClient, AuthSession } from './types';
+
+interface AuthContextType {
+  session: AuthSession | null;
+  isLoading: boolean;
+  error: Error | null;
+  signIn: (options?: any) => Promise<any>;
+  signOut: (options?: any) => Promise<any>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ 
+  children, 
+  authClient 
+}: { 
+  children: React.ReactNode; 
+  authClient: AuthClient;
+}) {
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  
+  useEffect(() => {
+    async function loadSession() {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        const session = await authClient.getSession();
+        setSession(session);
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error('Authentication error'));
+        setSession(null);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    loadSession();
+  }, [authClient]);
+  
+  const signIn = async (options?: any) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      await authClient.signIn(options);
+      const session = await authClient.getSession();
+      setSession(session);
+      
+      return session;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Sign in failed');
+      setError(error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  const signOut = async (options?: any) => {
+    try {
+      setIsLoading(true);
+      
+      await authClient.signOut(options);
+      setSession(null);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Sign out failed');
+      setError(error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  return (
+    <AuthContext.Provider value={{ session, isLoading, error, signIn, signOut }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  
+  return context;
+}
+```
+
+### 4. Protected Routes
+
+Implement consistent route protection:
+
+```tsx
+// src/components/ProtectedRoute.tsx
+import { useRouter } from 'next/router';
+import { useEffect } from 'react';
+import { useAuth } from '../lib/auth/AuthContext';
+
+export function ProtectedRoute({ 
+  children,
+  redirectTo = '/auth/login',
+  loadingComponent = <div>Loading...</div>
+}: { 
+  children: React.ReactNode;
+  redirectTo?: string;
+  loadingComponent?: React.ReactNode;
+}) {
+  const { session, isLoading } = useAuth();
+  const router = useRouter();
+  
+  useEffect(() => {
+    if (!isLoading && !session) {
+      router.replace(redirectTo);
+    }
+  }, [isLoading, session, router, redirectTo]);
+  
+  if (isLoading) {
+    return <>{loadingComponent}</>;
+  }
+  
+  if (!session) {
+    return null;
+  }
+  
+  return <>{children}</>;
+}
+```
+
+### 5. Middleware-Based Authentication
+
+Implement authentication middleware for Next.js:
+
+```typescript
+// src/middleware.ts
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+
+// Define protected paths that require authentication
+const PROTECTED_PATHS = [
+  '/dashboard',
+  '/settings',
+  '/api/user'
+];
+
+// Define authentication exempt paths
+const AUTH_EXEMPT_PATHS = [
+  '/api/health',
+  '/api/public'
+];
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  
+  // Skip middleware for public routes
+  if (AUTH_EXEMPT_PATHS.some(path => pathname.startsWith(path))) {
+    return NextResponse.next();
+  }
+  
+  // Check if this is a protected path
+  const isProtectedPath = PROTECTED_PATHS.some(path => pathname.startsWith(path));
+  
+  if (isProtectedPath) {
+    // Check for auth cookie/token
+    const token = request.cookies.get('your-auth-cookie-name')?.value;
+    
+    if (!token) {
+      // Redirect to login if not authenticated
+      const url = new URL('/auth/login', request.url);
+      url.searchParams.set('returnTo', pathname);
+      return NextResponse.redirect(url);
+    }
+    
+    try {
+      // Validate token logic here
+      // This will be provider-specific, but should be abstracted
+      
+      // If valid, continue
+      return NextResponse.next();
+    } catch (error) {
+      // If invalid, redirect to login
+      const url = new URL('/auth/login', request.url);
+      return NextResponse.redirect(url);
+    }
+  }
+  
+  // For non-protected paths, just continue
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public files (public assets)
+     */
+    '/((?!_next/static|_next/image|favicon.ico|public).*)',
+  ],
+};
+```
+
+### 6. API Authentication Utilities
+
+Create reusable authentication utilities for API routes:
+
+```typescript
+// src/lib/auth/api.ts
+import { NextApiRequest, NextApiResponse } from 'next';
+import { AuthUser } from './types';
+
+/**
+ * Middleware to ensure request is authenticated
+ */
+export function withAuth(
+  handler: (req: NextApiRequest, res: NextApiResponse, user: AuthUser) => Promise<void>
+) {
+  return async (req: NextApiRequest, res: NextApiResponse) => {
+    try {
+      // This implementation will vary by auth provider
+      const user = await getAuthUserFromRequest(req);
+      
+      if (!user) {
+        return res.status(401).json({
+          error: {
+            message: 'Authentication required',
+            code: 'UNAUTHORIZED'
+          }
+        });
+      }
+      
+      return handler(req, res, user);
+    } catch (error) {
+      console.error('Authentication error:', error);
+      
+      return res.status(401).json({
+        error: {
+          message: 'Authentication failed',
+          code: 'UNAUTHORIZED'
+        }
+      });
+    }
+  };
+}
+
+/**
+ * Extract auth user from request
+ * This is provider-specific but follows a common pattern
+ */
+async function getAuthUserFromRequest(req: NextApiRequest): Promise<AuthUser | null> {
+  // Implementation depends on authentication provider
+  // Example for JWT-based auth:
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  
+  if (!token) {
+    return null;
+  }
+  
+  try {
+    // Verify and decode token
+    // const decodedToken = await verifyToken(token);
+    
+    // For illustration:
+    const decodedToken = { sub: '123', email: 'user@example.com' };
+    
+    return {
+      id: decodedToken.sub,
+      email: decodedToken.email,
+      // Other user properties...
+    };
+  } catch (error) {
+    console.error('Token verification failed:', error);
+    return null;
+  }
+}
+```
+
+### 7. Session Management
+
+Implement consistent session management:
+
+```typescript
+// src/lib/auth/session.ts
+import { AuthSession, AuthUser } from './types';
+import { encrypt, decrypt } from './crypto'; // Implement secure encryption
+
+// Cookie options for session
+const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+  maxAge: 30 * 24 * 60 * 60 // 30 days
+};
+
+/**
+ * Create an encrypted session cookie
+ */
+export function createSessionCookie(
+  res: any,
+  session: AuthSession,
+  cookieName = 'auth_session'
+) {
+  const encryptedSession = encrypt(JSON.stringify(session));
+  
+  res.cookie(cookieName, encryptedSession, SESSION_COOKIE_OPTIONS);
+}
+
+/**
+ * Get session from cookie
+ */
+export function getSessionFromCookie(
+  req: any,
+  cookieName = 'auth_session'
+): AuthSession | null {
+  const encryptedSession = req.cookies[cookieName];
+  
+  if (!encryptedSession) {
+    return null;
+  }
+  
+  try {
+    const sessionData = decrypt(encryptedSession);
+    const session = JSON.parse(sessionData) as AuthSession;
+    
+    // Check if session has expired
+    if (session.expires && new Date(session.expires) < new Date()) {
+      return null;
+    }
+    
+    return session;
+  } catch (error) {
+    console.error('Failed to parse session:', error);
+    return null;
+  }
+}
+
+/**
+ * Clear session cookie
+ */
+export function clearSessionCookie(
+  res: any,
+  cookieName = 'auth_session'
+) {
+  res.cookie(cookieName, '', {
+    ...SESSION_COOKIE_OPTIONS,
+    maxAge: 0
+  });
+}
+```
+
+### 8. Testing Authentication
+
+Create test utilities for authentication:
+
+```typescript
+// src/lib/auth/test-utils.ts
+import { AuthSession, AuthUser } from './types';
+
+/**
+ * Create a mock authenticated user for testing
+ */
+export function createMockAuthUser(
+  overrides: Partial<AuthUser> = {}
+): AuthUser {
+  return {
+    id: 'test-user-123',
+    email: 'test@example.com',
+    name: 'Test User',
+    picture: 'https://example.com/avatar.png',
+    email_verified: true,
+    ...overrides
+  };
+}
+
+/**
+ * Create a mock authenticated session for testing
+ */
+export function createMockAuthSession(
+  userOverrides: Partial<AuthUser> = {},
+  sessionOverrides: Partial<Omit<AuthSession, 'user'>> = {}
+): AuthSession {
+  return {
+    user: createMockAuthUser(userOverrides),
+    expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 1 day
+    accessToken: 'mock-access-token',
+    ...sessionOverrides
+  };
+}
+
+/**
+ * Mock authentication provider for testing
+ */
+export function createMockAuthProvider(
+  initialSession: AuthSession | null = null
+) {
+  let currentSession = initialSession;
+  
+  return {
+    // Mock the auth context
+    AuthProvider: ({ children }: { children: React.ReactNode }) => (
+      <div data-testid="mock-auth-provider">{children}</div>
+    ),
+    
+    // Mock the useAuth hook
+    useAuth: () => ({
+      session: currentSession,
+      isLoading: false,
+      error: null,
+      signIn: jest.fn().mockImplementation(() => {
+        currentSession = createMockAuthSession();
+        return Promise.resolve(currentSession);
+      }),
+      signOut: jest.fn().mockImplementation(() => {
+        currentSession = null;
+        return Promise.resolve();
+      })
+    })
+  };
+}
+```
+
+## Examples
+
+<example>
+// Good implementation of auth integration with Auth0
+
+// src/lib/auth/auth0.ts
+import { Auth0Provider } from '@auth0/auth0-react';
+import { AuthProvider } from './AuthContext';
+import { Auth0ClientWrapper } from './auth0-client';
+
+export function Auth0AuthProvider({ children }) {
+  // Configure Auth0
+  const auth0Config = {
+    domain: process.env.NEXT_PUBLIC_AUTH0_DOMAIN,
+    clientId: process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID,
+    redirectUri: typeof window !== 'undefined' ? window.location.origin : ''
+  };
+  
+  // Create wrapper client that implements our interface
+  const authClient = new Auth0ClientWrapper(auth0Config);
+  
+  return (
+    <Auth0Provider
+      domain={auth0Config.domain}
+      clientId={auth0Config.clientId}
+      redirectUri={auth0Config.redirectUri}
+    >
+      <AuthProvider authClient={authClient}>
+        {children}
+      </AuthProvider>
+    </Auth0Provider>
+  );
+}
+
+// Usage in _app.tsx
+function MyApp({ Component, pageProps }) {
+  return (
+    <Auth0AuthProvider>
+      <Component {...pageProps} />
+    </Auth0AuthProvider>
+  );
+}
+</example>
+
+<example type="invalid">
+// Poor implementation mixing auth providers
+
+// Directly importing Auth0 and Firebase in the same component
+import { useAuth0 } from '@auth0/auth0-react';
+import { getAuth, signInWithPopup } from 'firebase/auth';
+
+function LoginButton() {
+  const { loginWithRedirect } = useAuth0(); // Auth0 specific
+  const auth = getAuth(); // Firebase specific
+  
+  // Mixing auth providers
+  const handleLogin = async () => {
+    if (useFirebase) {
+      // Firebase login
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } else {
+      // Auth0 login
+      await loginWithRedirect();
+    }
+  };
+  
+  return <button onClick={handleLogin}>Login</button>;
+}
+</example>
+
+## Key Principles
+
+1. **Provider Abstraction**: Abstract authentication provider behind common interfaces
+2. **Consistent Authentication Flow**: Maintain consistent auth flows regardless of provider
+3. **Type Safety**: Use strong TypeScript types for auth objects
+4. **Secure Session Handling**: Implement secure cookie-based session management
+5. **Clear Authorization Boundaries**: Clearly define protected routes and API endpoints
+6. **Testing Support**: Include utilities for testing authenticated components
+7. **Error Handling**: Implement comprehensive error handling for auth failures
+8. **Minimal Provider Lock-in**: Minimize direct dependencies on specific auth providers
+9. **Separation of Concerns**: Keep auth logic separate from business logic
+10. **Documentation**: Document authentication patterns and security considerations
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Integration workflows
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Pre-deployment checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate authentication configuration
+- **`.cursor/tools/check-env-vars.sh`** - Ensure no secrets exposed
+- **`.cursor/tools/scan-secrets.sh`** - Detect hardcoded secrets
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @014-third-party-auth.mdc - Authentication implementation standards
+- @019-auth0-integration.mdc - Auth0 integration patterns
+- @046-session-validation.mdc - Session security
+- @077-authentication-payment-integration.mdc - Auth + payment integration
+- @120-auth-architecture-patterns.mdc - Auth architecture patterns
+- @330-auth0-testing-standards.mdc - Auth0 testing standards
+- @374-authentication-architecture-standards.mdc - Auth architecture
+- @400-auth-testing-patterns.mdc - Auth testing patterns
+
+### Quick Start
+1. **Validate:** `.cursor/tools/check-auth-config.sh`
+2. **Follow:** `.cursor/docs/security-workflows.md#auth0-integration-workflow`
+3. **Test:** See @400-auth-testing-patterns.mdc
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH0_CURRENT_IMPLEMENTATION.md`** - Current Auth0 setup and configuration
+- **`guides/auth0/03-Advanced-Auth0-Integration.md`** - Advanced integration patterns
+- **`guides/Auth0-Database-Sync-Guide.md`** - Auth0 database synchronization

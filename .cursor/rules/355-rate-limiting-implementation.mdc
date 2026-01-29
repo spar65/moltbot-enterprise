@@ -1,0 +1,418 @@
+---
+description: Use when implementing rate limiting systems with bulletproof testing patterns and production deployment
+globs: "**/rate-limit*.{ts,tsx,js,jsx}, **/middleware/**/*.{ts,tsx,js,jsx}, **/**/tests**/rate*.{ts,tsx,js,jsx}"
+---
+
+# Rate Limiting Implementation & Testing
+
+## Context
+
+- Rate limiting is critical for production API security and DDoS protection
+- Middleware-based rate limiting requires dual mocking for proper testing
+- Rate limiting tests often fail due to mock configuration misalignment
+- Different endpoint types (API, AI, Payment) require different rate limit configurations
+- Production deployment requires database migrations and verification
+
+## Requirements
+
+### Core Architecture Requirements
+
+- Implement database-backed rate limiting for persistence across restarts
+- Create multi-tier configurations for different endpoint types (api, ai, payment, admin)
+- Use middleware pattern for consistent application across all protected endpoints
+- Include comprehensive logging and monitoring for rate limit events
+- Implement fail-safe design (fail open when rate limiting system is down)
+
+### Database Schema Essentials
+
+```sql
+-- Core rate limits tracking
+CREATE TABLE rate_limits (
+    identifier VARCHAR(255) NOT NULL,
+    endpoint VARCHAR(255) NOT NULL,
+    limit_type VARCHAR(50) NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 1,
+    max_requests INTEGER NOT NULL,
+    window_start TIMESTAMP NOT NULL,
+    PRIMARY KEY (identifier, endpoint, limit_type)
+);
+
+-- Event logging for monitoring
+CREATE TABLE rate_limit_events (
+    id SERIAL PRIMARY KEY,
+    identifier VARCHAR(255) NOT NULL,
+    endpoint VARCHAR(255) NOT NULL,
+    limit_type VARCHAR(50) NOT NULL,
+    action VARCHAR(20) NOT NULL, -- 'allowed', 'blocked'
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Performance indexes
+CREATE INDEX idx_rate_limits_lookup ON rate_limits(identifier, endpoint, limit_type);
+CREATE INDEX idx_rate_limit_events_monitoring ON rate_limit_events(created_at, action);
+```
+
+### Multi-Tier Rate Limit Configuration
+
+```typescript
+// Risk-based rate limiting tiers
+export const RATE_LIMIT_CONFIGS = {
+  api: { requests: 100, windowMs: 60000, type: "api" },
+  "high-freq": { requests: 300, windowMs: 60000, type: "high-freq" },
+  "low-freq": { requests: 20, windowMs: 60000, type: "low-freq" },
+  ai: { requests: 5, windowMs: 3600000, type: "ai" }, // Strict for AI endpoints
+  payment: { requests: 3, windowMs: 3600000, type: "payment" }, // Ultra-strict for payments
+  admin: { requests: 50, windowMs: 60000, type: "admin" },
+};
+```
+
+### The Breakthrough Testing Pattern
+
+#### Dual Mock Setup (Critical for Middleware Testing)
+
+```typescript
+// CRITICAL: Mock BOTH library AND middleware functions
+jest.mock("../../src/lib/database-rate-limit", () => {
+  const original = jest.requireActual("../../src/lib/database-rate-limit");
+  return {
+    ...original,
+    checkRateLimit: jest.fn(),
+    RATE_LIMIT_CONFIGS: original.RATE_LIMIT_CONFIGS,
+  };
+});
+
+// BREAKTHROUGH: Also mock the middleware
+jest.mock("../../src/middleware/database-rate-limit", () => {
+  const original = jest.requireActual(
+    "../../src/middleware/database-rate-limit"
+  );
+  return {
+    ...original,
+    applyRateLimit: jest.fn(),
+  };
+});
+```
+
+#### Smart Mock Factory Pattern
+
+```typescript
+// Dynamic mock factory with config awareness
+const applyRateLimitMock = (
+  shouldExceedLimit: boolean,
+  limitType: string = "api"
+) => {
+  const config = RATE_LIMIT_CONFIGS[limitType] || RATE_LIMIT_CONFIGS.api;
+
+  if (shouldExceedLimit) {
+    mockCheckRateLimit.mockResolvedValue({
+      success: false,
+      total: config.requests + 1,
+      remaining: 0,
+      reset: Date.now() + config.windowMs,
+    });
+
+    // Mock middleware returns 429 response
+    mockApplyRateLimit.mockResolvedValue(
+      new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
+        status: 429,
+      }) as any
+    );
+  } else {
+    mockCheckRateLimit.mockResolvedValue({
+      success: true,
+      total: 1,
+      remaining: config.requests - 1,
+      reset: Date.now() + config.windowMs,
+    });
+
+    // Mock middleware allows request to continue
+    mockApplyRateLimit.mockResolvedValue(null);
+  }
+};
+```
+
+#### Proper Test Isolation Setup
+
+```typescript
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockSql.mockReset();
+  mockCheckRateLimit.mockReset();
+  mockApplyRateLimit.mockReset(); // CRITICAL: Prevent test bleeding
+  process.env.RATE_LIMITING_ENABLED = "true";
+  applyRateLimitMock(false); // Default: allow requests
+});
+```
+
+### Security Testing Patterns
+
+```typescript
+// Test DDoS protection
+test("should block DDoS attacks", async () => {
+  applyRateLimitMock(true, "api");
+
+  await handler(req, res);
+
+  expect(res._getStatusCode()).toBe(429);
+  expect(JSON.parse(res._getData())).toMatchObject({
+    error: "Rate limit exceeded",
+  });
+});
+
+// Test endpoint-specific limits
+test("should protect payment endpoints", async () => {
+  applyRateLimitMock(true, "payment"); // Ultra-strict limits
+
+  await paymentHandler(req, res);
+
+  expect(mockApplyRateLimit).toHaveBeenCalledWith(
+    expect.any(Object),
+    "payment"
+  );
+});
+```
+
+## Implementation Guidelines
+
+### Production Deployment Checklist
+
+- [ ] Database migration applied with proper indexes
+- [ ] Environment variables configured (RATE_LIMITING_ENABLED=true)
+- [ ] Monitoring and alerting set up for rate limit events
+- [ ] Production database verification completed
+- [ ] Rate limiting middleware applied to all protected endpoints
+- [ ] Different rate limit configs tested for each endpoint type
+
+### Configuration Management
+
+```typescript
+// Environment-specific configurations
+const getRateLimitConfig = (env: string) => {
+  const configs = {
+    production: { api: 100, ai: 5, payment: 3 },
+    development: { api: 1000, ai: 50, payment: 30 },
+    test: { api: 10000, ai: 1000, payment: 1000 },
+  };
+  return configs[env] || configs.test;
+};
+```
+
+### Monitoring Implementation
+
+```typescript
+// Monitor rate limiting effectiveness
+export async function checkRateLimitAlerts() {
+  const recentBlocked = await sql`
+    SELECT COUNT(*) as blocked_count
+    FROM rate_limit_events 
+    WHERE action = 'blocked' 
+    AND created_at > NOW() - INTERVAL '5 minutes'
+  `;
+
+  if (recentBlocked[0].blocked_count > 50) {
+    // Alert: potential DDoS attack
+    console.warn(
+      `HIGH ALERT: ${recentBlocked[0].blocked_count} requests blocked`
+    );
+  }
+}
+```
+
+## Examples
+
+<example>
+// Good: Proper middleware integration with dual mocking
+test('should protect AI endpoints with strict limits', async () => {
+  applyRateLimitMock(true, 'ai'); // Use AI-specific config
+  
+  const { req, res } = createMocks({
+    method: 'POST',
+    url: '/api/ai/generate-prd',
+    body: { prompt: 'Test prompt' }
+  });
+
+await handler(req, res);
+
+expect(res.\_getStatusCode()).toBe(429);
+expect(mockApplyRateLimit).toHaveBeenCalledWith(expect.any(Object), 'ai');
+});
+</example>
+
+<example type="invalid">
+// Bad: Only mocking library function, not middleware
+jest.mock('../../src/lib/database-rate-limit', () => ({
+  checkRateLimit: jest.fn().mockResolvedValue({ success: false })
+}));
+// Missing middleware mock - tests will fail intermittently
+</example>
+
+## Integration with Other Rules
+
+- Works with [350-debug-test-failures.mdc](mdc:350-debug-test-failures.mdc) for systematic test debugging
+- Builds on [331-high-risk-feature-testing.mdc](mdc:331-high-risk-feature-testing.mdc) for security testing
+- Complements [012-api-security.mdc](mdc:012-api-security.mdc) for API protection
+- Supports [130-logging-standards.mdc](mdc:130-logging-standards.mdc) for rate limit monitoring
+
+## Anti-Patterns to Avoid
+
+1. **Single Mock Setup**: Only mocking the library function without mocking middleware
+2. **Static Mock Responses**: Using fixed mock values instead of dynamic config-based responses
+3. **Test Bleeding**: Not resetting mocks between tests, causing unpredictable failures
+4. **Missing Production Verification**: Deploying without confirming database schema and configs
+5. **Uniform Rate Limits**: Using same limits for all endpoint types instead of risk-based tiers
+
+## Measuring Success
+
+### Test Success Metrics
+
+- All rate limiting tests pass consistently (100% success rate)
+- Tests cover all endpoint types (api, ai, payment, admin)
+- Security scenarios properly tested (DDoS, brute force, abuse prevention)
+- Mock isolation prevents test bleeding
+
+### Production Effectiveness
+
+- Rate limit events logged and monitored
+- Different endpoint types properly protected with appropriate limits
+- No legitimate user impact from overly restrictive limits
+- Malicious traffic successfully blocked and logged
+- System fails safely when rate limiting is unavailable
+
+## See Also
+
+### Related Rules
+
+**Security & API Protection:**
+- @012-api-security.mdc - API security standards (rate limiting is core security!)
+- @220-security-monitoring.mdc - Security monitoring and WAF
+- @373-api-key-system-design.mdc - API key system (combines with rate limiting)
+- @374-authentication-architecture-standards.mdc - Authentication patterns
+- @385-webhook-implementation-standards.mdc - Webhook rate limiting
+
+**Testing Standards:**
+- @356-rate-limiting-testing-patterns.mdc - ⭐ **CRITICAL** - Bulletproof rate limit testing
+- @375-api-test-first-time-right.mdc - API testing best practices
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @350-debug-test-failures.mdc - Debug rate limiting test failures
+- @331-high-risk-feature-testing.mdc - Security testing patterns
+
+**Database & Performance:**
+- @061-database-integration.mdc - Database integration patterns
+- @066-network-optimization.mdc - Network request optimization
+- @067-runtime-optimization.mdc - Runtime performance
+- @376-database-test-isolation.mdc - Database testing isolation
+
+**Deployment & Monitoring:**
+- @200-deployment-infrastructure.mdc - Deployment infrastructure
+- @221-application-monitoring.mdc - Application monitoring (track rate limits!)
+- @222-metrics-alerting.mdc - Metrics and alerting (DDoS alerts)
+- @130-logging-standards.mdc - Logging standards
+
+### Tools & Documentation
+
+**Validation Tools:**
+- **`.cursor/tools/test-rate-limits.sh`** - Test rate limiting implementation
+  ```bash
+  ./.cursor/tools/test-rate-limits.sh
+  # Tests: Sliding window, per-org limits, headers, circuit breaker
+  ```
+
+**Schema Tools:**
+- **`.cursor/tools/inspect-model.sh`** - Check rate limit data models
+  ```bash
+  ./.cursor/tools/inspect-model.sh RateLimit
+  # Shows: Rate limiting schema, indexes, relationships
+  ```
+
+**Deployment Tools:**
+- **`.cursor/tools/pre-deployment-check.sh`** - Pre-deployment validation
+  ```bash
+  ./.cursor/tools/pre-deployment-check.sh
+  # Validates: Rate limit migrations, indexes, configs
+  ```
+
+**Documentation:**
+- **`.cursor/docs/ai-workflows.md`** - Implementation workflows
+- **`.cursor/docs/security-workflows.md`** - Security implementation patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - ⭐ System overview (READ FIRST)
+
+### Comprehensive Guides
+
+**Essential for Rate Limiting:**
+- **`guides/Rate-Limiting-Complete-Guide.md`** ⭐ **Essential** - Complete implementation guide
+- **`guides/API-Security-Complete-Guide.md`** - Security patterns and DDoS protection
+- **`guides/Database-Operations-Complete-Guide.md`** - Database-backed rate limiting
+
+**Performance & Monitoring:**
+- **`guides/Performance-Optimization-Complete-Guide.md`** - Optimize rate limit checks
+- **`guides/Monitoring-Alerting-Complete-Guide.md`** - Monitor rate limit effectiveness
+
+### Quick Start - Rate Limiting Implementation
+
+```bash
+# 1. Check existing rate limit implementation
+./.cursor/tools/inspect-model.sh RateLimit
+# Shows: Current schema, if it exists
+
+# 2. Review implementation patterns
+# Read: guides/Rate-Limiting-Complete-Guide.md
+
+# 3. Implement database-backed rate limiting
+# Create: Sliding window algorithm with per-organization limits
+# Pattern: See GiDanc health-check/middleware/rate-limit.ts
+
+# 4. Add rate limit middleware
+# Apply: To all protected endpoints (API keys, webhooks, etc.)
+
+# 5. Implement proper headers
+# Headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset
+
+# 6. Add monitoring and alerting
+# Track: Success rate, blocked requests, DDoS attempts
+
+# 7. Test implementation
+./.cursor/tools/test-rate-limits.sh
+# Validates: Sliding window, retry-after, headers
+
+# 8. Deploy with validation
+./.cursor/tools/pre-deployment-check.sh
+# Ensures: Migrations applied, indexes created, configs correct
+```
+
+### Real-World Implementation Examples
+
+**GiDanc Health Check - Database-Backed Sliding Window:**
+- `app/lib/health-check/middleware/rate-limit.ts` - Production implementation
+- Features: Per-org limits, sliding window, proper headers, error handling
+- Testing: `app/__tests__/api/health-check-test.test.ts` - Rate limit tests
+
+**Key Patterns from GiDanc:**
+1. **Sliding Window**: Counts tests in last hour (more accurate than fixed window)
+2. **Custom Error Class**: `RateLimitError` with `getHeaders()` method
+3. **Status Endpoint**: `getRateLimitStatus()` - non-throwing query
+4. **Configurable Limits**: Per-organization `maxTestsPerHour` setting
+5. **Reset Time**: Calculates based on oldest request in window
+
+### Advanced Topics
+
+**Circuit Breaker Pattern:**
+- Stop checking rate limits if database is down
+- Fail open (allow requests) vs fail closed (block requests)
+- See: @136-error-recovery-resilience.mdc
+
+**Distributed Rate Limiting:**
+- Redis-backed rate limiting for multi-server deployments
+- Atomic increment operations
+- See: guides/Distributed-Systems-Complete-Guide.md
+
+**Adaptive Rate Limiting:**
+- Adjust limits based on system load
+- Burst allowances for spiky traffic
+- See: guides/Performance-Optimization-Complete-Guide.md
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P0 (Critical for API security)  
+**Last Updated**: 2024-11-25  
+**Version**: 1.1 (Enhanced with GiDanc patterns)

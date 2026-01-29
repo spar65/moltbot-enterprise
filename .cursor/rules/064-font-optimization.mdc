@@ -1,0 +1,448 @@
+---
+description: Optimize font loading when implementing typography to prevent layout shifts and improve performance
+globs: "app/**/*.{ts,tsx,css}"
+---
+
+# Font Optimization
+
+## Context
+Web fonts can significantly impact performance if not optimized. Poor font loading causes Flash of Invisible Text (FOIT), Flash of Unstyled Text (FOUT), and cumulative layout shift (CLS). This rule establishes patterns for optimal font loading using Next.js font optimization.
+
+**Font Loading Issues:**
+- **FOIT** - Text invisible while fonts load
+- **FOUT** - Text displayed in fallback font, then switches
+- **CLS** - Layout shift when fonts load
+- **Performance** - Large font files block rendering
+
+## Requirements
+
+### Next.js Font Optimization (Preferred)
+
+**Use next/font for Automatic Optimization:**
+```typescript
+// app/layout.tsx
+import { Inter, Roboto_Mono } from 'next/font/google';
+
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+});
+
+const robotoMono = Roboto_Mono({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-roboto-mono',
+});
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" className={`${inter.variable} ${robotoMono.variable}`}>
+      <body className={inter.className}>{children}</body>
+    </html>
+  );
+}
+```
+
+```css
+/* app/globals.css */
+:root {
+  --font-inter: var(--font-inter);
+  --font-roboto-mono: var(--font-roboto-mono);
+}
+
+body {
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+code {
+  font-family: var(--font-roboto-mono), monospace;
+}
+```
+
+**Benefits of next/font:**
+- Automatic font optimization
+- Zero layout shift (size-adjust CSS)
+- Fonts hosted on same domain (no external requests)
+- Optimal loading strategy
+- Built-in preloading
+
+<example>
+// ✅ GOOD: Optimized Google Fonts
+import { Inter, Playfair_Display } from 'next/font/google';
+
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap', // Prevent FOIT
+  preload: true,
+  variable: '--font-inter',
+});
+
+const playfair = Playfair_Display({
+  subsets: ['latin'],
+  display: 'swap',
+  weight: ['400', '700'], // Only load needed weights
+  variable: '--font-playfair',
+});
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" className={`${inter.variable} ${playfair.variable}`}>
+      <body className={inter.className}>{children}</body>
+    </html>
+  );
+}
+</example>
+
+<example type="invalid">
+// ❌ BAD: Loading fonts from Google CDN
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <head>
+        {/* External request, no optimization, FOIT */}
+        <link
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
+</example>
+
+### Custom/Local Fonts
+
+**Self-Hosted Fonts:**
+```typescript
+// app/layout.tsx
+import localFont from 'next/font/local';
+
+const customFont = localFont({
+  src: [
+    {
+      path: './fonts/CustomFont-Regular.woff2',
+      weight: '400',
+      style: 'normal',
+    },
+    {
+      path: './fonts/CustomFont-Bold.woff2',
+      weight: '700',
+      style: 'normal',
+    },
+  ],
+  display: 'swap',
+  variable: '--font-custom',
+});
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" className={customFont.variable}>
+      <body className={customFont.className}>{children}</body>
+    </html>
+  );
+}
+```
+
+**Font File Best Practices:**
+1. **Use WOFF2** - Best compression (~30% smaller than WOFF)
+2. **Subset fonts** - Include only needed characters
+3. **Limit weights** - Only include weights you use
+4. **Variable fonts** - Single file for multiple weights (when possible)
+
+<example>
+// ✅ GOOD: Local font with WOFF2 and subsets
+import localFont from 'next/font/local';
+
+const brandFont = localFont({
+  src: './fonts/BrandFont-Variable.woff2', // Variable font
+  display: 'swap',
+  variable: '--font-brand',
+  // Font supports weights 400-700
+  weight: '400 700',
+});
+</example>
+
+### Font Display Strategies
+
+**font-display Property:**
+- `swap` - Show fallback immediately, swap when font loads (RECOMMENDED)
+- `optional` - Use font if available in ~100ms, else use fallback
+- `fallback` - Brief FOIT, then swap (100ms invisible, 3s swap period)
+- `block` - FOIT until font loads (up to 3s)
+- `auto` - Browser decides (usually equivalent to block)
+
+<example>
+// ✅ GOOD: Use 'swap' for best UX
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap', // Best for Core Web Vitals
+});
+
+// ✅ ALSO GOOD: Use 'optional' for critical performance
+const decorativeFont = Playfair_Display({
+  subsets: ['latin'],
+  display: 'optional', // Don't delay rendering for decorative font
+});
+</example>
+
+<example type="invalid">
+// ❌ BAD: Using 'block' causes FOIT
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'block', // Text invisible while loading!
+});
+</example>
+
+### Fallback Fonts & size-adjust
+
+**Good Fallback Font Stack:**
+```css
+/* System font fallback stack */
+body {
+  font-family: 
+    var(--font-inter), 
+    -apple-system, 
+    BlinkMacSystemFont, 
+    'Segoe UI', 
+    'Roboto', 
+    'Oxygen', 
+    'Ubuntu', 
+    'Cantarell', 
+    'Fira Sans', 
+    'Droid Sans', 
+    'Helvetica Neue', 
+    sans-serif;
+}
+
+/* Monospace fallback */
+code {
+  font-family: 
+    var(--font-roboto-mono), 
+    'SF Mono', 
+    'Monaco', 
+    'Inconsolata', 
+    'Fira Code', 
+    'Droid Sans Mono', 
+    'Source Code Pro', 
+    monospace;
+}
+```
+
+**Size Adjust (Automatic with next/font):**
+```css
+/* next/font automatically generates this */
+@font-face {
+  font-family: '__Inter_Fallback_abc123';
+  src: local('Arial');
+  ascent-override: 90.20%;
+  descent-override: 22.48%;
+  line-gap-override: 0.00%;
+  size-adjust: 107.40%;
+}
+```
+
+### Preloading Critical Fonts
+
+**next/font Preloads Automatically:**
+```typescript
+// Fonts used in layout.tsx are automatically preloaded
+const inter = Inter({
+  subsets: ['latin'],
+  preload: true, // Default
+});
+```
+
+**Manual Preload (if needed):**
+```typescript
+// app/layout.tsx
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html>
+      <head>
+        <link
+          rel="preload"
+          href="/fonts/CustomFont.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
+```
+
+### Font Loading Performance
+
+**Optimize Font Loading:**
+1. **Load only needed weights** - Don't load 100-900 if you only use 400, 700
+2. **Use variable fonts** - Single file for multiple weights
+3. **Subset fonts** - Latin subset is usually sufficient
+4. **Preload critical fonts** - Fonts used above the fold
+5. **Use system fonts when possible** - Zero loading time
+
+<example>
+// ✅ GOOD: Minimal font loading
+import { Inter } from 'next/font/google';
+
+const inter = Inter({
+  subsets: ['latin'], // Only Latin characters
+  weight: ['400', '600'], // Only weights we use
+  display: 'swap',
+  preload: true,
+});
+</example>
+
+<example type="invalid">
+// ❌ BAD: Loading too many fonts/weights
+import { Inter, Roboto, Open_Sans, Lato } from 'next/font/google';
+
+const inter = Inter({
+  subsets: ['latin', 'cyrillic', 'greek'], // Too many subsets
+  weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'], // All weights!
+});
+// Multiple font families when one would suffice
+</example>
+
+### Icon Fonts vs SVG Icons
+
+**Prefer SVG Icons:**
+```typescript
+// ✅ GOOD: SVG icons (no font loading)
+import { CheckIcon, XMarkIcon } from '@heroicons/react/24/outline';
+
+export function StatusBadge({ status }: { status: 'success' | 'error' }) {
+  return (
+    <div>
+      {status === 'success' ? <CheckIcon className="w-5 h-5" /> : <XMarkIcon className="w-5 h-5" />}
+    </div>
+  );
+}
+```
+
+**Icon Fonts (if you must):**
+```typescript
+// ⚠️ ACCEPTABLE: If using icon font, optimize it
+import localFont from 'next/font/local';
+
+const iconFont = localFont({
+  src: './fonts/icons.woff2',
+  display: 'block', // Icons can wait
+  variable: '--font-icons',
+});
+```
+
+### Measuring Font Performance
+
+**Check Font Loading in DevTools:**
+1. Open Chrome DevTools → Network tab
+2. Filter by "Font"
+3. Check:
+   - Font file sizes (<100KB ideal)
+   - Loading time (<500ms)
+   - Number of fonts (minimize)
+
+**Lighthouse Checks:**
+```bash
+# Check font performance
+./.cursor/tools/run-lighthouse.sh
+
+# Look for:
+# - "Ensure text remains visible during webfont load"
+# - "Preload key requests"
+# - "Cumulative Layout Shift"
+```
+
+## Common Patterns
+
+### Pattern 1: Multiple Font Families
+```typescript
+// Use CSS variables for flexibility
+const inter = Inter({
+  variable: '--font-sans',
+  subsets: ['latin'],
+  display: 'swap',
+});
+
+const robotoMono = Roboto_Mono({
+  variable: '--font-mono',
+  subsets: ['latin'],
+  display: 'swap',
+});
+
+// Apply in globals.css
+// body { font-family: var(--font-sans); }
+// code { font-family: var(--font-mono); }
+```
+
+### Pattern 2: Page-Specific Fonts
+```typescript
+// app/blog/layout.tsx
+import { Merriweather } from 'next/font/google';
+
+const merriweather = Merriweather({
+  weight: ['400', '700'],
+  subsets: ['latin'],
+  display: 'swap',
+});
+
+export default function BlogLayout({ children }: { children: React.ReactNode }) {
+  return <div className={merriweather.className}>{children}</div>;
+}
+```
+
+### Pattern 3: Variable Fonts
+```typescript
+// Best for multiple weights
+import { Inter } from 'next/font/google';
+
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  // Variable font automatically loaded
+  // Supports weights 100-900
+});
+```
+
+## Tools & Documentation
+
+### Required Tools (USE THESE!)
+- **`.cursor/tools/run-lighthouse.sh`** - Check font performance
+
+### Complete Workflow Documentation
+- **`guides/Asset-Optimization-Complete-Guide.md`** - Comprehensive asset optimization
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master performance guide
+- **`.cursor/docs/ai-workflows.md#font-optimization`** - Proven patterns
+
+### Quick Start
+1. **Use:** next/font for all fonts
+2. **Set:** display: 'swap' for most fonts
+3. **Limit:** Only load needed weights and subsets
+4. **Test:** Run Lighthouse to check CLS and font loading
+
+## See Also
+
+### Documentation
+- **`guides/Asset-Optimization-Complete-Guide.md`** - Asset optimization guide
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master performance guide
+- **`guides/Core-Web-Vitals-Optimization-Guide.md`** - Core Web Vitals (CLS)
+
+### Related Rules
+- @062-core-web-vitals.mdc - Core Web Vitals (CLS prevention)
+- @030-visual-design-system.mdc - Typography system
+- @060-performance-metrics.mdc - Performance monitoring
+
+### Related Tools
+- **`.cursor/tools/run-lighthouse.sh`** - Lighthouse automation
+
+## Priority
+**P1 (Important)** - Font optimization significantly impacts Core Web Vitals (CLS) and perceived performance.
+
+## References
+- [Next.js Font Optimization](https://nextjs.org/docs/app/building-your-application/optimizing/fonts)
+- [Web Font Best Practices](https://web.dev/font-best-practices/)
+- [Font Display](https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display)
+- [Variable Fonts Guide](https://web.dev/variable-fonts/)

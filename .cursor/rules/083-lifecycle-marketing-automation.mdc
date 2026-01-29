@@ -1,0 +1,109 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply lifecycle marketing automation standards when implementing email campaigns to ensure cohesive customer journeys across the entire customer lifecycle
+globs: "src/{lib,pages/api}/**/*.{js,jsx,ts,tsx}"
+___
+
+# Lifecycle Marketing Automation Standards
+
+## Lifecycle Mapping
+- Define clear customer lifecycle stages from acquisition to advocacy
+- Document transition criteria between lifecycle stages
+- Create behavioral indicators for lifecycle stage identification
+- Implement automated lifecycle stage assignment
+- Apply consistent lifecycle terminology across systems
+- Document lifecycle analytics and reporting requirements
+
+## Stage-Specific Communication
+- Create distinct communication strategies for each lifecycle stage
+- Apply appropriate messaging tone for lifecycle position
+- Implement content tailored to specific lifecycle needs
+- Document communication frequency guidelines by lifecycle stage
+- Create content libraries for each lifecycle stage
+- Apply engagement scoring specific to lifecycle position
+
+## Transition Management
+- Implement automated detection of lifecycle transitions
+- Create transition-triggered communication sequences
+- Apply appropriate timing for transition acknowledgment
+- Document successful transition indicators and metrics
+- Implement recovery flows for negative transitions
+- Create milestone celebrations for positive transitions
+
+## Win-back and Retention
+- Implement early warning systems for potential churn
+- Create tiered intervention strategies based on churn risk
+- Apply personalized win-back offers based on customer history
+- Document effectiveness metrics for retention campaigns
+- Implement post-win-back nurturing sequences
+- Create long-term reactivation campaigns for dormant customers
+
+## Customer Value Optimization
+- Implement customer lifetime value forecasting
+- Create value-based segmentation within lifecycle stages
+- Apply investment strategies based on potential value
+- Document value growth patterns across lifecycle
+- Implement cross-sell and upsell automation appropriate to lifecycle stage
+- Create loyalty and advocacy programs for high-value segments
+
+## See Also
+
+### Related Rules
+- @075-email-marketing-standards.mdc - Email marketing standards
+- @076-mailchimp-integration-standards.mdc - MailChimp behavioral triggers
+- @077-user-communication-standards.mdc - Stage-specific communication
+- @080-email-effectiveness-tracking.mdc - Lifecycle effectiveness metrics
+- @081-cross-platform-integration.mdc - Cross-platform customer identity and segmentation
+- @082-email-automation-optimization.mdc - Automation optimization strategies
+- @084-email-content-optimization-ai.mdc - AI-powered lifecycle content
+- @026-subscription-access-control.mdc - Subscription lifecycle management
+
+### Tools & Documentation
+- **`.cursor/tools/analyze-lifecycle-stage.sh`** - Lifecycle stage analyzer
+  ```bash
+  ./.cursor/tools/analyze-lifecycle-stage.sh --user-id 12345
+  # Analyzes: Current stage, transition likelihood, engagement patterns
+  ```
+- **`.cursor/tools/forecast-customer-value.sh`** - Customer lifetime value forecaster
+  ```bash
+  ./.cursor/tools/forecast-customer-value.sh --segment enterprise
+  # Forecasts: LTV, churn risk, upsell opportunities
+  ```
+
+### Comprehensive Guides
+- **`guides/Email-Lifecycle-Marketing.md`** ⭐ **ESSENTIAL** - Complete lifecycle marketing guide
+- **`guides/Email-Automation-Guide.md`** - Lifecycle automation workflows
+- **`guides/Email-Personalization-Guide.md`** - Lifecycle-based personalization
+- **`guides/Email-Analytics-Guide.md`** - Lifecycle metrics and analysis
+
+### Quick Start - Lifecycle Marketing Automation
+
+```bash
+# 1. Define lifecycle stages
+# Map stages from acquisition to advocacy, define transition criteria
+
+# 2. Create stage-specific content libraries
+# Develop messaging for each lifecycle stage
+
+# 3. Analyze current lifecycle distribution
+./.cursor/tools/analyze-lifecycle-stage.sh --all-users
+
+# 4. Implement transition detection
+# Set up automated triggers for stage transitions
+
+# 5. Build win-back and retention flows
+# Create early warning systems, tiered interventions
+
+# 6. Monitor and optimize
+# Track transition rates, stage effectiveness, value growth
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important)  
+**Last Updated**: November 20, 2025

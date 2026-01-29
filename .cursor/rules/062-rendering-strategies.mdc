@@ -1,0 +1,475 @@
+---
+description: Choose appropriate rendering strategies when building features to optimize performance and SEO
+globs: "app/**/*.{ts,tsx,js,jsx}"
+---
+
+# Rendering Strategies
+
+## Context
+Modern Next.js (App Router) provides multiple rendering strategies. Choosing the right strategy for each page/component is critical for performance, SEO, and user experience. This rule establishes patterns for SSR, SSG, ISR, CSR, and React Server Components.
+
+**Rendering Options:**
+- **SSR** - Server-Side Rendering (dynamic, per-request)
+- **SSG** - Static Site Generation (build-time)
+- **ISR** - Incremental Static Regeneration (static + periodic updates)
+- **CSR** - Client-Side Rendering (client-only)
+- **RSC** - React Server Components (server components by default)
+
+## Requirements
+
+### React Server Components (RSC) - Default
+
+**By Default, All Components are Server Components:**
+```typescript
+// app/dashboard/page.tsx
+// ✅ This is a Server Component by default
+export default async function DashboardPage() {
+  // Can directly access database
+  const data = await prisma.dashboard.findMany();
+  
+  return (
+    <div>
+      <h1>Dashboard</h1>
+      <ServerDataDisplay data={data} />
+    </div>
+  );
+}
+```
+
+**When to Use Server Components:**
+- Fetching data from database/API
+- Accessing backend resources
+- Keeping large dependencies on server
+- No user interactivity needed
+
+**Benefits:**
+- Zero JavaScript sent to client
+- Direct database access
+- Automatic code splitting
+- Better security (API keys stay on server)
+
+<example>
+// ✅ GOOD: Server Component with direct database access
+// app/assessments/page.tsx
+import { prisma } from '@/lib/db';
+import { getServerSession } from 'next-auth';
+
+export default async function AssessmentsPage() {
+  const session = await getServerSession();
+  
+  // Direct database access - secure!
+  const assessments = await prisma.assessment.findMany({
+    where: { organizationId: session.user.organizationId },
+  });
+  
+  return (
+    <div>
+      <h1>Assessments</h1>
+      {assessments.map(assessment => (
+        <AssessmentCard key={assessment.id} assessment={assessment} />
+      ))}
+    </div>
+  );
+}
+</example>
+
+### Client Components - Interactive UI
+
+**Use 'use client' for Interactivity:**
+```typescript
+// components/InteractiveForm.tsx
+'use client';
+
+import { useState } from 'react';
+
+export function InteractiveForm() {
+  const [value, setValue] = useState('');
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      <input 
+        value={value} 
+        onChange={(e) => setValue(e.target.value)}
+      />
+    </form>
+  );
+}
+```
+
+**When to Use Client Components:**
+- User interactivity (useState, useEffect)
+- Event listeners (onClick, onChange)
+- Browser APIs (localStorage, navigator)
+- React hooks (except Server-only hooks)
+
+**Minimize Client Components:**
+- Keep them small and focused
+- Use Server Components for data fetching
+- Pass data as props from Server to Client
+
+<example>
+// ✅ GOOD: Mixed Server and Client Components
+// app/dashboard/page.tsx (Server Component)
+import { ClientChart } from '@/components/ClientChart';
+
+export default async function Dashboard() {
+  // Fetch on server
+  const data = await fetchDashboardData();
+  
+  return (
+    <div>
+      <h1>Dashboard</h1>
+      {/* Pass data to client component */}
+      <ClientChart data={data} />
+    </div>
+  );
+}
+
+// components/ClientChart.tsx (Client Component)
+'use client';
+
+import { useState } from 'react';
+
+export function ClientChart({ data }: { data: ChartData }) {
+  const [filter, setFilter] = useState('all');
+  
+  return (
+    <div>
+      <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+        <option value="all">All</option>
+        <option value="active">Active</option>
+      </select>
+      <Chart data={filterData(data, filter)} />
+    </div>
+  );
+}
+</example>
+
+<example type="invalid">
+// ❌ BAD: Making entire page a client component
+'use client'; // Don't do this at page level!
+
+export default function Dashboard() {
+  const [filter, setFilter] = useState('all');
+  
+  // This runs on client - slower, less secure
+  const data = useSWR('/api/dashboard');
+  
+  return <div>...</div>;
+}
+</example>
+
+### Static Site Generation (SSG)
+
+**Build-Time Generation:**
+```typescript
+// app/blog/[slug]/page.tsx
+export async function generateStaticParams() {
+  const posts = await getPosts();
+  return posts.map((post) => ({ slug: post.slug }));
+}
+
+export default async function BlogPost({ params }: { params: { slug: string } }) {
+  const post = await getPost(params.slug);
+  return <Article post={post} />;
+}
+```
+
+**When to Use SSG:**
+- Content rarely changes
+- Same for all users
+- SEO is critical
+- Maximum performance needed
+
+**Benefits:**
+- Fastest possible response
+- Cheapest (no server computation)
+- Best SEO (pre-rendered HTML)
+- Can be CDN-cached forever
+
+<example>
+// ✅ GOOD: Static generation for marketing pages
+// app/pricing/page.tsx
+export default async function PricingPage() {
+  const plans = await getPlans(); // Fetched at build time
+  
+  return (
+    <div>
+      <h1>Pricing</h1>
+      {plans.map(plan => (
+        <PricingCard key={plan.id} plan={plan} />
+      ))}
+    </div>
+  );
+}
+</example>
+
+### Incremental Static Regeneration (ISR)
+
+**Static with Periodic Updates:**
+```typescript
+// app/blog/[slug]/page.tsx
+export const revalidate = 3600; // Revalidate every hour
+
+export async function generateStaticParams() {
+  const posts = await getPosts();
+  return posts.map((post) => ({ slug: post.slug }));
+}
+
+export default async function BlogPost({ params }: { params: { slug: string } }) {
+  const post = await getPost(params.slug);
+  return <Article post={post} />;
+}
+```
+
+**When to Use ISR:**
+- Content changes occasionally
+- Many pages to generate
+- Need static performance + fresh content
+- E-commerce, blogs, documentation
+
+**Benefits:**
+- Static performance
+- Automatic background updates
+- Scales to millions of pages
+- Stale content acceptable for N seconds
+
+<example>
+// ✅ GOOD: ISR for product pages
+// app/products/[id]/page.tsx
+export const revalidate = 300; // Update every 5 minutes
+
+export async function generateStaticParams() {
+  // Generate top 100 products at build time
+  const products = await getTopProducts(100);
+  return products.map((p) => ({ id: p.id }));
+}
+
+export default async function ProductPage({ params }: { params: { id: string } }) {
+  // This runs every 5 minutes in background
+  const product = await getProduct(params.id);
+  
+  return <ProductDetails product={product} />;
+}
+</example>
+
+### Server-Side Rendering (SSR)
+
+**Dynamic Per-Request Rendering:**
+```typescript
+// app/dashboard/page.tsx
+// No revalidate = dynamic per request
+
+export default async function Dashboard() {
+  const session = await getServerSession();
+  const data = await getDashboardData(session.user.id);
+  
+  return <DashboardView data={data} />;
+}
+```
+
+**When to Use SSR:**
+- User-specific content
+- Frequently changing data
+- Authentication required
+- Real-time data needed
+
+**Benefits:**
+- Always fresh data
+- User-specific rendering
+- SEO with dynamic content
+
+**Downsides:**
+- Slower than static (per-request computation)
+- Higher server costs
+- Can't be CDN-cached globally
+
+<example>
+// ✅ GOOD: SSR for user-specific pages
+// app/profile/page.tsx
+import { getServerSession } from 'next-auth';
+
+export default async function ProfilePage() {
+  const session = await getServerSession();
+  
+  if (!session) {
+    redirect('/login');
+  }
+  
+  // Fetch user-specific data
+  const profile = await getUserProfile(session.user.id);
+  
+  return <ProfileView profile={profile} />;
+}
+</example>
+
+### Streaming SSR
+
+**Progressive Rendering with Suspense:**
+```typescript
+// app/dashboard/page.tsx
+import { Suspense } from 'react';
+
+export default function Dashboard() {
+  return (
+    <div>
+      <h1>Dashboard</h1>
+      
+      {/* Fast content renders immediately */}
+      <QuickStats />
+      
+      {/* Slow content streams in */}
+      <Suspense fallback={<LoadingSkeleton />}>
+        <SlowDataComponent />
+      </Suspense>
+    </div>
+  );
+}
+
+async function SlowDataComponent() {
+  const data = await fetchSlowData();
+  return <DataDisplay data={data} />;
+}
+```
+
+**When to Use Streaming:**
+- Mix of fast and slow data
+- Improve perceived performance
+- Better UX during loading
+- Parallel data fetching
+
+<example>
+// ✅ GOOD: Streaming for better UX
+export default function AssessmentPage() {
+  return (
+    <div>
+      {/* Renders immediately */}
+      <AssessmentHeader />
+      
+      {/* Streams in parallel */}
+      <Suspense fallback={<ChartSkeleton />}>
+        <AssessmentChart />
+      </Suspense>
+      
+      <Suspense fallback={<TableSkeleton />}>
+        <AssessmentTable />
+      </Suspense>
+    </div>
+  );
+}
+</example>
+
+## Decision Matrix
+
+### Choose Rendering Strategy Based On:
+
+| Content Type | User-Specific? | Update Frequency | Strategy | Example |
+|-------------|----------------|------------------|----------|---------|
+| Marketing | No | Rarely | SSG | Landing page |
+| Blog | No | Occasionally | ISR | Blog posts |
+| Documentation | No | Daily | ISR | Docs |
+| Dashboard | Yes | Real-time | SSR | User dashboard |
+| Profile | Yes | On-demand | SSR | User profile |
+| Product List | No | Hourly | ISR | E-commerce |
+| Cart | Yes | Real-time | SSR + CSR | Shopping cart |
+| Search | No/Yes | Real-time | SSR + CSR | Search results |
+
+### Performance Trade-offs:
+
+**Fastest to Slowest:**
+1. SSG (build-time) - ~50ms TTFB
+2. ISR (first hit) - ~50ms TTFB
+3. ISR (revalidating) - ~100-200ms TTFB
+4. SSR - ~200-500ms TTFB
+5. CSR - ~500-2000ms TTFB
+
+## Common Patterns
+
+### Pattern 1: Hybrid Rendering
+```typescript
+// Server Component fetches data
+export default async function Page() {
+  const data = await fetchData();
+  
+  return (
+    <div>
+      {/* Client Component for interactivity */}
+      <InteractiveWidget data={data} />
+    </div>
+  );
+}
+```
+
+### Pattern 2: Nested Suspense
+```typescript
+export default function Page() {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <SlowPage />
+    </Suspense>
+  );
+}
+
+async function SlowPage() {
+  const data = await fetchData();
+  
+  return (
+    <div>
+      <Header data={data} />
+      <Suspense fallback={<ContentSkeleton />}>
+        <SlowContent id={data.id} />
+      </Suspense>
+    </div>
+  );
+}
+```
+
+### Pattern 3: On-Demand Revalidation
+```typescript
+// app/api/revalidate/route.ts
+import { revalidatePath } from 'next/cache';
+
+export async function POST(request: Request) {
+  const { path } = await request.json();
+  revalidatePath(path);
+  return Response.json({ revalidated: true });
+}
+
+// Trigger from webhook or admin action
+await fetch('/api/revalidate', {
+  method: 'POST',
+  body: JSON.stringify({ path: '/blog/my-post' }),
+});
+```
+
+## Tools & Documentation
+
+### Complete Workflow Documentation
+- **`guides/Rendering-Strategies-Guide.md`** - Detailed rendering guide
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master performance guide
+- **`.cursor/docs/ai-workflows.md#rendering-patterns`** - Proven patterns
+
+### Quick Start
+1. **Default:** Use Server Components
+2. **Interactive:** Add 'use client' only where needed
+3. **Static:** Use generateStaticParams for static pages
+4. **Fresh Data:** Use revalidate for ISR
+
+## See Also
+
+### Documentation
+- **`guides/Rendering-Strategies-Guide.md`** - Comprehensive rendering guide
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master performance guide
+
+### Related Rules
+- @062-core-web-vitals.mdc - Core Web Vitals optimization
+- @064-caching-strategies.mdc - Caching for rendered content
+- @070-nextjs-architecture.mdc - Next.js architecture patterns
+
+## Priority
+**P1 (Important)** - Correct rendering strategy significantly impacts performance and SEO.
+
+## References
+- [Next.js Rendering](https://nextjs.org/docs/app/building-your-application/rendering)
+- [React Server Components](https://react.dev/blog/2023/03/22/react-labs-what-we-have-been-working-on-march-2023#react-server-components)
+- [Next.js Data Fetching](https://nextjs.org/docs/app/building-your-application/data-fetching)

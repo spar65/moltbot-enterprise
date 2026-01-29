@@ -1,0 +1,414 @@
+---
+description: Use when designing authentication systems, middleware, and access control patterns to ensure security, usability, and maintainability
+globs: "src/middleware/*auth*.ts,pages/api/**/*.ts,src/lib/*auth*.ts"
+---
+
+# Authentication Architecture Standards
+
+## Context
+
+- Apply when designing authentication and authorization systems
+- Use for implementing dual authentication patterns (sessions + API keys)
+- Follow when building middleware for access control
+- Reference when integrating multiple authentication providers
+
+## Requirements
+
+### Authentication Strategy Design
+
+- Support multiple authentication methods (sessions, API keys, OAuth)
+- Implement graceful fallback between authentication methods
+- Provide consistent user context regardless of auth method
+- Design for extensibility to add new auth methods
+- Implement proper error handling with actionable messages
+
+### Middleware Architecture
+
+- Create composable authentication middleware functions
+- Support HOC (Higher-Order Component) patterns for easy endpoint protection
+- Implement request context enrichment with user information
+- Provide standardized error responses across all auth failures
+- Design middleware to be testable in isolation
+
+### Session Management
+
+- Integrate with established session providers (Auth0, Firebase, etc.)
+- Implement proper session validation and refresh
+- Handle session expiration gracefully
+- Provide session-based rate limiting when needed
+- Support cross-domain session handling if required
+
+### API Key Management
+
+- Implement secure key generation and validation
+- Support environment-specific keys (live, test, dev)
+- Provide key rotation and revocation capabilities
+- Implement usage tracking and analytics
+- Support different permission levels per key
+
+### Security Patterns
+
+- Implement defense in depth with multiple validation layers
+- Use constant-time comparisons for sensitive operations
+- Implement proper rate limiting to prevent abuse
+- Log security events for monitoring and compliance
+- Handle authentication bypass attempts securely
+
+### Error Handling Standards
+
+- Provide specific error codes for different auth failure types
+- Include helpful hints for resolution without exposing security details
+- Implement consistent error response formats
+- Log security events without exposing sensitive information
+- Support debugging in development while maintaining security in production
+
+## Examples
+
+<example>
+// ✅ Good: Dual authentication middleware with fallback
+export interface AuthenticatedRequest extends NextApiRequest {
+  user: {
+    sub: string;
+    authType: 'session' | 'api_key' | 'oauth';
+    keyId?: string;
+    environment?: string;
+    email?: string;
+    permissions?: string[];
+  };
+}
+
+export function withAuth(handler: NextApiHandler) {
+return async (req: NextApiRequest, res: NextApiResponse) => {
+// Try API key authentication first
+const apiKeyAuth = await tryApiKeyAuth(req);
+if (apiKeyAuth.success) {
+(req as AuthenticatedRequest).user = {
+sub: apiKeyAuth.userId,
+authType: 'api_key',
+keyId: apiKeyAuth.keyId,
+environment: apiKeyAuth.environment,
+permissions: apiKeyAuth.permissions
+};
+return handler(req, res);
+}
+
+    // Try session authentication
+    const sessionAuth = await trySessionAuth(req, res);
+    if (sessionAuth.success) {
+      (req as AuthenticatedRequest).user = {
+        sub: sessionAuth.user.sub,
+        authType: 'session',
+        email: sessionAuth.user.email,
+        permissions: sessionAuth.permissions
+      };
+      return handler(req, res);
+    }
+
+    // Authentication failed
+    return res.status(401).json({
+      error: 'Authentication required',
+      code: 'AUTH_REQUIRED',
+      hint: 'Provide valid API key or authenticate with session',
+      supportedMethods: ['api_key', 'session']
+    });
+
+};
+}
+</example>
+
+<example>
+// ✅ Good: Composable authentication helpers
+export const authHelpers = {
+  // Check if user has specific permission
+  hasPermission: (req: AuthenticatedRequest, permission: string): boolean => {
+    return req.user?.permissions?.includes(permission) ?? false;
+  },
+
+// Check if user is admin
+isAdmin: (req: AuthenticatedRequest): boolean => {
+return req.user?.permissions?.includes('admin') ?? false;
+},
+
+// Check if using API key authentication
+isApiKeyAuth: (req: AuthenticatedRequest): boolean => {
+return req.user?.authType === 'api_key';
+},
+
+// Get rate limit key for user
+getRateLimitKey: (req: AuthenticatedRequest): string => {
+if (req.user.authType === 'api_key') {
+return `api_key:${req.user.keyId}`;
+}
+return `user:${req.user.sub}`;
+}
+};
+
+// Usage in protected endpoints
+export default withAuth(async (req: AuthenticatedRequest, res: NextApiResponse) => {
+if (!authHelpers.hasPermission(req, 'read:data')) {
+return res.status(403).json({
+error: 'Insufficient permissions',
+code: 'PERMISSION_DENIED',
+required: 'read:data'
+});
+}
+
+// Handle authorized request
+});
+</example>
+
+<example>
+// ✅ Good: Environment-aware authentication
+export function withEnvironmentAuth(
+  handler: NextApiHandler,
+  options: {
+    allowedEnvironments?: ('live' | 'test' | 'dev')[];
+    requirePermissions?: string[];
+  } = {}
+) {
+  return withAuth(async (req: AuthenticatedRequest, res: NextApiResponse) => {
+    // Check environment restrictions for API keys
+    if (req.user.authType === 'api_key' && options.allowedEnvironments) {
+      if (!options.allowedEnvironments.includes(req.user.environment!)) {
+        return res.status(403).json({
+          error: 'Environment not allowed',
+          code: 'ENVIRONMENT_FORBIDDEN',
+          allowed: options.allowedEnvironments,
+          current: req.user.environment
+        });
+      }
+    }
+
+    // Check permissions
+    if (options.requirePermissions) {
+      const hasAllPermissions = options.requirePermissions.every(permission =>
+        authHelpers.hasPermission(req, permission)
+      );
+
+      if (!hasAllPermissions) {
+        return res.status(403).json({
+          error: 'Insufficient permissions',
+          code: 'PERMISSION_DENIED',
+          required: options.requirePermissions
+        });
+      }
+    }
+
+    return handler(req, res);
+
+});
+}
+</example>
+
+<example>
+// ✅ Good: Secure authentication validation
+async function tryApiKeyAuth(req: NextApiRequest): Promise<AuthResult> {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return { success: false, error: 'NO_API_KEY' };
+    }
+
+    const apiKey = authHeader.slice(7);
+
+    // Validate key format before expensive operations
+    if (!isValidKeyFormat(apiKey)) {
+      return { success: false, error: 'INVALID_KEY_FORMAT' };
+    }
+
+    // Rate limit validation attempts by IP
+    const clientIp = getClientIp(req);
+    if (await isRateLimited(`validation:${clientIp}`)) {
+      return { success: false, error: 'RATE_LIMITED' };
+    }
+
+    const validation = await ApiKeyManager.validateApiKey(apiKey);
+    if (!validation) {
+      // Log failed validation attempt
+      await logSecurityEvent('api_key_validation_failed', {
+        ip: clientIp,
+        userAgent: req.headers['user-agent'],
+        keyPrefix: apiKey.substring(0, 10) + '...'
+      });
+      return { success: false, error: 'INVALID_API_KEY' };
+    }
+
+    // Update last used timestamp
+    await ApiKeyManager.updateLastUsed(validation.keyId, {
+      ip: clientIp,
+      userAgent: req.headers['user-agent'],
+      endpoint: req.url
+    });
+
+    return {
+      success: true,
+      userId: validation.userId,
+      keyId: validation.keyId,
+      environment: validation.environment,
+      permissions: await getUserPermissions(validation.userId)
+    };
+
+} catch (error) {
+console.error('API key authentication error:', error);
+return { success: false, error: 'AUTH_ERROR' };
+}
+}
+</example>
+
+<example type="invalid">
+// ❌ Bad: Exposing sensitive information in errors
+return res.status(401).json({
+  error: 'Invalid API key: vibe_live_abc123...',
+  userId: 'user-123',
+  actualHash: '$2b$12$...'
+});
+// Never expose key details or internal data
+</example>
+
+<example type="invalid">
+// ❌ Bad: Inconsistent authentication patterns
+if (req.headers.authorization) {
+  // Handle API key
+} else if (req.cookies.session) {
+  // Handle session
+} else {
+  throw new Error('Not authenticated');
+}
+// Inconsistent error handling and response formats
+</example>
+
+<example type="invalid">
+// ❌ Bad: No rate limiting on authentication
+const validation = await ApiKeyManager.validateApiKey(apiKey);
+if (!validation) {
+  return { error: 'Invalid key' };
+}
+// Vulnerable to brute force attacks
+</example>
+
+## Architecture Patterns
+
+### Layered Authentication
+
+1. **Request Layer**: Extract and validate auth headers/cookies
+2. **Validation Layer**: Verify credentials against data store
+3. **Authorization Layer**: Check permissions and access rights
+4. **Context Layer**: Enrich request with user information
+
+### Authentication Flow Design
+
+1. **Primary Method**: Try most specific auth method first (API keys)
+2. **Fallback Methods**: Gracefully fall back to session auth
+3. **Error Handling**: Provide clear, actionable error messages
+4. **Logging**: Record auth attempts for security monitoring
+
+### Permission Management
+
+- **Role-Based Access Control (RBAC)**: Define roles with specific permissions
+- **Resource-Based Permissions**: Control access to specific resources
+- **Environment-Specific Permissions**: Different access per environment
+- **Temporary Permissions**: Support time-limited access grants
+
+## Security Patterns
+
+### Defense in Depth
+
+- **Multiple Validation Layers**: Format, rate limits, cryptographic validation
+- **Audit Logging**: Track all authentication attempts and failures
+- **Anomaly Detection**: Monitor for unusual authentication patterns
+- **Fail-Safe Defaults**: Default to deny access when in doubt
+
+### Rate Limiting Strategy
+
+- **IP-Based Limits**: Prevent attacks from specific addresses
+- **User-Based Limits**: Prevent account-specific abuse
+- **Global Limits**: Protect against distributed attacks
+- **Exponential Backoff**: Increase delays after repeated failures
+
+### Monitoring and Alerting
+
+- **Failed Authentication Spikes**: Alert on unusual failure rates
+- **Geographic Anomalies**: Detect access from unusual locations
+- **Concurrent Session Limits**: Monitor for credential sharing
+- **Permission Escalation Attempts**: Track unauthorized access attempts
+
+## Testing Requirements
+
+### Authentication Testing
+
+- Test each authentication method in isolation
+- Test fallback behavior between methods
+- Test rate limiting and security controls
+- Test error handling and response formats
+
+### Security Testing
+
+- Test with invalid credentials and malformed requests
+- Test rate limiting effectiveness
+- Test permission boundary enforcement
+- Test audit logging completeness
+
+### Integration Testing
+
+- Test middleware composition and chaining
+- Test with real authentication providers
+- Test performance under load
+- Test error propagation and handling
+
+## Performance Considerations
+
+### Caching Strategy
+
+- Cache valid authentication results (with short TTL)
+- Cache user permissions and roles
+- Cache rate limit counters
+- Implement cache invalidation on auth changes
+
+### Database Optimization
+
+- Index authentication lookup fields
+- Use connection pooling for auth queries
+- Implement read replicas for validation queries
+- Monitor auth query performance
+
+### Async Operations
+
+- Implement async audit logging
+- Use background jobs for cleanup operations
+- Queue non-critical auth-related tasks
+- Handle auth provider timeouts gracefully
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Implementation workflows
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Architecture validation
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate architecture implementation
+- **`.cursor/tools/check-env-vars.sh`** - Verify configuration
+- **`.cursor/tools/inspect-model.sh`** - Check user/session data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @014-third-party-auth.mdc - Authentication implementation standards
+- @019-auth0-integration.mdc - Auth0 integration patterns
+- @046-session-validation.mdc - Session security architecture
+- @072-auth-security.mdc - Security architecture patterns
+- @120-auth-architecture-patterns.mdc - General architecture patterns
+- @373-api-key-system-design.mdc - API key architecture (related)
+- @400-auth-testing-patterns.mdc - Testing the architecture
+
+### Quick Start
+1. **Review:** This rule (detailed architecture standards)
+2. **Validate:** `.cursor/tools/check-auth-config.sh`
+3. **Implement:** Follow `.cursor/docs/security-workflows.md#auth0-integration-workflow`
+4. **Test:** See @400-auth-testing-patterns.mdc
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH_ARCHITECTURE_PATTERNS_GUIDE.md`** - **CRITICAL:** Auth architecture patterns!
+- **`guides/AUTH0_CURRENT_IMPLEMENTATION.md`** - Current Auth0 architecture
+- **`guides/auth0/03-Advanced-Auth0-Integration.md`** - Advanced patterns
+- **`guides/AUTH0_DOS_AND_DONTS.md`** - Architecture best practices

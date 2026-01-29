@@ -1,0 +1,610 @@
+---
+description: Apply CI/CD pipeline standards when designing and implementing continuous integration and deployment to ensure quality and security
+globs: "**/*"
+---
+
+# CI/CD Pipeline Standards
+
+## Context
+Continuous Integration and Continuous Deployment (CI/CD) automates the path from code commit to production deployment. A well-designed pipeline ensures code quality, catches bugs early, and enables rapid, safe deployments.
+
+**Key Goals:**
+- Automated testing on every commit
+- Fast feedback (< 10 minutes)
+- Consistent, repeatable deployments
+- Security scanning built-in
+
+## Requirements
+
+### 1. Pipeline Stages
+
+**Standard CI/CD Pipeline:**
+```yaml
+Pipeline Stages:
+  1. Trigger (on push/PR)
+  2. Checkout code
+  3. Install dependencies
+  4. Lint & Format check
+  5. Type check (TypeScript)
+  6. Unit tests
+  7. Integration tests
+  8. Security scan
+  9. Build
+  10. Deploy (if main branch)
+  11. Post-deploy verification
+  12. Notify team
+```
+
+**GitHub Actions Example:**
+```yaml
+# .github/workflows/ci-cd.yml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Stage 1: Lint and Type Check
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run linter
+        run: npm run lint
+      
+      - name: Run type check
+        run: npm run type-check
+  
+  # Stage 2: Unit Tests
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run unit tests
+        run: npm run test:unit
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/coverage-final.json
+  
+  # Stage 3: Integration Tests
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
+        run: npx prisma migrate deploy
+      
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
+        run: npm run test:integration
+  
+  # Stage 4: Security Scan
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Run dependency audit
+        run: npm audit --audit-level=high
+      
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      
+      - name: Scan for secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+  
+  # Stage 5: Build
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, test, integration, security]
+    timeout-minutes: 10
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build application
+        run: npm run build
+        env:
+          # Build-time env vars only
+          NEXT_PUBLIC_APP_VERSION: ${{ github.sha }}
+      
+      - name: Check bundle size
+        run: npm run check-bundle-size
+  
+  # Stage 6: Deploy (main branch only)
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 15
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v20
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+      
+      - name: Wait for deployment
+        run: sleep 30
+      
+      - name: Run smoke tests
+        run: npm run test:smoke
+        env:
+          APP_URL: https://app.example.com
+  
+  # Stage 7: Notify
+  notify:
+    name: Notify Team
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: always()
+    
+    steps:
+      - name: Notify Slack
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Deployment ${{ job.status }}'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+```
+
+### 2. Quality Gates
+
+**Required Checks Before Merge:**
+```yaml
+Quality Gates:
+  - ✅ All tests pass (unit + integration)
+  - ✅ Linting passes (no errors)
+  - ✅ Type checking passes (no TypeScript errors)
+  - ✅ Code coverage > 80%
+  - ✅ Security scan passes (no high/critical vulnerabilities)
+  - ✅ Bundle size within limits
+  - ✅ At least 1 code review approval
+  - ✅ All PR comments resolved
+```
+
+**Branch Protection Rules:**
+```yaml
+# GitHub Settings → Branches → main → Protection rules
+
+Require pull request before merging: ✅
+  - Require approvals: 1
+  - Dismiss stale reviews: ✅
+  - Require review from Code Owners: ✅
+
+Require status checks to pass: ✅
+  - Require branches to be up to date: ✅
+  - Status checks required:
+    - lint
+    - test
+    - integration
+    - security
+    - build
+
+Require conversation resolution: ✅
+
+Include administrators: ✅
+
+Do not allow force pushes: ✅
+
+Do not allow deletions: ✅
+```
+
+### 3. Fast Feedback
+
+**Pipeline Speed Optimization:**
+```yaml
+Optimization Strategies:
+  1. Parallel Jobs:
+     - Run lint, test, security in parallel
+     - Don't wait for one to finish
+  
+  2. Caching:
+     - Cache node_modules (npm ci with cache)
+     - Cache build artifacts
+     - Cache test databases
+  
+  3. Selective Testing:
+     - Run only affected tests (if possible)
+     - Run smoke tests instead of full E2E on every PR
+  
+  4. Timeouts:
+     - Set reasonable timeouts (5-15 min per job)
+     - Fail fast if hanging
+  
+  5. Resource Sizing:
+     - Use appropriate runner size
+     - Consider self-hosted runners for speed
+```
+
+**Speed Targets:**
+```yaml
+Pipeline Speed Goals:
+  - Lint: < 2 minutes
+  - Unit tests: < 5 minutes
+  - Integration tests: < 10 minutes
+  - Security scan: < 5 minutes
+  - Build: < 5 minutes
+  - Deploy: < 5 minutes
+  
+Total Pipeline: < 15 minutes (PR)
+Total Pipeline: < 20 minutes (Main branch with deploy)
+```
+
+### 4. Environment-Specific Deployments
+
+**Deployment Strategy:**
+```yaml
+Environments:
+  Development:
+    - Trigger: Every commit to feature branches
+    - Deploy to: Vercel preview deployment
+    - Tests: Lint + unit tests only
+    - Purpose: Quick feedback for developers
+  
+  Staging:
+    - Trigger: Merge to develop branch
+    - Deploy to: staging.example.com
+    - Tests: Full test suite
+    - Purpose: Integration testing, QA
+  
+  Production:
+    - Trigger: Merge to main branch
+    - Deploy to: app.example.com
+    - Tests: Full test suite + smoke tests
+    - Purpose: Live user traffic
+```
+
+**Multi-Environment Pipeline:**
+```yaml
+# .github/workflows/deploy-staging.yml
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Run tests
+        run: npm run test
+      
+      - name: Deploy to Vercel Staging
+        uses: amondnet/vercel-action@v20
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--target staging'
+      
+      - name: Run E2E tests against staging
+        run: npm run test:e2e
+        env:
+          APP_URL: https://staging.example.com
+```
+
+### 5. Security in CI/CD
+
+**Security Scanning:**
+```yaml
+Security Checks:
+  1. Dependency Scanning:
+     - npm audit (built-in)
+     - Snyk or Dependabot
+     - Check for known vulnerabilities
+  
+  2. Secret Scanning:
+     - TruffleHog or git-secrets
+     - Prevent committing secrets
+  
+  3. SAST (Static Analysis):
+     - ESLint security rules
+     - SonarQube
+     - CodeQL (GitHub Advanced Security)
+  
+  4. Container Scanning (if using Docker):
+     - Trivy or Snyk
+     - Scan for vulnerabilities in images
+  
+  5. License Compliance:
+     - Check for incompatible licenses
+     - FOSS compliance
+```
+
+**Security Scan Example:**
+```yaml
+# .github/workflows/security.yml
+name: Security Scan
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
+  pull_request:
+    branches: [main]
+
+jobs:
+  dependency-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: false
+      
+      - name: Run Snyk
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: TruffleHog Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+  
+  code-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript
+      
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+```
+
+### 6. Monitoring & Alerting
+
+**Pipeline Monitoring:**
+```yaml
+Metrics to Track:
+  - Pipeline success rate (target: > 95%)
+  - Average pipeline duration (target: < 15 min)
+  - Flaky test rate (target: < 5%)
+  - Deployment frequency (target: multiple per day)
+  - Mean time to recovery (MTTR) (target: < 1 hour)
+  - Change failure rate (target: < 5%)
+```
+
+**Pipeline Alerts:**
+```yaml
+Alert Conditions:
+  - Pipeline failing > 3 times in a row
+  - Pipeline duration > 30 minutes
+  - Security scan finds critical vulnerabilities
+  - Deployment failure
+  - Smoke tests failing after deployment
+```
+
+### 7. Rollback Automation
+
+**Automated Rollback:**
+```yaml
+# Rollback triggers
+Rollback Conditions:
+  - Error rate > 5% after deployment
+  - Smoke tests fail after deployment
+  - Health check failures
+  - Manual rollback trigger
+
+# .github/workflows/auto-rollback.yml
+name: Auto Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Rollback reason'
+        required: true
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rollback Vercel deployment
+        run: vercel rollback --token=${{ secrets.VERCEL_TOKEN }}
+      
+      - name: Notify team
+        uses: 8398a7/action-slack@v3
+        with:
+          status: warning
+          text: 'Deployment rolled back: ${{ github.event.inputs.reason }}'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+```
+
+## Best Practices
+
+### DO:
+- ✅ Run tests on every commit
+- ✅ Keep pipelines fast (< 15 min)
+- ✅ Use parallel jobs when possible
+- ✅ Cache dependencies
+- ✅ Set timeouts on all jobs
+- ✅ Use branch protection rules
+- ✅ Scan for security issues
+- ✅ Monitor pipeline health
+- ✅ Automate rollbacks
+
+### DON'T:
+- ❌ Allow merging without tests passing
+- ❌ Skip security scans
+- ❌ Store secrets in workflow files
+- ❌ Run E2E tests on every PR (too slow)
+- ❌ Deploy without smoke tests
+- ❌ Ignore flaky tests
+- ❌ Have pipelines > 30 minutes
+
+## CI/CD Checklist
+
+```markdown
+## Pipeline Setup Checklist
+
+### Code Quality
+- [ ] Linting configured and runs on every PR
+- [ ] Type checking configured (TypeScript)
+- [ ] Code formatting check (Prettier)
+- [ ] Test coverage tracked (> 80% target)
+
+### Testing
+- [ ] Unit tests run on every commit
+- [ ] Integration tests run on every PR
+- [ ] Smoke tests run after deployment
+- [ ] E2E tests run nightly or on-demand
+
+### Security
+- [ ] Dependency scanning (npm audit or Snyk)
+- [ ] Secret scanning (TruffleHog)
+- [ ] SAST scanning (CodeQL)
+- [ ] License compliance check
+
+### Deployment
+- [ ] Automated deployment to preview (PRs)
+- [ ] Automated deployment to staging (develop)
+- [ ] Automated deployment to production (main)
+- [ ] Rollback procedure automated
+
+### Monitoring
+- [ ] Pipeline success rate tracked
+- [ ] Pipeline duration monitored
+- [ ] Alerts for failures
+- [ ] Post-deploy verification
+
+### Documentation
+- [ ] Pipeline documented
+- [ ] Runbooks for failures
+- [ ] Secrets documented (not values!)
+- [ ] Rollback procedures documented
+```
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - CI/CD workflows
+- **`003-cursor-system-overview.mdc`** ⭐ - System overview
+
+### Complete Guides
+- **`guides/Deployment-Complete-Guide.md`** ⭐ - Complete deployment guide
+- **`guides/Security-Operations-Guide.md`** ⭐ - Security in CI/CD
+
+### Related Rules
+- @200-deployment-infrastructure.mdc - Deployment setup
+- @202-rollback-procedures.mdc - Automated rollback
+- @224-secrets-management.mdc - Secrets in CI/CD
+- @222-metrics-alerting.mdc - Pipeline monitoring
+
+### Tools
+- **`.cursor/tools/check-deployment-health.sh`** - Post-deploy verification
+
+### Quick Start
+1. **Set up GitHub Actions:** Use workflow template above
+2. **Add quality gates:** Tests, linting, security
+3. **Configure branch protection:** Require checks to pass
+4. **Add monitoring:** Track success rate and duration
+5. **Automate deployments:** Main → production, develop → staging
+
+## Priority
+**P1 (Important)** - CI/CD pipelines are essential for maintaining code quality, security, and rapid deployment cadence.
+
+## References
+- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+- [Vercel CI/CD](https://vercel.com/docs/concepts/git)
+- [Google SRE - Release Engineering](https://sre.google/sre-book/release-engineering/)

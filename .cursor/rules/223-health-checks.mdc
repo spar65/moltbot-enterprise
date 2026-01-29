@@ -1,0 +1,547 @@
+---
+description: Apply health check standards when implementing application health endpoints to ensure proper load balancer integration and monitoring
+globs: "**/*.{ts,tsx,js,jsx}"
+---
+
+# Health Check Standards
+
+## Context
+Health checks are the foundation of reliable systems. Load balancers, orchestrators, and monitoring systems use health checks to determine if your application is ready to serve traffic. Proper health checks prevent routing traffic to unhealthy instances and enable automatic recovery.
+
+**Health Check Types:**
+1. **Liveness** - Is the application running?
+2. **Readiness** - Can the application serve traffic?
+3. **Startup** - Has the application finished starting?
+
+## Requirements
+
+### 1. Health Check Endpoints
+
+**Standard Health Endpoints:**
+```typescript
+// app/api/health/route.ts
+
+import { NextResponse } from 'next/server';
+
+// Simple liveness check (app is running)
+export async function GET() {
+  return NextResponse.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+  });
+}
+```
+
+**Readiness Check (Dependencies):**
+```typescript
+// app/api/health/ready/route.ts
+
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
+
+export async function GET() {
+  const checks = {
+    database: 'unknown',
+    cache: 'unknown',
+    externalAPIs: 'unknown',
+  };
+  
+  let overallStatus = 'healthy';
+  
+  try {
+    // Check database
+    await prisma.$queryRaw`SELECT 1`;
+    checks.database = 'healthy';
+  } catch (error) {
+    checks.database = 'unhealthy';
+    overallStatus = 'unhealthy';
+  }
+  
+  try {
+    // Check cache (if using Redis)
+    // await redis.ping();
+    checks.cache = 'healthy';
+  } catch (error) {
+    checks.cache = 'unhealthy';
+    // Cache failure doesn't make app unhealthy
+    // overallStatus = 'degraded';
+  }
+  
+  try {
+    // Check critical external APIs (optional)
+    // const stripeHealth = await fetch('https://api.stripe.com/healthcheck');
+    checks.externalAPIs = 'healthy';
+  } catch (error) {
+    checks.externalAPIs = 'unhealthy';
+    // External API failure = degraded but still serving
+    if (overallStatus === 'healthy') {
+      overallStatus = 'degraded';
+    }
+  }
+  
+  const statusCode = overallStatus === 'healthy' ? 200 : 503;
+  
+  return NextResponse.json({
+    status: overallStatus,
+    timestamp: new Date().toISOString(),
+    checks: checks,
+    version: process.env.NEXT_PUBLIC_APP_VERSION || 'unknown',
+  }, {
+    status: statusCode,
+  });
+}
+```
+
+**Detailed Health Status:**
+```typescript
+// app/api/health/status/route.ts
+
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
+
+export async function GET() {
+  const startTime = Date.now();
+  
+  // Gather health information
+  const health = {
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    version: process.env.NEXT_PUBLIC_APP_VERSION,
+    environment: process.env.NODE_ENV,
+    
+    // System info
+    system: {
+      memory: {
+        used: process.memoryUsage().heapUsed,
+        total: process.memoryUsage().heapTotal,
+        percentage: (process.memoryUsage().heapUsed / process.memoryUsage().heapTotal * 100).toFixed(2),
+      },
+      cpu: process.cpuUsage(),
+    },
+    
+    // Dependencies
+    dependencies: {} as Record<string, any>,
+    
+    // Metrics
+    metrics: {
+      responseTime: 0,
+    },
+  };
+  
+  // Check database
+  try {
+    const dbStart = Date.now();
+    await prisma.$queryRaw`SELECT 1`;
+    health.dependencies.database = {
+      status: 'healthy',
+      responseTime: Date.now() - dbStart,
+    };
+  } catch (error) {
+    health.status = 'unhealthy';
+    health.dependencies.database = {
+      status: 'unhealthy',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+  
+  // Check cache
+  health.dependencies.cache = {
+    status: 'not_configured',
+  };
+  
+  // Response time
+  health.metrics.responseTime = Date.now() - startTime;
+  
+  const statusCode = health.status === 'healthy' ? 200 : 503;
+  
+  return NextResponse.json(health, { status: statusCode });
+}
+```
+
+### 2. Health Check Criteria
+
+**Liveness Check (Minimal):**
+```yaml
+Purpose: Is the process running?
+Checks:
+  - ✅ Process is alive
+  - ✅ Can respond to HTTP requests
+  
+Response Codes:
+  - 200: Alive
+  - 503: Dead (restart needed)
+
+Use Case:
+  - Container orchestrator (Docker, K8s)
+  - Process manager (PM2)
+  - Simple uptime monitoring
+```
+
+**Readiness Check (Comprehensive):**
+```yaml
+Purpose: Can the application serve traffic?
+Checks:
+  - ✅ Database connection working
+  - ✅ Required migrations applied
+  - ✅ Critical dependencies available
+  - ⚠️ Optional dependencies (cache, etc.)
+
+Response Codes:
+  - 200: Ready to serve traffic
+  - 503: Not ready (don't route traffic)
+
+Use Case:
+  - Load balancer health check
+  - Rolling deployment readiness
+  - Auto-scaling decisions
+```
+
+**Startup Check (Initialization):**
+```yaml
+Purpose: Has the application finished starting?
+Checks:
+  - ✅ Database migrations completed
+  - ✅ Configuration loaded
+  - ✅ Connections established
+  - ✅ Caches warmed up
+
+Response Codes:
+  - 200: Startup complete
+  - 503: Still starting (wait longer)
+
+Use Case:
+  - Slow-starting applications
+  - Large initialization workloads
+  - Prevent premature health checks
+```
+
+### 3. Health Check Best Practices
+
+**Fast Response Time:**
+```typescript
+// ❌ BAD: Slow health check (> 1 second)
+export async function GET() {
+  // This makes 10 queries! Too slow!
+  const users = await prisma.user.findMany();
+  const posts = await prisma.post.findMany();
+  // ... more queries
+  
+  return NextResponse.json({ status: 'ok' });
+}
+
+// ✅ GOOD: Fast health check (< 100ms)
+export async function GET() {
+  // Single lightweight query
+  await prisma.$queryRaw`SELECT 1`;
+  
+  return NextResponse.json({ status: 'ok' });
+}
+```
+
+**Timeout Protection:**
+```typescript
+// Health check with timeout
+export async function GET() {
+  const timeout = 5000; // 5 seconds
+  
+  try {
+    const result = await Promise.race([
+      checkDependencies(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Health check timeout')), timeout)
+      ),
+    ]);
+    
+    return NextResponse.json({ status: 'healthy' });
+  } catch (error) {
+    return NextResponse.json(
+      { status: 'unhealthy', error: error.message },
+      { status: 503 }
+    );
+  }
+}
+```
+
+**Avoid False Negatives:**
+```typescript
+// ❌ BAD: Too strict (false negatives)
+export async function GET() {
+  // Failing if cache is down, but app works without cache
+  const cacheHealth = await checkCache();
+  if (!cacheHealth) {
+    return NextResponse.json({ status: 'unhealthy' }, { status: 503 });
+  }
+  
+  return NextResponse.json({ status: 'ok' });
+}
+
+// ✅ GOOD: Distinguish critical vs optional
+export async function GET() {
+  const dbHealth = await checkDatabase(); // Critical
+  const cacheHealth = await checkCache(); // Optional
+  
+  if (!dbHealth) {
+    // Database is critical - mark unhealthy
+    return NextResponse.json({ 
+      status: 'unhealthy',
+      database: 'down',
+    }, { status: 503 });
+  }
+  
+  if (!cacheHealth) {
+    // Cache is optional - mark degraded but still serve
+    return NextResponse.json({ 
+      status: 'degraded',
+      cache: 'down',
+    }, { status: 200 });
+  }
+  
+  return NextResponse.json({ status: 'healthy' });
+}
+```
+
+### 4. Monitoring Integration
+
+**Vercel Health Checks:**
+```javascript
+// Vercel automatically monitors:
+// - Function invocations
+// - Error rates
+// - Response times
+
+// Add custom health endpoint
+// vercel.json
+{
+  "functions": {
+    "api/health.ts": {
+      "maxDuration": 5
+    }
+  }
+}
+```
+
+**External Monitoring (UptimeRobot, Pingdom):**
+```yaml
+Monitor Configuration:
+  URL: https://app.example.com/api/health/ready
+  Method: GET
+  Interval: 60 seconds
+  Timeout: 30 seconds
+  Expected Status: 200
+  Expected Content: "healthy"
+  
+  Alerts:
+    - Down for > 2 minutes: Page on-call
+    - Slow response (> 1s): Email team
+    - Degraded status: Slack notification
+```
+
+**Load Balancer Health Checks:**
+```yaml
+# If using AWS ALB, CloudFlare, etc.
+Health Check:
+  Path: /api/health/ready
+  Protocol: HTTPS
+  Port: 443
+  Interval: 30 seconds
+  Timeout: 5 seconds
+  Healthy threshold: 2 consecutive successes
+  Unhealthy threshold: 3 consecutive failures
+```
+
+### 5. Health Check Response Format
+
+**Standard Response:**
+```typescript
+interface HealthResponse {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  timestamp: string;
+  version?: string;
+  uptime?: number;
+  checks?: {
+    [key: string]: {
+      status: 'healthy' | 'unhealthy';
+      responseTime?: number;
+      error?: string;
+    };
+  };
+  metrics?: {
+    responseTime: number;
+    memory?: MemoryUsage;
+  };
+}
+
+// Example responses:
+
+// Healthy
+{
+  "status": "healthy",
+  "timestamp": "2024-01-20T10:30:00Z",
+  "version": "1.2.3",
+  "uptime": 3600,
+  "checks": {
+    "database": {
+      "status": "healthy",
+      "responseTime": 15
+    }
+  },
+  "metrics": {
+    "responseTime": 20
+  }
+}
+
+// Degraded (non-critical service down)
+{
+  "status": "degraded",
+  "timestamp": "2024-01-20T10:30:00Z",
+  "checks": {
+    "database": {
+      "status": "healthy"
+    },
+    "cache": {
+      "status": "unhealthy",
+      "error": "Connection timeout"
+    }
+  }
+}
+
+// Unhealthy (critical service down)
+{
+  "status": "unhealthy",
+  "timestamp": "2024-01-20T10:30:00Z",
+  "checks": {
+    "database": {
+      "status": "unhealthy",
+      "error": "Connection refused"
+    }
+  }
+}
+```
+
+### 6. Security Considerations
+
+**Public vs Private Health Checks:**
+```typescript
+// Public health check (minimal info)
+// app/api/health/route.ts
+export async function GET() {
+  return NextResponse.json({ status: 'ok' });
+}
+
+// Private detailed health check (requires auth)
+// app/api/health/status/route.ts
+export async function GET(request: Request) {
+  // Require authentication
+  const authHeader = request.headers.get('authorization');
+  if (authHeader !== `Bearer ${process.env.HEALTH_CHECK_TOKEN}`) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+  
+  // Return detailed health info
+  return NextResponse.json({
+    status: 'healthy',
+    checks: { /* detailed checks */ },
+    metrics: { /* detailed metrics */ },
+  });
+}
+```
+
+**Rate Limiting:**
+```typescript
+// Prevent health check abuse
+import { rateLimit } from '@/lib/rate-limit';
+
+const limiter = rateLimit({
+  interval: 60 * 1000, // 1 minute
+  uniqueTokenPerInterval: 500,
+});
+
+export async function GET(request: Request) {
+  try {
+    await limiter.check(request, 100); // 100 requests per minute
+  } catch {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded' },
+      { status: 429 }
+    );
+  }
+  
+  // Health check logic
+  return NextResponse.json({ status: 'ok' });
+}
+```
+
+## Health Check Checklist
+
+```markdown
+## Implementation Checklist
+
+### Basic Health Checks
+- [ ] `/api/health` endpoint (liveness)
+- [ ] Returns 200 when healthy
+- [ ] Returns 503 when unhealthy
+- [ ] Response time < 100ms
+
+### Readiness Checks
+- [ ] `/api/health/ready` endpoint
+- [ ] Checks database connectivity
+- [ ] Checks critical dependencies
+- [ ] Distinguishes critical vs optional failures
+
+### Monitoring Integration
+- [ ] External monitoring configured (UptimeRobot, etc.)
+- [ ] Load balancer health checks configured
+- [ ] Alerts set up for failures
+- [ ] Dashboard shows health status
+
+### Best Practices
+- [ ] Fast response time (< 100ms)
+- [ ] Timeout protection (< 5s)
+- [ ] No false negatives
+- [ ] Proper HTTP status codes
+- [ ] Structured JSON response
+
+### Security
+- [ ] Public endpoint minimal (no sensitive info)
+- [ ] Detailed endpoint requires auth
+- [ ] Rate limiting implemented
+- [ ] No secrets in responses
+```
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Health check workflows
+- **`003-cursor-system-overview.mdc`** ⭐ - System overview
+
+### Complete Guides
+- **`guides/Monitoring-Complete-Guide.md`** ⭐ - Complete monitoring setup
+- **`guides/Deployment-Complete-Guide.md`** ⭐ - Health checks in deployment
+
+### Related Rules
+- @221-application-monitoring.mdc - Application monitoring
+- @222-metrics-alerting.mdc - Health check alerts
+- @202-rollback-procedures.mdc - Health check triggers rollback
+- @203-ci-cd-pipeline-standards.mdc - Health checks in CI/CD
+
+### Tools
+- **`.cursor/tools/check-deployment-health.sh`** ⭐ - Automated health verification
+
+### Quick Start
+1. **Create `/api/health`:** Simple liveness check
+2. **Create `/api/health/ready`:** Readiness with dependencies
+3. **Configure monitoring:** External monitoring service
+4. **Set up alerts:** Page on-call when unhealthy
+5. **Test regularly:** Verify health checks work
+
+## Priority
+**P1 (Important)** - Health checks are essential for load balancing, auto-scaling, and monitoring application availability.
+
+## References
+- [Kubernetes Health Checks](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
+- [AWS Load Balancer Health Checks](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html)
+- [Health Check Response Format](https://tools.ietf.org/id/draft-inadarei-api-health-check-06.html)

@@ -1,0 +1,126 @@
+---
+
+description: Apply cross-platform integration standards when implementing email marketing features to ensure unified customer data and consistent experiences across systems
+globs: "src/{lib,pages/api}/\*_/_.{js,jsx,ts,tsx}"
+
+---
+
+# Cross-Platform Integration Standards
+
+## Data Synchronization
+
+- Implement bidirectional data synchronization between email platform and other systems
+- Apply consistent field mapping across all integrated platforms
+- Create conflict resolution protocols for data inconsistencies
+- Implement real-time synchronization for critical customer data
+- Document data flow diagrams for all integration points
+- Apply proper error handling for synchronization failures
+
+## Customer Identity Resolution
+
+- Implement unified customer identification across platforms
+- Create primary and secondary identity resolution methods
+- Apply deterministic and probabilistic matching techniques
+- Implement proper privacy controls for identity resolution
+- Document identity resolution logic and success rates
+- Create fallback mechanisms for unresolved identities
+
+## Event Handling
+
+- Implement standardized event schema across platforms
+- Create centralized event collection and distribution
+- Apply consistent event naming conventions
+- Implement event validation and sanitization
+- Document event taxonomy for cross-platform actions
+- Create event handling failure recovery mechanisms
+
+## Unified Segmentation
+
+- Create segments that incorporate data from multiple sources
+- Implement segment synchronization across platforms
+- Apply consistent segment naming conventions
+- Document segment qualification criteria across systems
+- Create segment membership reconciliation processes
+- Implement segment analytics across platforms
+
+## Testing and Monitoring
+
+- Create comprehensive integration test suites
+- Implement real-time monitoring of integration points
+- Apply alerting for integration failures or anomalies
+- Create integration health dashboards
+- Document integration failure recovery procedures
+- Implement periodic integration verification processes
+
+## See Also
+
+### Related Rules
+
+- @076-mailchimp-integration-standards.mdc - Email platform data synchronization
+- @080-cross-service-data-consistency.mdc - Cross-service consistency patterns
+- @025-multi-tenancy.mdc - Multi-tenant data isolation in integrations
+- @060-api-standards.mdc - API integration standards
+- @012-api-security.mdc - Secure API integration patterns
+- @221-application-monitoring.mdc - Integration monitoring and alerting
+- @222-metrics-alerting.mdc - Integration health metrics
+
+### Tools & Documentation
+
+- **`.cursor/tools/test-integration-sync.sh`** - Test cross-platform data sync
+  ```bash
+  ./.cursor/tools/test-integration-sync.sh --system mailchimp
+  # Tests: Data sync, identity resolution, event handling
+  ```
+
+### Comprehensive Guides
+
+- **`guides/Email-Cross-Platform-Integration.md`** - Email system integration patterns
+- **`guides/Email-MailChimp-Integration-Guide.md`** - MailChimp-specific integration
+- **`guides/Multi-Tenant-Architecture-Complete-Guide.md`** - Multi-tenant integration patterns
+
+### Quick Start - Cross-Platform Integration
+
+```bash
+# 1. Define unified customer schema
+# Map fields across all platforms (email, CRM, product, etc.)
+
+# 2. Implement identity resolution
+# Create primary key (email) and secondary keys (user_id, customer_id)
+
+# 3. Set up bidirectional sync
+# Email platform ↔ CRM ↔ Product ↔ Analytics
+
+# 4. Implement event taxonomy
+# Standardize event names across all systems
+
+# 5. Create unified segments
+# Combine data from multiple sources for targeting
+
+# 6. Monitor integration health
+# Set up alerts for sync failures, identity mismatches
+```
+
+### Key Differences from Email-Specific Rules
+
+**This rule (081)** focuses on:
+
+- ✅ **Cross-system** customer identity (not just email)
+- ✅ **Multi-platform** data synchronization (CRM + Email + Product + Analytics)
+- ✅ **Unified segmentation** (combining data from all sources)
+- ✅ **Standardized events** across all platforms
+
+**Email-specific rules** (076, etc.) focus on:
+
+- ✅ **Email platform only** (MailChimp, SendGrid, etc.)
+- ✅ **Email-specific features** (templates, campaigns, lists)
+- ✅ **Email deliverability** (SPF, DKIM, DMARC)
+- ✅ **Email compliance** (GDPR, CAN-SPAM, CASL)
+
+**Use both together** for complete email marketing infrastructure!
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important)  
+**Scope**: Cross-platform customer data integration  
+**Last Updated**: November 20, 2025

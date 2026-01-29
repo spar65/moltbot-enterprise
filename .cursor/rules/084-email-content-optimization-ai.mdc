@@ -1,0 +1,120 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply AI-powered content optimization standards when creating email content to ensure maximum engagement and effectiveness through data-driven content decisions
+globs: "src/{lib,pages/api}/**/*.{js,jsx,ts,tsx}"
+___
+
+# Email Content Optimization AI Standards
+
+## Subject Line Optimization
+- Implement AI-driven subject line generation and testing
+- Apply natural language processing for sentiment analysis
+- Create subject line effectiveness prediction models
+- Document optimal subject line patterns by audience segment
+- Implement multivariate testing of AI-generated subject lines
+- Apply personalization variables within optimized subject lines
+
+## Content Generation and Enhancement
+- Implement AI assistance for email content creation
+- Apply style consistency models for brand voice preservation
+- Create readability optimization for different audience segments
+- Document effectiveness metrics for AI-generated content
+- Implement AI grammar and style enhancement
+- Apply content length optimization based on engagement data
+
+## Personalization Intelligence
+- Implement AI-driven personalization beyond basic merge fields
+- Apply behavioral data for content recommendation systems
+- Create dynamic content selection based on predicted engagement
+- Document personalization effectiveness by content type
+- Implement fallback content strategies for AI personalization
+- Apply progressive personalization based on data availability
+
+## Performance Prediction
+- Implement pre-send performance prediction for campaigns
+- Apply engagement forecasting models by segment
+- Create optimal send time prediction using machine learning
+- Document prediction accuracy and continuous improvement
+- Implement anomaly detection for campaign performance
+- Apply conversion likelihood scoring for audience targeting
+
+## Continuous Learning
+- Create feedback loops between campaign results and AI models
+- Implement automated model retraining based on new data
+- Apply A/B testing for AI algorithm improvements
+- Document model versions and performance improvements
+- Implement data quality monitoring for model inputs
+- Create explainability documentation for AI-driven decisions
+
+## AI Ethics and Transparency (2024-2025 Standards)
+- Disclose AI-generated content where legally required or ethically appropriate
+- Implement bias detection in personalization algorithms
+- Create fairness audits for AI-driven segmentation models
+- Document AI decision-making processes for regulatory compliance
+- Apply explainable AI principles to content recommendations
+- Implement opt-out mechanisms for AI personalization
+- Monitor for AI hallucinations and inappropriate content generation
+- Create human review workflows for sensitive AI-generated content
+- Apply prompt engineering best practices for consistent brand voice
+- Document AI model versions and training data sources
+
+## See Also
+
+### Related Rules
+- @075-email-marketing-standards.mdc - Email marketing content standards
+- @077-user-communication-standards.mdc - Communication strategy and voice
+- @080-email-effectiveness-tracking.mdc - AI model performance tracking
+- @082-email-automation-optimization.mdc - AI-powered automation optimization
+- @083-lifecycle-marketing-automation.mdc - AI-driven lifecycle content
+- @119-mindstudio-error-handling.mdc - AI error handling patterns
+- @120-mindstudio-orchestration.mdc - AI orchestration strategies
+
+### Tools & Documentation
+- **`.cursor/tools/test-ai-subject-lines.sh`** - AI subject line tester
+  ```bash
+  ./.cursor/tools/test-ai-subject-lines.sh --campaign welcome
+  # Generates: AI-optimized subject lines, predicted performance scores
+  ```
+- **`.cursor/tools/analyze-ai-performance.sh`** - AI model performance analyzer
+  ```bash
+  ./.cursor/tools/analyze-ai-performance.sh --model subject-line-v2
+  # Analyzes: Prediction accuracy, bias metrics, fairness indicators
+  ```
+
+### Comprehensive Guides
+- **`guides/Email-Content-Optimization-AI.md`** ⭐ **ESSENTIAL** - AI content optimization
+- **`guides/Email-Personalization-Guide.md`** - AI-powered personalization
+- **`guides/Email-Automation-Performance-Optimization.md`** - AI automation optimization
+- **`guides/MindStudio-Implementation-Complete-Guide.md`** - AI integration patterns
+
+### Quick Start - AI Email Optimization
+
+```bash
+# 1. Set up AI integration
+# Configure GPT-4 or Claude API for content generation
+
+# 2. Implement subject line optimization
+./.cursor/tools/test-ai-subject-lines.sh --campaign welcome
+
+# 3. Create AI-powered personalization
+# Implement dynamic content selection based on engagement predictions
+
+# 4. Monitor AI performance
+./.cursor/tools/analyze-ai-performance.sh --model all
+
+# 5. Implement ethical AI practices
+# Add bias detection, fairness audits, transparency disclosures
+
+# 6. Create feedback loops
+# Retrain models based on campaign performance data
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P2 (Nice to Have)  
+**Last Updated**: November 20, 2025

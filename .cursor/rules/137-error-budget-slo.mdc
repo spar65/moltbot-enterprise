@@ -1,0 +1,757 @@
+---
+description: Define and track error budgets when managing system reliability to balance feature velocity with stability and user experience
+globs: ["**/lib/metrics/**/*", "**/dashboards/**/*"]
+---
+
+# Error Budgets & SLO Management for Errors
+
+## Context
+
+Error budgets provide an objective, data-driven approach to balancing feature velocity with system reliability. This rule focuses specifically on ERROR BUDGETS - tracking acceptable error rates and using them to guide development priorities.
+
+**Key Concepts**:
+- **SLO (Service Level Objective)**: Target error rate (e.g., 99.9% success = 0.1% errors allowed)
+- **SLI (Service Level Indicator)**: Actual measured error rate
+- **Error Budget**: Difference between SLO and SLI (how many errors you can "afford")
+- **Budget Policy**: What to do when budget is healthy vs exhausted
+
+**Error Budget Philosophy** (Google SRE):
+> "If you have budget remaining, you can take risks. If you've exhausted your budget, you must focus on reliability."
+
+## Requirements
+
+### 1. Define Error-Based SLOs
+
+**Error Rate SLO Examples**:
+
+```typescript
+// lib/metrics/slos.ts
+
+export interface ErrorSLO {
+  name: string;
+  description: string;
+  target: number;          // e.g., 0.999 = 99.9% success
+  errorBudget: number;     // 1 - target = 0.001 = 0.1% errors allowed
+  measurement: "percentage" | "count";
+  timeWindow: "rolling" | "calendar";
+  windowDuration: number;  // hours, days, or months
+}
+
+export const ERROR_SLOs: Record<string, ErrorSLO> = {
+  // Overall application errors
+  APPLICATION_ERRORS: {
+    name: "Application Error Rate",
+    description: "Percentage of requests that result in 5xx errors",
+    target: 0.999,           // 99.9% success
+    errorBudget: 0.001,      // 0.1% errors allowed
+    measurement: "percentage",
+    timeWindow: "rolling",
+    windowDuration: 30,      // 30 days
+  },
+  
+  // API endpoint errors
+  API_ERRORS: {
+    name: "API Error Rate",
+    description: "Percentage of API calls that fail",
+    target: 0.995,           // 99.5% success
+    errorBudget: 0.005,      // 0.5% errors allowed
+    measurement: "percentage",
+    timeWindow: "rolling",
+    windowDuration: 7,       // 7 days
+  },
+  
+  // Critical path errors (payments, auth)
+  CRITICAL_ERRORS: {
+    name: "Critical Path Error Rate",
+    description: "Errors in payment processing and authentication",
+    target: 0.9995,          // 99.95% success
+    errorBudget: 0.0005,     // 0.05% errors allowed
+    measurement: "percentage",
+    timeWindow: "rolling",
+    windowDuration: 7,
+  },
+  
+  // Frontend errors
+  FRONTEND_ERRORS: {
+    name: "Frontend Error Rate",
+    description: "JavaScript errors in user browsers",
+    target: 0.99,            // 99% success
+    errorBudget: 0.01,       // 1% errors allowed
+    measurement: "percentage",
+    timeWindow: "rolling",
+    windowDuration: 7,
+  },
+  
+  // Database errors
+  DATABASE_ERRORS: {
+    name: "Database Error Rate",
+    description: "Database query failures",
+    target: 0.9999,          // 99.99% success
+    errorBudget: 0.0001,     // 0.01% errors allowed
+    measurement: "percentage",
+    timeWindow: "rolling",
+    windowDuration: 30,
+  },
+};
+```
+
+**Error Count SLO Examples**:
+
+```typescript
+export const ERROR_COUNT_SLOs: Record<string, ErrorSLO> = {
+  // Absolute error counts
+  CRITICAL_ERRORS_COUNT: {
+    name: "Critical Errors (Absolute)",
+    description: "Total critical errors per day",
+    target: 0,               // Zero critical errors
+    errorBudget: 5,          // Max 5 critical errors/day
+    measurement: "count",
+    timeWindow: "calendar",
+    windowDuration: 1,       // 1 day
+  },
+  
+  PAYMENT_FAILURES_COUNT: {
+    name: "Payment Failures (Absolute)",
+    description: "Total payment processing failures",
+    target: 0,
+    errorBudget: 10,         // Max 10 failures/week
+    measurement: "count",
+    timeWindow: "calendar",
+    windowDuration: 7,       // 1 week
+  },
+};
+```
+
+### 2. Calculate Error Budget
+
+**Real-Time Budget Calculation**:
+
+```typescript
+// lib/metrics/error-budget.ts
+import * as Sentry from "@sentry/nextjs";
+
+export interface ErrorBudgetStatus {
+  slo: ErrorSLO;
+  current: {
+    errorRate: number;
+    errorCount: number;
+    totalRequests: number;
+  };
+  budget: {
+    allowed: number;        // Error budget (%)
+    consumed: number;       // Used budget (%)
+    remaining: number;      // Remaining budget (%)
+    remainingCount: number; // Remaining errors allowed
+  };
+  health: "healthy" | "warning" | "critical" | "exhausted";
+  recommendation: string;
+}
+
+export async function calculateErrorBudget(
+  sloKey: keyof typeof ERROR_SLOs,
+  timeRangeHours: number = 24
+): Promise<ErrorBudgetStatus> {
+  const slo = ERROR_SLOs[sloKey];
+  
+  // Query Sentry for error stats
+  const stats = await querySentryStats(timeRangeHours);
+  
+  const errorRate = stats.totalRequests > 0 
+    ? stats.errorCount / stats.totalRequests 
+    : 0;
+  
+  const budgetAllowed = slo.errorBudget;
+  const budgetConsumed = errorRate;
+  const budgetRemaining = Math.max(0, budgetAllowed - budgetConsumed);
+  const budgetRemainingPct = budgetRemaining / budgetAllowed;
+  
+  // Calculate remaining errors allowed
+  const remainingErrors = Math.floor(
+    (budgetAllowed - budgetConsumed) * stats.totalRequests
+  );
+  
+  // Determine health status
+  let health: ErrorBudgetStatus["health"];
+  let recommendation: string;
+  
+  if (budgetRemainingPct > 0.5) {
+    health = "healthy";
+    recommendation = "✅ Error budget is healthy. Safe to deploy new features and take calculated risks.";
+  } else if (budgetRemainingPct > 0.2) {
+    health = "warning";
+    recommendation = "⚠️ Error budget is declining. Be cautious with risky changes. Focus on stability.";
+  } else if (budgetRemainingPct > 0) {
+    health = "critical";
+    recommendation = "🔴 Error budget is critical. Freeze non-essential feature work. Focus on fixing errors.";
+  } else {
+    health = "exhausted";
+    recommendation = "🚨 ERROR BUDGET EXHAUSTED. Stop all feature work. Fix errors immediately.";
+  }
+  
+  return {
+    slo,
+    current: {
+      errorRate,
+      errorCount: stats.errorCount,
+      totalRequests: stats.totalRequests,
+    },
+    budget: {
+      allowed: budgetAllowed,
+      consumed: budgetConsumed,
+      remaining: budgetRemaining,
+      remainingCount: Math.max(0, remainingErrors),
+    },
+    health,
+    recommendation,
+  };
+}
+
+async function querySentryStats(timeRangeHours: number) {
+  // Implementation depends on Sentry API or database
+  // This is a simplified example
+  
+  const response = await fetch(
+    `https://sentry.io/api/0/projects/${ORG}/${PROJECT}/stats/`,
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}`,
+      },
+      body: JSON.stringify({
+        stat: "received",
+        since: Date.now() - timeRangeHours * 60 * 60 * 1000,
+      }),
+    }
+  );
+  
+  const data = await response.json();
+  
+  return {
+    errorCount: data.errorCount || 0,
+    totalRequests: data.totalRequests || 0,
+  };
+}
+```
+
+**Budget Burn Rate**:
+
+```typescript
+// lib/metrics/burn-rate.ts
+
+export interface BurnRate {
+  current: number;        // Current burn rate (errors/hour)
+  predicted: number;      // Predicted errors by end of period
+  timeToExhaustion: number; // Hours until budget exhausted
+  severity: "low" | "medium" | "high" | "critical";
+}
+
+export function calculateBurnRate(
+  budgetStatus: ErrorBudgetStatus,
+  hoursPassed: number
+): BurnRate {
+  const budgetConsumedPct = budgetStatus.budget.consumed / budgetStatus.budget.allowed;
+  const burnRate = budgetConsumedPct / hoursPassed;
+  
+  const hoursInPeriod = budgetStatus.slo.windowDuration * 24;
+  const hoursRemaining = hoursInPeriod - hoursPassed;
+  
+  const predictedBurn = budgetConsumedPct + (burnRate * hoursRemaining);
+  const timeToExhaustion = budgetStatus.budget.remaining / burnRate;
+  
+  // Determine severity
+  let severity: BurnRate["severity"];
+  if (timeToExhaustion > hoursRemaining) {
+    severity = "low";
+  } else if (timeToExhaustion > hoursRemaining * 0.5) {
+    severity = "medium";
+  } else if (timeToExhaustion > hoursRemaining * 0.2) {
+    severity = "high";
+  } else {
+    severity = "critical";
+  }
+  
+  return {
+    current: burnRate,
+    predicted: predictedBurn,
+    timeToExhaustion: Math.max(0, timeToExhaustion),
+    severity,
+  };
+}
+```
+
+### 3. Error Budget Policy
+
+**When Budget is Healthy (>50% remaining)**:
+
+```typescript
+// config/error-budget-policy.ts
+
+export const ERROR_BUDGET_POLICY = {
+  HEALTHY: {
+    threshold: 0.5, // > 50% remaining
+    actions: [
+      "✅ Deploy new features freely",
+      "✅ Take calculated risks",
+      "✅ Experiment with new technologies",
+      "✅ Perform major refactoring",
+    ],
+    restrictions: [],
+    reviewRequired: false,
+  },
+  
+  WARNING: {
+    threshold: 0.2, // 20-50% remaining
+    actions: [
+      "⚠️ Deploy with caution",
+      "⚠️ Increase test coverage",
+      "⚠️ Add extra monitoring",
+    ],
+    restrictions: [
+      "Risky architectural changes",
+      "Major dependency upgrades",
+    ],
+    reviewRequired: true,
+    requiredApprovers: ["tech-lead"],
+  },
+  
+  CRITICAL: {
+    threshold: 0.1, // 10-20% remaining
+    actions: [
+      "🔴 Emergency fixes only",
+      "🔴 All hands on stability",
+      "🔴 Daily budget reviews",
+    ],
+    restrictions: [
+      "All new features",
+      "All non-critical changes",
+      "All experiments",
+    ],
+    reviewRequired: true,
+    requiredApprovers: ["tech-lead", "engineering-manager"],
+  },
+  
+  EXHAUSTED: {
+    threshold: 0, // < 10% or exhausted
+    actions: [
+      "🚨 FREEZE all feature work",
+      "🚨 All engineers fix errors",
+      "🚨 Hourly status updates",
+      "🚨 Incident response mode",
+    ],
+    restrictions: [
+      "ALL non-critical work",
+    ],
+    reviewRequired: true,
+    requiredApprovers: ["tech-lead", "engineering-manager", "cto"],
+  },
+};
+```
+
+**Automated Policy Enforcement**:
+
+```typescript
+// lib/ci/check-error-budget.ts
+
+export async function checkErrorBudget(): Promise<{
+  allowed: boolean;
+  reason?: string;
+}> {
+  const budgetStatus = await calculateErrorBudget("APPLICATION_ERRORS");
+  
+  const budgetRemainingPct = 
+    budgetStatus.budget.remaining / budgetStatus.budget.allowed;
+  
+  if (budgetRemainingPct < 0.1) {
+    return {
+      allowed: false,
+      reason: `❌ ERROR BUDGET EXHAUSTED (${(budgetRemainingPct * 100).toFixed(1)}% remaining). Deployment blocked. Fix errors first.`,
+    };
+  }
+  
+  if (budgetRemainingPct < 0.2) {
+    return {
+      allowed: false,
+      reason: `⚠️ ERROR BUDGET CRITICAL (${(budgetRemainingPct * 100).toFixed(1)}% remaining). Requires tech lead approval.`,
+    };
+  }
+  
+  return { allowed: true };
+}
+```
+
+**GitHub Action Integration**:
+
+```yaml
+# .github/workflows/check-error-budget.yml
+name: Error Budget Check
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  check-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Check Error Budget
+        run: |
+          npm run check:error-budget
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      
+      - name: Comment on PR
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🚨 **Error Budget Exhausted** - This PR cannot be merged until error budget is restored. Please help fix production errors first.'
+            })
+```
+
+### 4. Error Budget Dashboard
+
+**Dashboard Component**:
+
+```typescript
+// components/ErrorBudgetDashboard.tsx
+
+export function ErrorBudgetDashboard() {
+  const [budgets, setBudgets] = useState<ErrorBudgetStatus[]>([]);
+  
+  useEffect(() => {
+    async function loadBudgets() {
+      const results = await Promise.all([
+        calculateErrorBudget("APPLICATION_ERRORS"),
+        calculateErrorBudget("API_ERRORS"),
+        calculateErrorBudget("CRITICAL_ERRORS"),
+        calculateErrorBudget("FRONTEND_ERRORS"),
+      ]);
+      setBudgets(results);
+    }
+    
+    loadBudgets();
+    const interval = setInterval(loadBudgets, 60000); // Update every minute
+    return () => clearInterval(interval);
+  }, []);
+  
+  return (
+    <div className="error-budget-dashboard">
+      <h2>Error Budget Status</h2>
+      
+      <div className="budget-grid">
+        {budgets.map(budget => (
+          <ErrorBudgetCard key={budget.slo.name} budget={budget} />
+        ))}
+      </div>
+      
+      <ErrorBudgetTimeline budgets={budgets} />
+      <ErrorBudgetPolicy />
+    </div>
+  );
+}
+
+function ErrorBudgetCard({ budget }: { budget: ErrorBudgetStatus }) {
+  const healthColor = {
+    healthy: "green",
+    warning: "yellow",
+    critical: "orange",
+    exhausted: "red",
+  }[budget.health];
+  
+  const budgetPct = (budget.budget.remaining / budget.budget.allowed) * 100;
+  
+  return (
+    <div className={`budget-card budget-${budget.health}`}>
+      <h3>{budget.slo.name}</h3>
+      
+      <div className="budget-gauge">
+        <CircularProgress
+          value={budgetPct}
+          color={healthColor}
+          size="large"
+        />
+        <div className="budget-value">
+          {budgetPct.toFixed(1)}%
+        </div>
+      </div>
+      
+      <div className="budget-details">
+        <div className="metric">
+          <span>Error Rate:</span>
+          <strong>{(budget.current.errorRate * 100).toFixed(3)}%</strong>
+        </div>
+        <div className="metric">
+          <span>Budget Allowed:</span>
+          <strong>{(budget.budget.allowed * 100).toFixed(3)}%</strong>
+        </div>
+        <div className="metric">
+          <span>Errors Remaining:</span>
+          <strong>{budget.budget.remainingCount}</strong>
+        </div>
+      </div>
+      
+      <div className="recommendation">
+        {budget.recommendation}
+      </div>
+    </div>
+  );
+}
+```
+
+### 5. Error Budget Alerts
+
+**Alert Configuration**:
+
+```typescript
+// lib/alerts/error-budget-alerts.ts
+
+export async function checkErrorBudgetAlerts() {
+  const budget = await calculateErrorBudget("APPLICATION_ERRORS");
+  const burnRate = calculateBurnRate(budget, 24); // Last 24 hours
+  
+  // Alert on critical burn rate
+  if (burnRate.severity === "critical") {
+    await sendAlert({
+      severity: "critical",
+      title: "🚨 Error Budget Burn Rate Critical",
+      message: `Error budget will be exhausted in ${burnRate.timeToExhaustion.toFixed(1)} hours at current rate.`,
+      channels: ["pagerduty", "slack-incidents"],
+    });
+  }
+  
+  // Alert when budget crosses thresholds
+  const budgetPct = budget.budget.remaining / budget.budget.allowed;
+  
+  if (budgetPct < 0.1 && budget.health === "exhausted") {
+    await sendAlert({
+      severity: "critical",
+      title: "🚨 Error Budget Exhausted",
+      message: budget.recommendation,
+      channels: ["pagerduty", "slack-incidents", "email-leadership"],
+    });
+  } else if (budgetPct < 0.2 && budget.health === "critical") {
+    await sendAlert({
+      severity: "high",
+      title: "🔴 Error Budget Critical",
+      message: budget.recommendation,
+      channels: ["slack-alerts"],
+    });
+  } else if (budgetPct < 0.5 && budget.health === "warning") {
+    await sendAlert({
+      severity: "warning",
+      title: "⚠️ Error Budget Warning",
+      message: budget.recommendation,
+      channels: ["slack-alerts"],
+    });
+  }
+}
+```
+
+### 6. Track Error Budget Over Time
+
+**Historical Tracking**:
+
+```typescript
+// lib/metrics/error-budget-history.ts
+
+export interface ErrorBudgetSnapshot {
+  timestamp: number;
+  sloKey: string;
+  errorRate: number;
+  budgetRemaining: number;
+  health: string;
+}
+
+export async function recordErrorBudgetSnapshot(
+  sloKey: keyof typeof ERROR_SLOs
+) {
+  const budget = await calculateErrorBudget(sloKey);
+  
+  const snapshot: ErrorBudgetSnapshot = {
+    timestamp: Date.now(),
+    sloKey,
+    errorRate: budget.current.errorRate,
+    budgetRemaining: budget.budget.remaining,
+    health: budget.health,
+  };
+  
+  // Store in database
+  await db.errorBudgetHistory.create({
+    data: snapshot,
+  });
+}
+
+// Run periodically
+setInterval(() => {
+  Object.keys(ERROR_SLOs).forEach(key => {
+    recordErrorBudgetSnapshot(key as keyof typeof ERROR_SLOs);
+  });
+}, 3600000); // Every hour
+```
+
+## Examples
+
+<example>
+// ✅ GOOD - Comprehensive error budget management
+
+// Check budget before deployment
+export async function preDeploymentCheck() {
+  console.log("🔍 Checking error budget...");
+  
+  const budget = await calculateErrorBudget("APPLICATION_ERRORS");
+  const burnRate = calculateBurnRate(budget, 24);
+  
+  console.log(`
+    Error Budget Status:
+    - Health: ${budget.health}
+    - Remaining: ${(budget.budget.remaining * 100).toFixed(2)}%
+    - Burn Rate: ${burnRate.severity}
+    - Time to Exhaustion: ${burnRate.timeToExhaustion.toFixed(1)} hours
+  `);
+  
+  const policy = ERROR_BUDGET_POLICY[budget.health.toUpperCase()];
+  
+  if (budget.health === "exhausted") {
+    throw new Error(
+      "❌ Deployment blocked: Error budget exhausted. " +
+      "Focus on fixing errors before deploying new features."
+    );
+  }
+  
+  if (budget.health === "critical") {
+    console.warn(
+      "⚠️ Warning: Error budget critical. " +
+      "Deployment requires approval from: " +
+      policy.requiredApprovers.join(", ")
+    );
+  }
+  
+  console.log(`✅ Error budget check passed`);
+}
+</example>
+
+<example type="invalid">
+// ❌ BAD - No error budget awareness
+
+// Deploy without checking error budget
+await deploy();
+
+// Problems:
+// - No visibility into error rates
+// - Can't balance velocity vs stability
+// - No data-driven reliability decisions
+// - Team doesn't know when to stop features
+</example>
+
+## Common Pitfalls
+
+### ❌ Setting Unrealistic SLOs
+
+```typescript
+// BAD: 100% uptime (impossible!)
+target: 1.0, // 100% - will always be exhausted
+
+// GOOD: Realistic target
+target: 0.999, // 99.9% - achievable with effort
+```
+
+### ❌ Not Enforcing Policy
+
+```typescript
+// BAD: Check but don't enforce
+const budget = await calculateErrorBudget("APPLICATION_ERRORS");
+console.log("Budget exhausted but deploying anyway!"); // ❌
+
+// GOOD: Enforce policy
+if (budget.health === "exhausted") {
+  throw new Error("Deployment blocked by error budget policy");
+}
+```
+
+### ❌ Ignoring Burn Rate
+
+```typescript
+// BAD: Only look at current budget
+if (budgetRemaining > 0) deploy(); // Might exhaust soon!
+
+// GOOD: Consider burn rate
+const burnRate = calculateBurnRate(budget, 24);
+if (burnRate.severity === "critical") {
+  throw new Error("High burn rate - budget will exhaust soon");
+}
+```
+
+## See Also
+
+### Related Rules
+
+**Error Handling & Monitoring**:
+- @135-error-monitoring-observability.mdc - Error monitoring with Sentry
+- @090-error-handling.mdc - Error classes and patterns
+- @130-error-handling.mdc - User-facing errors
+- @136-error-recovery-resilience.mdc - Error recovery patterns
+- @140-troubleshooting-standards.mdc - Error codes and troubleshooting
+
+**SLO & Operations**:
+- @211-sla-slo-standards.mdc - General SLA/SLO standards
+- @221-application-monitoring.mdc - Application monitoring
+- @222-metrics-alerting.mdc - Metrics and alerting
+- @210-operations-incidents.mdc - Incident response
+
+**Deployment**:
+- @203-production-deployment-safety.mdc - Deployment safety checks
+- @202-rollback-procedures.mdc - Emergency rollback
+- @203-ci-cd-pipeline-standards.mdc - CI/CD standards
+
+### Tools & Documentation
+
+**Error Budget Tools**:
+- **`.cursor/tools/check-error-budget.sh`** - Check current error budget
+  ```bash
+  ./.cursor/tools/check-error-budget.sh
+  # Shows: Budget status, burn rate, recommendations
+  ```
+- **`.cursor/tools/error-budget-report.sh`** - Generate budget report
+  ```bash
+  ./.cursor/tools/error-budget-report.sh --last 7d
+  # Generates: Weekly error budget report
+  ```
+
+### Comprehensive Guides
+
+**Essential Guides**:
+- **`guides/Error-Handling-Complete-Guide.md`** ⭐ - Complete error handling
+- **`guides/Production-Monitoring-Complete-Guide.md`** ⭐ - Monitoring setup
+
+### Quick Start - Error Budgets
+
+```bash
+# 1. Define your error SLOs
+# Edit lib/metrics/slos.ts with your targets
+
+# 2. Set up Sentry or monitoring platform
+# See @135-error-monitoring-observability.mdc
+
+# 3. Calculate error budget
+const budget = await calculateErrorBudget("APPLICATION_ERRORS");
+
+# 4. Create dashboard
+# See ErrorBudgetDashboard component above
+
+# 5. Enforce in CI/CD
+# Add error budget check to GitHub Actions
+
+# 6. Establish policy
+# Communicate error budget policy to team
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important for mature systems)  
+**Generated**: November 20, 2025

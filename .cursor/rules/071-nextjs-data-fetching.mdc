@@ -1,0 +1,441 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Implement consistent and performant data fetching strategies in Next.js applications to optimize user experience and server load
+globs: "src/pages/**/*.{js,jsx,ts,tsx}"
+___
+
+# Next.js Data Fetching Strategy
+
+## Context
+
+- Next.js offers multiple data fetching strategies with different tradeoffs
+- Choosing the right strategy impacts performance, SEO, and user experience
+- Evidence from production issues shows improper strategy selection causes performance problems
+
+## Requirements
+
+### Data Fetching Decision Framework
+
+Use this decision tree to select the appropriate data fetching strategy:
+
+```mermaid
+graph TD
+    A[Start] --> B{Data changes frequently?}
+    B -->|Yes| C{User-specific data?}
+    B -->|No| D{Known at build time?}
+    C -->|Yes| E[Client-side SWR]
+    C -->|No| F[getServerSideProps with cache]
+    D -->|Yes| G[getStaticProps]
+    D -->|No| H{Large number of paths?}
+    H -->|Yes| I[getStaticProps + fallback]
+    H -->|No| J[getStaticProps + getStaticPaths]
+```
+
+### Server-Side Rendering (SSR)
+
+- Use `getServerSideProps` only for pages that require request-time data
+- Implement proper caching with Cache-Control headers
+- Handle errors with fallback UI or redirect
+- Keep data fetching logic separate from page components
+
+### Static Site Generation (SSG)
+
+- Use `getStaticProps` for content that can be determined at build time
+- Implement Incremental Static Regeneration (ISR) with appropriate revalidation periods
+- Use `getStaticPaths` with fallback strategies for collection pages
+- Consider build time impact for large datasets
+
+### Client-Side Fetching
+
+- Use SWR or React Query for client-side data fetching
+- Implement loading states and error boundaries
+- Apply optimistic updates for improved user experience
+- Use proper caching strategies to minimize requests
+
+## Common Pitfalls
+
+- **Unnecessary SSR**: Using getServerSideProps for static content that rarely changes
+- **Missing cache headers**: Not setting Cache-Control in getServerSideProps
+- **Prop serialization errors**: Passing non-serializable data from server
+- **Over-fetching**: Retrieving more data than needed for the current view
+- **Client-server duplication**: Fetching the same data on both server and client
+
+## Migration Patterns
+
+- Create data fetching hooks to abstract implementation details
+- Implement staged migrations when changing strategies
+- Use feature flags for gradual rollouts
+- Add metrics and monitoring for data fetching performance
+
+## Evidence Source
+
+Based on HitList issues:
+
+- HitList-Debug-API-500-Errors.md (prop serialization issues)
+- HitList-Test-Problem-Framework01.md (performance issues with SSR)
+- HitList-Performance-Issue-01.md (page load time improvements)
+- HitList-Test-Problem-Framework05-Data-Fetching.md (client-side data fetching issues)
+
+## Success Metrics
+
+- Improved Core Web Vitals scores
+- Reduced server load for static content
+- Decreased Time to Interactive (TTI)
+- Lower TTFB (Time to First Byte) for dynamic pages
+- Reduced build times for static content
+
+## Examples
+
+<example>
+// Good SSG implementation with ISR
+// pages/blog/[slug].tsx
+import { GetStaticProps, GetStaticPaths } from 'next';
+import { BlogPost } from '@/types';
+import { getBlogPost, getAllBlogSlugs } from '@/services/blogService';
+import { BlogPostDetail } from '@/components/blog/BlogPostDetail';
+
+interface BlogPostPageProps {
+  post: BlogPost;
+  lastUpdated: string;
+}
+
+export default function BlogPostPage({ post, lastUpdated }: BlogPostPageProps) {
+  return (
+    <>
+      <BlogPostDetail post={post} />
+      <p>Last updated: {lastUpdated}</p>
+    </>
+  );
+}
+
+export const getStaticPaths: GetStaticPaths = async () => {
+  // Get only the most popular/recent blog post slugs for build time
+  // Others will be generated on-demand using fallback
+  const slugs = await getAllBlogSlugs({ limit: 20 });
+  
+  return {
+    paths: slugs.map(slug => ({ params: { slug } })),
+    // Enable fallback for on-demand generation
+    fallback: 'blocking',
+  };
+};
+
+export const getStaticProps: GetStaticProps<BlogPostPageProps> = async ({ params }) => {
+  try {
+    const slug = params?.slug as string;
+    const post = await getBlogPost(slug);
+    
+    if (!post) {
+      // Handle missing posts with a 404 response
+      return { notFound: true };
+    }
+    
+    return {
+      props: {
+        post,
+        lastUpdated: new Date().toISOString(),
+      },
+      // Revalidate after 1 hour
+      revalidate: 3600,
+    };
+  } catch (error) {
+    console.error(`Error fetching blog post: ${error}`);
+    return { notFound: true };
+  }
+};
+</example>
+
+<example>
+// Good SSR implementation with caching
+// pages/dashboard.tsx
+import { GetServerSideProps } from 'next';
+import { getSession } from '@auth0/nextjs-auth0';
+import { getUserDashboardData } from '@/services/dashboardService';
+import { Dashboard } from '@/components/dashboard/Dashboard';
+import { DashboardData, User } from '@/types';
+
+interface DashboardPageProps {
+  user: User;
+  dashboardData: DashboardData;
+}
+
+export default function DashboardPage({ user, dashboardData }: DashboardPageProps) {
+  return <Dashboard user={user} data={dashboardData} />;
+}
+
+export const getServerSideProps: GetServerSideProps<DashboardPageProps> = async ({ req, res }) => {
+  try {
+    // Authenticate user
+    const session = await getSession(req, res);
+    
+    if (!session) {
+      return {
+        redirect: {
+          destination: '/api/auth/login?returnTo=/dashboard',
+          permanent: false,
+        },
+      };
+    }
+    
+    // Fetch dashboard data for authenticated user
+    const dashboardData = await getUserDashboardData(session.user.sub);
+    
+    // Set cache headers for better performance
+    // Cache for 1 minute on CDN, revalidate on new requests
+    res.setHeader(
+      'Cache-Control',
+      'public, s-maxage=60, stale-while-revalidate=300'
+    );
+    
+    // Safe user data handling
+    const user = {
+      id: session.user.sub,
+      name: session.user.name,
+      email: session.user.email,
+    };
+    
+    return {
+      props: {
+        user,
+        dashboardData,
+      },
+    };
+  } catch (error) {
+    console.error('Failed to fetch dashboard data:', error);
+    
+    return {
+      redirect: {
+        destination: '/error?code=dashboard_error',
+        permanent: false,
+      },
+    };
+  }
+};
+</example>
+
+<example>
+// Good client-side data fetching with SWR
+// components/UserProfile.tsx
+import { useState } from 'react';
+import useSWR from 'swr';
+import { User } from '@/types';
+import { updateUserProfile } from '@/lib/api';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+
+const fetcher = (url: string) => fetch(url).then(res => {
+  if (!res.ok) throw new Error('Failed to fetch user profile');
+  return res.json();
+});
+
+export function UserProfile({ userId }: { userId: string }) {
+  const { data, error, mutate } = useSWR<{ data: User }>(`/api/users/${userId}`, fetcher);
+  const [isUpdating, setIsUpdating] = useState(false);
+  
+  if (error) {
+    return <div className="error-message">Failed to load user profile</div>;
+  }
+  
+  if (!data) {
+    return <LoadingSpinner />;
+  }
+  
+  const user = data.data;
+  
+  const handleUpdateProfile = async (formData: Partial<User>) => {
+    try {
+      setIsUpdating(true);
+      
+      // Optimistic update
+      mutate(
+        { data: { ...user, ...formData } },
+        false // don't revalidate yet
+      );
+      
+      // Perform actual update
+      await updateUserProfile(userId, formData);
+      
+      // Revalidate to ensure data consistency
+      mutate();
+    } catch (error) {
+      // Handle error and revert optimistic update
+      console.error('Failed to update profile:', error);
+      mutate(); // revalidate to restore original data
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+  
+  return (
+    <ErrorBoundary fallback={<div>Error rendering user profile</div>}>
+      <div className="user-profile">
+        <h1>{user.name}</h1>
+        <p>{user.email}</p>
+        {/* Profile form and other UI */}
+        {isUpdating && <LoadingSpinner size="small" />}
+      </div>
+    </ErrorBoundary>
+  );
+}
+</example>
+
+<example type="invalid">
+// Bad data fetching - using SSR for static content
+// pages/about.tsx
+import { GetServerSideProps } from 'next';
+import { getCompanyInfo } from '@/services/companyService';
+
+export default function AboutPage({ companyInfo }) {
+  return (
+    <div>
+      <h1>About {companyInfo.name}</h1>
+      <p>{companyInfo.description}</p>
+    </div>
+  );
+}
+
+// Inefficient: Using SSR for content that rarely changes
+export const getServerSideProps: GetServerSideProps = async () => {
+  // This data rarely changes and should use getStaticProps instead
+  const companyInfo = await getCompanyInfo();
+  
+  // No cache headers set - every request hits the server
+  
+  return {
+    props: {
+      companyInfo,
+    },
+  };
+};
+</example>
+
+<example type="invalid">
+// Bad data fetching - prop serialization error
+// pages/products/[id].tsx
+import { GetServerSideProps } from 'next';
+import { getProductDetails } from '@/services/productService';
+
+export default function ProductPage({ product }) {
+  return (
+    <div>
+      <h1>{product.name}</h1>
+      <p>{product.description}</p>
+      <button onClick={() => product.someMethod()}>Click me</button>
+    </div>
+  );
+}
+
+export const getServerSideProps: GetServerSideProps = async ({ params }) => {
+  const product = await getProductDetails(params.id);
+  
+  // Error: Functions are not serializable for props
+  product.someMethod = () => {
+    console.log('This will cause a serialization error');
+  };
+  
+  return {
+    props: {
+      product, // Contains non-serializable function
+    },
+  };
+};
+</example>
+
+## Testing Data Fetching
+
+<example>
+// Testing SSR data fetching
+// pages/dashboard.test.tsx
+import { GetServerSidePropsContext } from 'next';
+import { getServerSideProps } from './dashboard';
+import { getSession } from '@auth0/nextjs-auth0';
+import { getUserDashboardData } from '@/services/dashboardService';
+
+jest.mock('@auth0/nextjs-auth0');
+jest.mock('@/services/dashboardService');
+
+describe('Dashboard getServerSideProps', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+  
+  it('redirects to login when user is not authenticated', async () => {
+    (getSession as jest.Mock).mockResolvedValue(null);
+    
+    const context = {
+      req: {},
+      res: {
+        setHeader: jest.fn(),
+      },
+    } as unknown as GetServerSidePropsContext;
+    
+    const result = await getServerSideProps(context);
+    
+    expect(result).toEqual({
+      redirect: {
+        destination: '/api/auth/login?returnTo=/dashboard',
+        permanent: false,
+      },
+    });
+  });
+  
+  it('returns dashboard data for authenticated user', async () => {
+    const mockUser = { sub: 'user123', name: 'Test User', email: 'test@example.com' };
+    const mockDashboardData = { items: [] };
+    
+    (getSession as jest.Mock).mockResolvedValue({ user: mockUser });
+    (getUserDashboardData as jest.Mock).mockResolvedValue(mockDashboardData);
+    
+    const context = {
+      req: {},
+      res: {
+        setHeader: jest.fn(),
+      },
+    } as unknown as GetServerSidePropsContext;
+    
+    const result = await getServerSideProps(context);
+    
+    expect(context.res.setHeader).toHaveBeenCalledWith(
+      'Cache-Control',
+      expect.stringContaining('s-maxage=60')
+    );
+    
+    expect(result).toEqual({
+      props: {
+        user: {
+          id: mockUser.sub,
+          name: mockUser.name,
+          email: mockUser.email,
+        },
+        dashboardData: mockDashboardData,
+      },
+    });
+  });
+});
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Data fetching patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check data models for fetching
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (schema first!)
+- @025-multi-tenancy.mdc - Organization-scoped data fetching
+- @060-api-standards.mdc - API patterns
+- @070-nextjs-architecture.mdc - Architecture patterns
+- @071-state-management.mdc - State management
+- @376-database-test-isolation.mdc - Testing data fetching
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (data models)
+2. **Fetch:** Server Components for data fetching
+3. **Scope:** Follow @025-multi-tenancy.mdc (organization isolation)

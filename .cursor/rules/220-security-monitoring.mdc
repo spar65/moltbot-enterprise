@@ -1,0 +1,523 @@
+---
+description: Use when setting up or configuring security monitoring, web application firewalls (WAF), rate limiting, and other protective measures
+globs: "**/vercel.json, **/next.config.js, **/security/**/*.{js,ts}, **/middleware.{js,ts}"
+---
+
+# Security Monitoring & Protection Standards
+
+## Context
+- Web applications are constantly under attack from automated threats
+- Denial of service attacks can take applications offline
+- Brute force attacks can compromise authentication
+- Rate limiting is essential to prevent abuse
+- Proper monitoring enables detection of security incidents
+- Web Application Firewalls provide an important outer layer of defense
+
+## Web Application Firewall Requirements
+
+### WAF Implementation
+- **REQUIRED**: Enable WAF protection for all production deployments
+- Configure WAF to protect against OWASP Top 10 vulnerabilities
+- Enable rate limiting at the WAF level for all endpoints
+- Set up geographic blocking for regions with high attack volumes
+- Configure WAF logging for security analysis
+- Regularly review and update WAF rules
+
+```javascript
+// Good: Vercel WAF configuration in vercel.json
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.yourdomain.com; frame-src 'none'; font-src 'self'; object-src 'none'; media-src 'self'"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Cloud Provider WAF Configuration
+
+- **REQUIRED**: Enable platform-provided WAF protection
+  - Vercel: Enable Advanced Protection in dashboard
+  - AWS: Set up AWS WAF with appropriate rule sets
+  - Cloudflare: Enable WAF and configure rule sets
+- Enable bot protection modes to detect and block malicious bots
+- Configure challenge modes to validate legitimate human users
+- Set up alerts for suspicious activity detected by WAF
+- Document WAF configuration decisions and exceptions
+
+```typescript
+// Good: Next.js middleware for protection when WAF is not available
+import { NextRequest, NextResponse } from 'next/server';
+
+// Rate limiting configuration
+const RATE_LIMIT_DURATION = 60; // 1 minute
+const MAX_REQUESTS_PER_MINUTE = 60;
+
+// In-memory store for rate limiting (use Redis in production)
+const ipRequestCounts = new Map<string, { count: number, timestamp: number }>();
+
+export async function middleware(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for') || 'unknown';
+  const now = Date.now();
+  
+  // Clean up old entries
+  for (const [storedIp, data] of ipRequestCounts.entries()) {
+    if (now - data.timestamp > RATE_LIMIT_DURATION * 1000) {
+      ipRequestCounts.delete(storedIp);
+    }
+  }
+  
+  // Get current count for IP
+  const current = ipRequestCounts.get(ip) || { count: 0, timestamp: now };
+  
+  // Increment count
+  current.count += 1;
+  current.timestamp = now;
+  ipRequestCounts.set(ip, current);
+  
+  // Check if rate limit exceeded
+  if (current.count > MAX_REQUESTS_PER_MINUTE) {
+    return new NextResponse(
+      JSON.stringify({ error: 'Rate limit exceeded' }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': '60',
+        },
+      }
+    );
+  }
+  
+  // Add security headers to all responses
+  const response = NextResponse.next();
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('X-Frame-Options', 'DENY');
+  response.headers.set('X-XSS-Protection', '1; mode=block');
+  
+  return response;
+}
+
+export const config = {
+  matcher: '/api/:path*',
+};
+```
+
+## Rate Limiting Implementation
+
+### Application-Level Rate Limiting
+- **REQUIRED**: Implement IP-based rate limiting for all public endpoints
+- **REQUIRED**: Implement user-based rate limiting for authenticated endpoints
+- Configure stricter limits for authentication endpoints
+- Implement tiered rate limits (e.g., global, per-route, per-user)
+- Provide clear rate limit feedback to users
+- Log rate limit breaches for security monitoring
+
+```typescript
+// Good: Express API rate limiting implementation
+import rateLimit from 'express-rate-limit';
+import RedisStore from 'rate-limit-redis';
+import redis from '../lib/redis';
+
+// General API rate limiter
+const apiLimiter = rateLimit({
+  store: new RedisStore({
+    sendCommand: (...args) => redis.call(...args),
+  }),
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  standardHeaders: true, 
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+// Authentication endpoint rate limiter (stricter)
+const authLimiter = rateLimit({
+  store: new RedisStore({
+    sendCommand: (...args) => redis.call(...args),
+  }),
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // limit each IP to 10 login attempts per hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again after an hour.' },
+});
+
+// Apply limiters to routes
+app.use('/api/', apiLimiter);
+app.use('/api/auth/', authLimiter);
+```
+
+### User-Based Rate Limiting
+
+- Implement rate limiting based on authenticated user ID
+- Apply different rate limits based on user roles or subscription tiers
+- Store rate limit data in a distributed cache like Redis
+- Implement proper fallbacks if rate limiting service is unavailable
+- Consider business impact when setting rate limits for paying customers
+
+```typescript
+// Good: User-based rate limiting middleware
+function userRateLimiter(options) {
+  return async function(req, res, next) {
+    // Skip if no user ID (handled by IP limiter)
+    if (!req.user?.id) {
+      return next();
+    }
+    
+    const userId = req.user.id;
+    const key = `rate_limit:user:${userId}:${options.endpoint}`;
+    
+    try {
+      // Get current count from Redis
+      const count = await redis.incr(key);
+      
+      // Set expiry on first request
+      if (count === 1) {
+        await redis.expire(key, options.windowSeconds);
+      }
+      
+      // Get time-to-live for header
+      const ttl = await redis.ttl(key);
+      
+      // Set rate limit headers
+      res.set('X-RateLimit-Limit', options.max.toString());
+      res.set('X-RateLimit-Remaining', Math.max(0, options.max - count).toString());
+      res.set('X-RateLimit-Reset', Math.floor(Date.now() / 1000 + ttl).toString());
+      
+      // Check if over limit
+      if (count > options.max) {
+        return res.status(429).json({
+          error: 'Rate limit exceeded',
+          retryAfter: ttl,
+        });
+      }
+      
+      next();
+    } catch (error) {
+      // If Redis fails, log and continue (fail open to prevent blocking users)
+      console.error('Rate limiting error:', error);
+      next();
+    }
+  };
+}
+
+// Usage
+app.use('/api/data', userRateLimiter({
+  max: 1000,
+  windowSeconds: 3600,
+  endpoint: 'data',
+}));
+```
+
+## CAPTCHA Implementation
+
+### CAPTCHA Protection
+- **REQUIRED**: Implement CAPTCHA on login forms after failed attempts
+- **REQUIRED**: Use CAPTCHA for account registration
+- **REQUIRED**: Validate CAPTCHA server-side, not just client-side
+- Consider invisible CAPTCHA for better user experience
+- Implement progressive CAPTCHA (show after suspicious activity)
+- Track and alert on CAPTCHA bypass attempts
+
+```typescript
+// Good: Progressive CAPTCHA implementation
+import { NextApiRequest, NextApiResponse } from 'next';
+import { verifyCaptcha } from '@/lib/captcha';
+
+export default async function loginHandler(req: NextApiRequest, res: NextApiResponse) {
+  const { email, password, captchaToken } = req.body;
+  
+  // Get login attempt count for this email/IP combination
+  const attemptKey = `login_attempts:${email}:${req.headers['x-forwarded-for']}`;
+  const attempts = parseInt(await redis.get(attemptKey) || '0');
+  
+  // Require CAPTCHA after 3 failed attempts
+  if (attempts >= 3) {
+    // Verify CAPTCHA token if provided
+    if (captchaToken) {
+      const isValid = await verifyCaptcha(captchaToken);
+      if (!isValid) {
+        return res.status(400).json({ error: 'Invalid CAPTCHA. Please try again.' });
+      }
+    } else {
+      return res.status(400).json({ 
+        error: 'CAPTCHA verification required',
+        requireCaptcha: true 
+      });
+    }
+  }
+  
+  // Process login logic
+  try {
+    const user = await authenticateUser(email, password);
+    
+    if (user) {
+      // Reset attempts on success
+      await redis.del(attemptKey);
+      
+      // Return success with auth token
+      return res.status(200).json({ 
+        success: true,
+        token: generateAuthToken(user)
+      });
+    } else {
+      // Increment attempt count and set expiry
+      await redis.incr(attemptKey);
+      await redis.expire(attemptKey, 3600); // 1 hour expiry
+      
+      return res.status(401).json({ 
+        error: 'Invalid email or password',
+        requireCaptcha: attempts + 1 >= 3 
+      });
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    
+    // Increment attempt count
+    await redis.incr(attemptKey);
+    await redis.expire(attemptKey, 3600);
+    
+    return res.status(500).json({ error: 'Authentication failed' });
+  }
+}
+```
+
+## Security Monitoring
+
+### Monitoring Implementation
+- Set up monitoring for security-relevant events
+- Configure alerts for suspicious activities
+- Implement logging for all security events
+- Set up dashboard for security metrics
+- Monitor WAF events and IP reputation
+- Track and alert on abnormal authentication patterns
+
+```typescript
+// Good: Security event logging
+function logSecurityEvent(event) {
+  const securityLog = {
+    timestamp: new Date().toISOString(),
+    event: event.type,
+    user: event.userId || 'anonymous',
+    ip: event.ip,
+    userAgent: event.userAgent,
+    details: event.details,
+    severity: event.severity || 'info',
+  };
+  
+  // Log to monitoring system
+  logger.log('security', securityLog);
+  
+  // For high-severity events, send real-time alert
+  if (event.severity === 'high' || event.severity === 'critical') {
+    alertingService.sendAlert({
+      title: `Security Alert: ${event.type}`,
+      message: `High-severity security event detected. ${event.details}`,
+      data: securityLog,
+    });
+  }
+  
+  // Store in database for audit trail
+  db.securityEvents.insert(securityLog);
+}
+
+// Usage examples
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    // Log authentication failures
+    if (req.path === '/api/auth/login' && res.statusCode === 401) {
+      logSecurityEvent({
+        type: 'FAILED_LOGIN',
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        details: `Failed login attempt for user: ${req.body.email}`,
+        severity: 'medium',
+      });
+    }
+    
+    // Log rate limit breaches
+    if (res.statusCode === 429) {
+      logSecurityEvent({
+        type: 'RATE_LIMIT_BREACH',
+        ip: req.ip,
+        userId: req.user?.id,
+        userAgent: req.headers['user-agent'],
+        details: `Rate limit exceeded for endpoint: ${req.path}`,
+        severity: 'medium',
+      });
+    }
+  });
+  
+  next();
+});
+```
+
+### Anomaly Detection
+- Implement detection for unusual access patterns
+- Monitor for geographical anomalies in user access
+- Track unusual API usage patterns
+- Alert on sudden increases in error rates
+- Monitor authentication failures across users
+- Track and alert on brute force attempts
+
+## DDoS Protection
+
+### DDoS Mitigation
+- **REQUIRED**: Implement DDoS protection at the infrastructure level
+- Use cloud provider DDoS protection services
+- Configure automatic scaling for traffic spikes
+- Implement circuit breakers for critical services
+- Set up monitoring for traffic anomalies
+- Have a documented DDoS response plan
+
+```typescript
+// Good: Circuit breaker pattern for API dependencies
+import { CircuitBreaker } from 'opossum';
+
+// Create a circuit breaker for an external API
+const apiCircuitBreaker = new CircuitBreaker(callExternalApi, {
+  timeout: 3000, // If our function takes longer than 3 seconds, trigger a failure
+  resetTimeout: 30000, // After 30 seconds, try again
+  errorThresholdPercentage: 50, // When 50% of requests fail, open the circuit
+  rollingCountTimeout: 10000, // Consider the last 10 seconds of success/failure when calculating error percentage
+});
+
+// Add listeners
+apiCircuitBreaker.on('open', () => {
+  logSecurityEvent({
+    type: 'CIRCUIT_BREAKER_OPEN',
+    details: 'External API circuit breaker tripped',
+    severity: 'high',
+  });
+});
+
+apiCircuitBreaker.on('halfOpen', () => {
+  logSecurityEvent({
+    type: 'CIRCUIT_BREAKER_HALF_OPEN',
+    details: 'External API circuit breaker is testing the connection',
+    severity: 'medium',
+  });
+});
+
+apiCircuitBreaker.on('close', () => {
+  logSecurityEvent({
+    type: 'CIRCUIT_BREAKER_CLOSED',
+    details: 'External API circuit breaker has recovered',
+    severity: 'info',
+  });
+});
+
+// Use the circuit breaker in your code
+async function fetchUserData(userId) {
+  try {
+    return await apiCircuitBreaker.fire({ userId });
+  } catch (error) {
+    // Handle the error or fallback
+    return getCachedUserData(userId);
+  }
+}
+```
+
+## Implementation Checklist
+
+When implementing security monitoring and protection, verify the following:
+
+- [ ] WAF is enabled and properly configured
+- [ ] Rate limiting is implemented for all endpoints
+- [ ] CAPTCHA is used for authentication forms
+- [ ] Security monitoring is set up with alerts
+- [ ] DDoS protection is configured
+- [ ] Circuit breakers are implemented for critical services
+- [ ] Security logging captures relevant events
+- [ ] Anomaly detection is configured
+- [ ] There is a documented security incident response plan
+
+## See Also
+
+### Related Rules
+- @010-security-compliance.mdc - Core security standards and compliance
+- @011-env-var-security.mdc - Secure configuration and secrets management
+- @012-api-security.mdc - **CRITICAL:** API security measures and rate limiting
+- @046-session-validation.mdc - Session security and brute force prevention
+- @067-database-security.mdc - Database security and monitoring
+- @072-auth-security.mdc - **CRITICAL:** Authentication security patterns
+- @310-security-headers.mdc - **CRITICAL:** Security headers, CSP, CORS
+- @130-logging-standards.mdc - Security event logging
+- @135-error-monitoring-observability.mdc - Production error monitoring
+- @221-application-monitoring.mdc - Application monitoring and metrics
+- @222-metrics-alerting.mdc - Alerting and SLO monitoring
+- @355-rate-limiting-implementation.mdc - **CRITICAL:** Rate limiting implementation patterns
+- @356-rate-limiting-testing-patterns.mdc - Rate limiting testing
+
+### Tools & Documentation
+- **`.cursor/tools/check-security.sh`** - Security configuration validation
+  ```bash
+  ./.cursor/tools/check-security.sh
+  # Validates WAF, rate limiting, CAPTCHA setup
+  ```
+- **`.cursor/tools/check-rate-limits.sh`** - Rate limit configuration check
+- **`.cursor/tools/scan-vulnerabilities.sh`** - Security vulnerability scanning
+
+### Comprehensive Guides
+- **`guides/Security-Monitoring-Complete-Guide.md`** ⭐ **Essential** - Complete security monitoring guide
+- **`guides/Incident-Response-Complete-Guide.md`** - Security incident response procedures
+- **`guides/Rate-Limiting-Complete-Guide.md`** - Rate limiting strategies and implementation
+
+### Quick Start
+
+```bash
+# 1. Enable WAF (Vercel/AWS/Cloudflare)
+# Configure in platform dashboard
+
+# 2. Implement rate limiting
+# Use @355-rate-limiting-implementation.mdc
+
+# 3. Add security headers
+# Use @310-security-headers.mdc
+
+# 4. Set up monitoring
+npm install rate-limiter-flexible ioredis
+# Configure Redis-backed rate limiting
+
+# 5. Add CAPTCHA
+npm install @hcaptcha/react-hcaptcha
+# Implement progressive CAPTCHA
+
+# 6. Configure alerting
+# Use @222-metrics-alerting.mdc
+```
+
+### When to Use This Rule
+- ✅ **ALWAYS** use for production deployments
+- ✅ **ALWAYS** use for authentication endpoints
+- ✅ Use for public API endpoints
+- ✅ Use when implementing rate limiting
+- ✅ Use when setting up security monitoring
+
+### Do NOT Use This Rule
+- ❌ For local development (use simplified mocks)
+- ❌ For internal-only services (but still monitor)
+- ❌ For non-production environments (but use subset) 

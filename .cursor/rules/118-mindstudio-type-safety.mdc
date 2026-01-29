@@ -1,0 +1,410 @@
+---
+
+description: Use when implementing MindStudio integrations to ensure type safety, code maintainability, and team consistency
+globs: "src/\*_/_.{ts,tsx}"
+
+---
+
+# MindStudio Type Safety Standards
+
+## Context
+
+- MindStudio NPM package generates TypeScript interfaces for agents via `npx mindstudio sync`
+- Type safety prevents runtime errors and improves developer experience with autocompletion
+- Generated types ensure consistency across team members and environments
+- Proper type usage enables better refactoring and code maintenance
+
+## Requirements
+
+### Type Generation and Synchronization
+
+- **REQUIRED**: Use TypeScript for all MindStudio integrations
+- **REQUIRED**: Run `npx mindstudio sync` after any agent changes in MindStudio platform
+- **REQUIRED**: Commit `.mindstudio.json` and generated type files to version control
+- **REQUIRED**: Add `npx mindstudio sync` to postinstall scripts for automatic team synchronization
+- **REQUIRED**: Document type sync process in project README
+
+### Type-Safe Agent Invocation
+
+- **PREFERRED**: Use typed methods (`client.workers.AgentName.workflowName()`) over untyped (`client.run()`)
+- **REQUIRED**: Define interfaces for all agent inputs and outputs
+- **REQUIRED**: Use generic types for reusable agent patterns
+- **REQUIRED**: Validate input types at runtime when receiving external data
+- **REQUIRED**: Handle type mismatches gracefully with clear error messages
+
+### Interface Design Patterns
+
+- **REQUIRED**: Create specific interfaces for each agent workflow
+- **REQUIRED**: Use union types for agent responses that can have multiple formats
+- **REQUIRED**: Implement proper null/undefined handling for optional agent outputs
+- **REQUIRED**: Use branded types for IDs to prevent mixing different entity types
+- **REQUIRED**: Document complex type relationships and transformations
+
+### Team Consistency
+
+- **REQUIRED**: Establish naming conventions for agent-related types
+- **REQUIRED**: Create shared utility types for common agent patterns
+- **REQUIRED**: Use consistent error handling types across all agent integrations
+- **REQUIRED**: Implement type guards for runtime type validation
+- **REQUIRED**: Create documentation for custom type patterns
+
+## Examples
+
+<example>
+// Good: Comprehensive type definitions with proper interfaces
+import { MindStudio } from 'mindstudio';
+
+// Branded types for ID safety
+type OrganizationId = string & { **brand: 'OrganizationId' };
+type UserId = string & { **brand: 'UserId' };
+type ThreadId = string & { \_\_brand: 'ThreadId' };
+
+// Agent input interfaces
+interface ContentGenerationInput {
+prompt: string;
+organizationId: OrganizationId;
+userId?: UserId;
+maxTokens?: number;
+temperature?: number;
+style?: 'professional' | 'casual' | 'technical';
+}
+
+// Agent output interfaces
+interface ContentGenerationOutput {
+result: string;
+threadId: ThreadId;
+billingCost: number;
+metadata: {
+tokensUsed: number;
+model: string;
+processingTime: number;
+};
+}
+
+// Union types for different response formats
+type AgentResponse<T> =
+| { success: true; data: T; error: null }
+| { success: false; data: null; error: string };
+
+// Generic service class with proper typing
+class ContentService {
+private client: MindStudio;
+
+constructor(client: MindStudio) {
+this.client = client;
+}
+
+async generateContent(input: ContentGenerationInput): Promise<AgentResponse<ContentGenerationOutput>> {
+try {
+// Type-safe agent call with generated types
+const response = await this.client.workers.ContentGenerator.generateText({
+prompt: input.prompt,
+organizationId: input.organizationId,
+maxTokens: input.maxTokens || 1000,
+temperature: input.temperature || 0.7,
+style: input.style || 'professional'
+});
+
+      return {
+        success: true,
+        data: {
+          result: response.result,
+          threadId: response.threadId as ThreadId,
+          billingCost: response.billingCost,
+          metadata: {
+            tokensUsed: response.tokensUsed || 0,
+            model: response.model || 'unknown',
+            processingTime: response.processingTime || 0
+          }
+        },
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+
+}
+}
+</example>
+
+<example>
+// Good: Type guards and runtime validation
+// Type guard for validating external input
+function isValidContentInput(input: unknown): input is ContentGenerationInput {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    'prompt' in input &&
+    typeof (input as any).prompt === 'string' &&
+    (input as any).prompt.length > 0 &&
+    'organizationId' in input &&
+    typeof (input as any).organizationId === 'string'
+  );
+}
+
+// Runtime validation with type safety
+async function handleContentRequest(requestBody: unknown): Promise<AgentResponse<ContentGenerationOutput>> {
+if (!isValidContentInput(requestBody)) {
+return {
+success: false,
+data: null,
+error: 'Invalid input: missing required fields or invalid types'
+};
+}
+
+// TypeScript now knows requestBody is ContentGenerationInput
+const contentService = new ContentService(mindStudioClient);
+return await contentService.generateContent(requestBody);
+}
+</example>
+
+<example>
+// Good: Utility types for common patterns
+// Utility type for agent configuration
+type AgentConfig<TInput, TOutput> = {
+  workerId: string;
+  workflow: string;
+  inputSchema: (input: unknown) => input is TInput;
+  outputTransform: (raw: any) => TOutput;
+  retryConfig?: {
+    maxRetries: number;
+    backoffMs: number;
+  };
+};
+
+// Generic agent wrapper with type safety
+class TypedAgentWrapper<TInput, TOutput> {
+constructor(
+private client: MindStudio,
+private config: AgentConfig<TInput, TOutput>
+) {}
+
+async execute(input: TInput): Promise<AgentResponse<TOutput>> {
+// Validate input at runtime
+if (!this.config.inputSchema(input)) {
+return {
+success: false,
+data: null,
+error: 'Input validation failed'
+};
+}
+
+    try {
+      const rawResponse = await this.client.run({
+        workerId: this.config.workerId,
+        workflow: this.config.workflow,
+        variables: input
+      });
+
+      const transformedOutput = this.config.outputTransform(rawResponse);
+
+      return {
+        success: true,
+        data: transformedOutput,
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+
+}
+}
+
+// Usage with specific types
+const contentGenerator = new TypedAgentWrapper<ContentGenerationInput, ContentGenerationOutput>(
+mindStudioClient,
+{
+workerId: 'content-generator-id',
+workflow: 'generateText',
+inputSchema: isValidContentInput,
+outputTransform: (raw) => ({
+result: raw.result,
+threadId: raw.threadId,
+billingCost: raw.billingCost,
+metadata: {
+tokensUsed: raw.tokensUsed || 0,
+model: raw.model || 'unknown',
+processingTime: raw.processingTime || 0
+}
+})
+}
+);
+</example>
+
+<example>
+// Good: Package.json configuration for type synchronization
+{
+  "scripts": {
+    "postinstall": "npx mindstudio sync",
+    "sync-agents": "npx mindstudio sync",
+    "type-check": "tsc --noEmit",
+    "build": "npm run sync-agents && tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^18.0.0"
+  }
+}
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Using untyped client methods when types are available
+async function generateContent(input: any) {
+  // Using untyped run() method instead of typed worker method
+  const result = await client.run({
+    workerId: 'some-id',
+    workflow: 'generateText',
+    variables: input // No type checking
+  });
+  
+  return result.result; // No type safety on output
+}
+
+// ❌ AVOID: Missing type validation for external inputs
+async function handleRequest(req: any, res: any) {
+// Directly using request body without validation
+const result = await client.workers.ContentGenerator.generateText(req.body);
+res.json(result);
+}
+
+// ❌ AVOID: Not using generated types
+interface ManualContentInput { // Should use generated types instead
+text: string; // Inconsistent with actual agent schema
+}
+
+// ❌ AVOID: Missing error type handling
+async function callAgent(): Promise<string> {
+const result = await client.workers.MyAgent.process({ input: 'test' });
+// No error handling, assumes success
+return result.result;
+}
+
+// ❌ AVOID: Not committing type files
+// .gitignore
+.mindstudio.json // ❌ Should be committed for team consistency
+dist/src/generated/ // ❌ Should be committed or regenerated in CI
+</example>
+
+## Type Synchronization Workflow
+
+### Initial Setup
+
+1. Install MindStudio NPM package: `npm install mindstudio`
+2. Run initial sync: `npx mindstudio sync`
+3. Commit generated files: `.mindstudio.json` and type definitions
+4. Add sync to postinstall script for team consistency
+
+### Agent Updates
+
+1. Make changes to agents in MindStudio platform
+2. Run `npx mindstudio sync` to update types
+3. Update code to use new types
+4. Test integration with updated types
+5. Commit updated type files
+
+### Team Onboarding
+
+1. New team member clones repository
+2. Runs `npm install` (triggers postinstall sync)
+3. Types are automatically available and current
+4. No manual sync required for initial setup
+
+## Advanced Type Patterns
+
+### Conditional Types for Agent Responses
+
+```typescript
+// Conditional types based on agent configuration
+type AgentResult<T extends { async?: boolean }> = T["async"] extends true
+  ? { callbackInProgress: true; threadId: string }
+  : { result: string; billingCost: number };
+```
+
+### Template Literal Types for Agent IDs
+
+```typescript
+// Type-safe agent ID patterns
+type AgentId = `agent-${string}`;
+type WorkflowName = `${string}Workflow`;
+
+function callTypedAgent<T extends AgentId, W extends WorkflowName>(
+  agentId: T,
+  workflow: W,
+  input: unknown
+): Promise<unknown> {
+  // Implementation
+}
+```
+
+### Mapped Types for Agent Configurations
+
+```typescript
+// Generate configuration types from agent definitions
+type AgentConfigs = {
+  [K in keyof GeneratedAgents]: {
+    id: K;
+    workflows: keyof GeneratedAgents[K];
+    inputType: GeneratedAgents[K][keyof GeneratedAgents[K]]["input"];
+    outputType: GeneratedAgents[K][keyof GeneratedAgents[K]]["output"];
+  };
+};
+```
+
+## Integration with Development Tools
+
+- Configure TypeScript strict mode for better type checking
+- Use ESLint rules to enforce type safety patterns
+- Set up pre-commit hooks to validate type synchronization
+- Configure IDE to show type errors and autocompletion
+- Use type-coverage tools to measure type safety percentage
+
+## Integration with Other Rules
+
+- Builds on [117-mindstudio-agent-integration.mdc](mdc:117-mindstudio-agent-integration.mdc) for basic integration patterns
+- Supports [105-typescript-linter-standards.mdc](mdc:105-typescript-linter-standards.mdc) for consistent TypeScript usage
+- Complements [100-coding-patterns.mdc](mdc:100-coding-patterns.mdc) for maintainable code structure
+- Works with [150-technical-debt-prevention.mdc](mdc:150-technical-debt-prevention.mdc) to prevent type-related technical debt
+
+## See Also
+
+### Related MindStudio Rules (Complete Domain)
+- @115-mindstudio-integration.mdc - Core MindStudio API integration
+- @117-mindstudio-agent-integration.mdc - **CRITICAL:** Secure agent integration patterns
+- @119-mindstudio-error-handling.mdc - **CRITICAL:** Error handling and retry logic
+- @120-mindstudio-orchestration.mdc - Multi-agent coordination patterns
+- @121-mindstudio-testing.mdc - **CRITICAL:** Testing AI agent integrations
+
+### Related Domain Rules
+- @105-typescript-linter-standards.mdc - **CRITICAL:** TypeScript linting standards
+- @100-coding-patterns.mdc - Code patterns and maintainability
+- @150-technical-debt-prevention.mdc - Preventing technical debt
+
+### Tools & Documentation
+- **`npx mindstudio sync`** - **CRITICAL:** Generate TypeScript types from agents
+- **`.cursor/docs/ai-workflows.md`** - AI integration workflows
+
+### Comprehensive Guides
+- **`guides/MindStudio-Integration-Complete-Guide.md`** ⭐ **Essential** - Complete integration guide
+
+### Quick Start
+```typescript
+// 1. Install and sync
+npm install mindstudio
+npx mindstudio sync
+
+// 2. Use typed client
+import { createMindStudioClient } from 'mindstudio';
+const client = createMindStudioClient({ apiKey: process.env.MINDSTUDIO_KEY });
+
+// 3. Type-safe invocation
+const result = await client.workers.MyAgent.myWorkflow({ input: 'data' });
+// result is fully typed!
+```

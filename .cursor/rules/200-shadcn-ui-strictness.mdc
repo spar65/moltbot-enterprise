@@ -1,0 +1,842 @@
+---
+description: 
+globs: ""
+alwaysApply: false
+---
+___
+description: Use when implementing UI components to ensure consistent and proper usage of shadcn/ui library across the application
+globs: "components/**/*.{tsx,ts,jsx,js}, app/**/*.{tsx,ts,jsx,js}"
+___
+
+# Shadcn UI Usage Guidelines
+
+## Context
+- AgentMinder uses shadcn/ui as the primary component library
+- Shadcn components should be used consistently across the application
+- Customizations must follow established patterns to maintain consistency
+- Component variants should align with the design system
+- Shadcn provides a foundation that can be extended but should be respected
+
+## Requirements
+
+### Component Usage Hierarchy
+
+1. **Use Unchanged Shadcn Components First**
+   - Default shadcn/ui components should be used whenever possible
+   - Respect the original API design and prop structure
+   - Use built-in variants before creating custom ones
+   - Apply standard class names for spacing and layout
+
+2. **Use Composed Shadcn Components Second**
+   - Compose multiple shadcn components before creating custom ones
+   - Use layout components like `Card` with other components
+   - Maintain the shadcn component hierarchy in compositions
+   - Leverage component slots when provided
+
+3. **Extend Shadcn Components Third**
+   - Wrap shadcn components to add AgentMinder-specific functionality
+   - Create higher-level components that use shadcn internally
+   - Add missing functionality while preserving the original API
+   - Document any extensions to make them discoverable
+
+4. **Custom Components as Last Resort**
+   - Only create custom components when shadcn doesn't provide a solution
+   - Follow shadcn's design patterns and conventions in custom components
+   - Consider contributing back to shadcn if the component is generic
+   - Document why a custom component was needed
+
+```typescript
+// Good: Using standard shadcn/ui component
+import { Button } from "@/components/ui/button";
+
+function ActionBar() {
+  return (
+    <div className="flex justify-end space-x-2">
+      <Button variant="outline">Cancel</Button>
+      <Button>Save</Button>
+    </div>
+  );
+}
+
+// Good: Composed shadcn/ui components
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+
+function PricingCard({ title, price, features, onSelect }) {
+  return (
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="text-3xl font-bold">${price}</div>
+        <ul className="mt-4 space-y-2">
+          {features.map((feature, index) => (
+            <li key={index} className="flex items-center">
+              <CheckIcon className="mr-2 h-4 w-4 text-green-500" />
+              <span>{feature}</span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+      <CardFooter>
+        <Button onClick={onSelect} className="w-full">
+          Select Plan
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
+
+// Good: Extended shadcn/ui component
+import { useState } from "react";
+import { Button, ButtonProps } from "@/components/ui/button";
+
+interface LoadingButtonProps extends ButtonProps {
+  isLoading?: boolean;
+  loadingText?: string;
+}
+
+export function LoadingButton({
+  children,
+  isLoading = false,
+  loadingText = "Loading...",
+  disabled,
+  ...props
+}: LoadingButtonProps) {
+  return (
+    <Button disabled={isLoading || disabled} {...props}>
+      {isLoading ? (
+        <>
+          <Spinner className="mr-2 h-4 w-4 animate-spin" />
+          {loadingText}
+        </>
+      ) : (
+        children
+      )}
+    </Button>
+  );
+}
+```
+
+### Styling and Customization Rules
+
+1. **Use Tailwind Classes as Primary Styling Method**
+   - Apply Tailwind classes directly to shadcn components
+   - Use the `className` prop for layout and spacing
+   - Follow the component's documentation for class overrides
+   - Maintain a consistent approach to applying classes
+
+2. **Follow the Customization Hierarchy**
+   - Style via Tailwind classes first (`className` prop)
+   - Use shadcn variants next (via component props)
+   - Modify the global theme in `components.json` third
+   - Create customized versions of components last
+
+3. **Respect Component Architecture**
+   - Don't override internal styles that affect functionality
+   - Avoid using `!important` in styles
+   - Don't modify shadcn's CSS variables directly
+   - Preserve accessibility features in customizations
+
+4. **Maintain Consistent Visual Language**
+   - Ensure custom styles align with design system
+   - Use design tokens consistently across components
+   - Avoid one-off custom styles outside the system
+   - Document any intentional style variations
+
+```typescript
+// Good: Proper style customization
+import { Button } from "@/components/ui/button";
+
+function ActionButton({ importance, ...props }) {
+  // Use variants from shadcn first
+  if (importance === "primary") {
+    return <Button {...props} />; // Default variant is already primary
+  }
+  
+  if (importance === "secondary") {
+    return <Button variant="outline" {...props} />;
+  }
+  
+  if (importance === "danger") {
+    return <Button variant="destructive" {...props} />;
+  }
+  
+  // Use className for layout/spacing/positioning
+  if (importance === "subtle") {
+    return <Button variant="ghost" className="h-8 px-2 text-sm" {...props} />;
+  }
+  
+  // Default fallback
+  return <Button variant="secondary" {...props} />;
+}
+
+// Bad: Incorrect customization
+function BadCustomButton({ ...props }) {
+  return (
+    <Button
+      style={{ backgroundColor: "#ff5500 !important" }} // Avoid direct style overrides and !important
+      className="custom-button" // Using non-Tailwind classes
+      {...props}
+    />
+  );
+}
+
+// Good: Global theme customization (in components.json)
+// {
+//   "style": "default",
+//   "tailwind": {
+//     "config": "tailwind.config.js",
+//     "css": "app/globals.css",
+//     "baseColor": "slate",
+//     "cssVariables": true
+//   },
+//   "aliases": {
+//     "components": "@/components",
+//     "utils": "@/lib/utils"
+//   },
+//   "rsc": true
+// }
+```
+
+### Component Extension Guidelines
+
+1. **Naming Conventions**
+   - Prefix extended components with a descriptor (e.g., `AgentCard`)
+   - Use the same base name as the shadcn component
+   - Document the relationship to the original component
+   - Use consistent naming patterns throughout the app
+
+2. **Props Handling**
+   - Forward all original props when extending components
+   - Add new props with clear TypeScript definitions
+   - Use sensible defaults aligned with the design system
+   - Document required vs. optional props
+
+3. **Component Organization**
+   - Keep extended components in a dedicated directory
+   - Group related custom components together
+   - Maintain a clear separation from core shadcn components
+   - Export extended components from a central location
+
+4. **Integration with Existing System**
+   - Ensure custom components work with form libraries
+   - Maintain keyboard navigation and focus management
+   - Support responsive design principles
+   - Preserve dark mode compatibility
+
+```typescript
+// Good: Organized extended component
+// Path: components/extended/data-table/index.tsx
+import { useState } from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+interface DataTableProps<T> {
+  data: T[];
+  columns: {
+    key: string;
+    header: string;
+    render?: (row: T) => React.ReactNode;
+  }[];
+  onRowClick?: (row: T) => void;
+  searchable?: boolean;
+  sortable?: boolean;
+}
+
+export function DataTable<T extends Record<string, any>>({
+  data,
+  columns,
+  onRowClick,
+  searchable = false,
+  sortable = false,
+}: DataTableProps<T>) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  
+  // Filter data based on search
+  const filteredData = searchable
+    ? data.filter((row) =>
+        Object.values(row).some(
+          (value) =>
+            value &&
+            value.toString().toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      )
+    : data;
+  
+  // Sort data if needed
+  const sortedData = sortable && sortColumn
+    ? [...filteredData].sort((a, b) => {
+        const valueA = a[sortColumn];
+        const valueB = b[sortColumn];
+        
+        if (valueA === valueB) return 0;
+        
+        const comparison = valueA > valueB ? 1 : -1;
+        return sortDirection === "asc" ? comparison : -comparison;
+      })
+    : filteredData;
+  
+  // Handle sorting
+  const handleSort = (columnKey: string) => {
+    if (!sortable) return;
+    
+    if (sortColumn === columnKey) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      setSortColumn(columnKey);
+      setSortDirection("asc");
+    }
+  };
+  
+  return (
+    <div className="w-full">
+      {searchable && (
+        <div className="mb-4">
+          <Input
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="max-w-sm"
+          />
+        </div>
+      )}
+      
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {columns.map((column) => (
+                <TableHead
+                  key={column.key}
+                  className={sortable ? "cursor-pointer" : ""}
+                  onClick={() => handleSort(column.key)}
+                >
+                  <div className="flex items-center">
+                    {column.header}
+                    {sortable && sortColumn === column.key && (
+                      <span className="ml-1">
+                        {sortDirection === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </div>
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sortedData.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className="h-24 text-center"
+                >
+                  No results found.
+                </TableCell>
+              </TableRow>
+            ) : (
+              sortedData.map((row, rowIndex) => (
+                <TableRow
+                  key={rowIndex}
+                  className={onRowClick ? "cursor-pointer" : ""}
+                  onClick={() => onRowClick?.(row)}
+                >
+                  {columns.map((column) => (
+                    <TableCell key={column.key}>
+                      {column.render ? column.render(row) : row[column.key]}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+// Export all extended components
+export * from "./pagination";
+export * from "./filters";
+```
+
+### Required Components and Patterns
+
+The following shadcn/ui components must be used consistently throughout the application:
+
+1. **Form Controls**
+   - Use `Form` components for all forms
+   - Apply proper validation with `zod` schemas
+   - Implement consistent error handling
+   - Use proper field components for each data type
+
+2. **Feedback Components**
+   - Use `Toast` for temporary notifications
+   - Apply `Alert` for persistent messages
+   - Implement `Dialog` for confirmations
+   - Use `LoadingSpinner` for loading states
+
+3. **Layout Components**
+   - Use `Card` for content containers
+   - Apply `Tabs` for section organization
+   - Implement `Accordion` for collapsible content
+   - Use proper table components for data display
+
+4. **Navigation Components**
+   - Use `DropdownMenu` for actions
+   - Apply `Popover` for additional information
+   - Implement `Navigation` for main navigation
+   - Use `Breadcrumb` for page hierarchy
+
+```typescript
+// Good: Form implementation
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import * as z from "zod";
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/use-toast";
+
+const formSchema = z.object({
+  username: z.string().min(2).max(50),
+  email: z.string().email(),
+  role: z.enum(["admin", "user", "editor"]),
+});
+
+export function UserForm() {
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      username: "",
+      email: "",
+      role: "user",
+    },
+  });
+
+  function onSubmit(values: z.infer<typeof formSchema>) {
+    // Submit form
+    toast({
+      title: "User created",
+      description: `Created user ${values.username} with role ${values.role}`,
+    });
+  }
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+        <FormField
+          control={form.control}
+          name="username"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Username</FormLabel>
+              <FormControl>
+                <Input placeholder="johndoe" {...field} />
+              </FormControl>
+              <FormDescription>
+                This is your public display name.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="email"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Email</FormLabel>
+              <FormControl>
+                <Input placeholder="john@example.com" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="role"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Role</FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a role" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="editor">Editor</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <Button type="submit">Submit</Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+### Component Testing and Validation
+
+1. **Visual Consistency Testing**
+   - Test components in Storybook for visual consistency
+   - Verify all variants render correctly
+   - Ensure responsive behavior works as expected
+   - Validate dark mode appearance
+
+2. **Functional Testing**
+   - Test interactivity and state changes
+   - Validate form integrations
+   - Test keyboard navigation
+   - Verify focus management
+
+3. **Accessibility Testing**
+   - Validate against WCAG guidelines
+   - Test with screen readers
+   - Verify keyboard navigation
+   - Check color contrast
+
+4. **Performance Considerations**
+   - Monitor component render performance
+   - Avoid unnecessary re-renders
+   - Use memoization where appropriate
+   - Lazy load complex components
+
+## Best Practices
+
+1. **Stay Updated with Shadcn Releases**
+   - Regularly update shadcn components
+   - Review changelog for breaking changes
+   - Apply updates consistently across the app
+   - Test thoroughly after updates
+
+2. **Document Component Usage**
+   - Create internal component documentation
+   - Document custom variants and extensions
+   - Provide usage examples for complex components
+   - Maintain a component showcase
+
+3. **Systematic Approach to Customization**
+   - Create a standardized process for component customization
+   - Document decisions to deviate from shadcn defaults
+   - Maintain a theme configuration file
+   - Use consistent approach to overrides
+
+4. **Regular UI Audits**
+   - Periodically review component usage
+   - Identify inconsistencies or deviations
+   - Consolidate duplicate implementations
+   - Refactor as needed to maintain consistency
+
+## Common Pitfalls
+
+1. **Inconsistent Component Usage**
+   - Using different component variants for the same purpose
+   - Creating duplicate implementations of existing components
+   - Inconsistent prop usage across similar components
+   - Mixing different styling approaches
+
+2. **Overriding Core Functionality**
+   - Modifying internal component behavior
+   - Breaking accessibility features
+   - Adding contradictory styles
+   - Changing expected component interactions
+
+3. **Poor Performance Practices**
+   - Not memoizing frequently re-rendered components
+   - Creating new component instances in render functions
+   - Adding unnecessary wrapper components
+   - Ignoring render optimization opportunities
+
+4. **Inadequate Testing**
+   - Not testing all component variants
+   - Failing to test keyboard interactions
+   - Ignoring accessibility requirements
+   - Not verifying responsive behavior
+
+<example>
+// Good: Using Shadcn UI components with proper customization
+import { useState } from 'react';
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ui/use-toast";
+import { useOrganization } from "@/hooks/useOrganization";
+
+export function ApiKeyGenerator() {
+  const [isLoading, setIsLoading] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [keyName, setKeyName] = useState("");
+  const { toast } = useToast();
+  const { organization } = useOrganization();
+  
+  // Using organization colors for the primary button
+  const primaryColor = organization?.primaryColor || '#4F46E5';
+  
+  const generateApiKey = async () => {
+    if (!keyName) {
+      toast({
+        title: "Name required",
+        description: "Please provide a name for your API key.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/keys/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: keyName }),
+      });
+      
+      if (!response.ok) throw new Error('Failed to generate key');
+      
+      const data = await response.json();
+      setApiKey(data.key);
+      toast({
+        title: "API Key Generated",
+        description: "Keep this key secure. It won't be shown again.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error generating key",
+        description: "Could not generate API key. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline">Generate API Key</Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Generate API Key</DialogTitle>
+          <DialogDescription>
+            Create a new API key to access the AgentMinder API.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="name" className="text-right">
+              Key Name
+            </Label>
+            <Input
+              id="name"
+              value={keyName}
+              onChange={(e) => setKeyName(e.target.value)}
+              className="col-span-3"
+              placeholder="Production API Key"
+            />
+          </div>
+          {apiKey && (
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="apiKey" className="text-right">
+                API Key
+              </Label>
+              <div className="col-span-3 flex">
+                <Input
+                  id="apiKey"
+                  value={apiKey}
+                  readOnly
+                  className="rounded-r-none"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="rounded-l-none"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKey);
+                    toast({ title: "Copied to clipboard" });
+                  }}
+                >
+                  Copy
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            type="submit"
+            onClick={generateApiKey}
+            disabled={isLoading}
+            style={{ backgroundColor: !apiKey ? primaryColor : undefined }}
+            className={!apiKey ? "text-white hover:opacity-90" : ""}
+          >
+            {isLoading ? "Generating..." : apiKey ? "Close" : "Generate Key"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+</example>
+
+<example type="invalid">
+// Bad: Custom implementation instead of using Shadcn UI components
+import React, { useState } from 'react';
+
+export function CustomApiKeyGenerator() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [keyName, setKeyName] = useState("");
+
+  const generateApiKey = async () => {
+    // Implementation details...
+  };
+
+  return (
+    <div>
+      <button 
+        className="px-4 py-2 border border-gray-300 rounded-md"
+        onClick={() => setIsOpen(true)}
+      >
+        Generate API Key
+      </button>
+      
+      {isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded-lg w-full max-w-md">
+            <h2 className="text-xl font-bold">Generate API Key</h2>
+            <p className="text-gray-500 mb-4">
+              Create a new API key to access the AgentMinder API.
+            </p>
+            
+            <div className="mb-4">
+              <label className="block mb-1">Key Name</label>
+              <input
+                type="text"
+                value={keyName}
+                onChange={(e) => setKeyName(e.target.value)}
+                className="w-full border p-2 rounded"
+                placeholder="Production API Key"
+              />
+            </div>
+            
+            {apiKey && (
+              <div className="mb-4">
+                <label className="block mb-1">API Key</label>
+                <div className="flex">
+                  <input
+                    type="text"
+                    value={apiKey}
+                    readOnly
+                    className="w-full border p-2 rounded-l"
+                  />
+                  <button
+                    className="bg-gray-200 px-4 rounded-r"
+                    onClick={() => navigator.clipboard.writeText(apiKey)}
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => setIsOpen(false)}
+                className="px-4 py-2 mr-2 text-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={generateApiKey}
+                disabled={isLoading}
+                className="px-4 py-2 bg-blue-600 text-white rounded"
+              >
+                {isLoading ? "Generating..." : "Generate Key"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+</example>
+
+### Common Shadcn UI Components
+
+| UI Element | Shadcn Component | Customization Options |
+|------------|------------------|------------------------|
+| Buttons | `<Button>` | variant, size, asChild |
+| Dialogs/Modals | `<Dialog>` | size, position |
+| Form inputs | `<Input>`, `<Select>` | size, variant |
+| Data tables | `<Table>` | layout, styling |
+| Cards | `<Card>` | padding, border |
+| Tabs | `<Tabs>` | orientation, size |
+| Alerts/Messages | `<Alert>`, `<Toast>` | variant, action |
+| Dropdowns | `<DropdownMenu>` | position, trigger |
+| Toggles | `<Switch>`, `<Checkbox>` | size, color | 
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - UI library usage patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Comprehensive Guides
+- **`guides/Component-Library-Guide.md`** - **CRITICAL:** Component library patterns!
+- **`guides/Next.js-Architecture-Guide.md`** - Next.js UI library integration
+
+### Tools (Future)
+📅 **Planned Tools:**
+- `.cursor/tools/lint-components.sh` (planned) - Component structure validation
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @030-visual-design-system.mdc - Design system integration with shadcn/ui
+- @042-ui-component-architecture.mdc - Component architecture
+- @050-css-architecture.mdc - CSS organization with shadcn/ui
+- @054-accessibility-requirements.mdc - shadcn/ui accessibility
+- @074-nextjs-styling-consistency.mdc - Next.js + shadcn/ui styling
+
+### Quick Start
+1. **Guide:** Read `guides/Component-Library-Guide.md` for shadcn/ui patterns
+2. **Strictness:** Follow shadcn/ui component usage in this rule
+3. **Customization:** Integrate with design system (@030-visual-design-system.mdc)

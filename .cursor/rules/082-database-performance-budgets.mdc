@@ -1,0 +1,241 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Define clear performance expectations for different query types and implement monitoring and alerting to maintain these standards
+globs: "src/**/*.{ts,tsx}"
+___
+
+# Database Performance Budgets
+
+## Context
+- Database performance directly impacts user experience and application responsiveness
+- Without clear standards, query performance can vary widely across similar operations
+- Performance degradation often happens gradually and may go undetected
+- Lack of performance budgets makes it difficult to identify optimization opportunities
+
+## Requirements
+
+### Query Performance Standards
+
+- List operations: <50ms for <100 records
+- Single record retrieval: <10ms
+- Complex analytics queries: <500ms
+- Cross-service sync operations: <200ms
+- Bulk operations: <1s for up to 1000 records
+
+### Performance Budget Enforcement
+
+- Implement automated query performance testing in CI/CD pipeline
+- Alert on budget violations in production environments
+- Create performance regression detection mechanisms
+- Document performance expectations for common operations
+
+### Query Performance Optimization
+
+- Apply proper indexing for all filtered and sorted fields
+- Use query plan analysis for queries exceeding budgets
+- Implement caching strategies for expensive read operations
+- Batch database operations to reduce round trips
+
+### Performance Monitoring
+
+- Track query execution times across all environments
+- Identify slow query patterns and optimize proactively
+- Maintain a performance dashboard with key metrics
+- Set up alerting for performance degradation
+
+## Examples
+
+<example>
+// Good: Query with performance tracking and budgets
+class UserRepository {
+  private queryTracker: QueryPerformanceTracker;
+  
+  constructor() {
+    this.queryTracker = new QueryPerformanceTracker('UserRepository');
+  }
+  
+  async findById(id: string): Promise<User | null> {
+    // Define performance budget for this operation
+    const performanceBudget = 10; // ms
+    
+    // Track query execution time
+    const tracker = this.queryTracker.startTracking('findById');
+    
+    try {
+      const result = await prisma.user.findUnique({ where: { id } });
+      
+      // Stop tracking and check against budget
+      const executionTime = tracker.stop();
+      
+      if (executionTime > performanceBudget) {
+        logger.warn(`Performance budget exceeded: findById took ${executionTime}ms (budget: ${performanceBudget}ms)`);
+      }
+      
+      return result;
+    } catch (error) {
+      // Stop tracking on error
+      tracker.stop();
+      throw error;
+    }
+  }
+  
+  async findByOrganization(organizationId: string, options: { limit: number, offset: number }): Promise<User[]> {
+    // Define performance budget based on expected result size
+    const performanceBudget = 50; // ms for list operations
+    
+    const tracker = this.queryTracker.startTracking('findByOrganization');
+    
+    try {
+      const result = await prisma.user.findMany({
+        where: { organizationId },
+        take: options.limit,
+        skip: options.offset,
+        orderBy: { createdAt: 'desc' }
+      });
+      
+      const executionTime = tracker.stop();
+      
+      if (executionTime > performanceBudget) {
+        logger.warn(`Performance budget exceeded: findByOrganization took ${executionTime}ms (budget: ${performanceBudget}ms)`);
+        
+        // Capture query for optimization analysis
+        await this.queryTracker.captureSlowQuery({
+          name: 'findByOrganization',
+          params: { organizationId, options },
+          executionTime,
+          budget: performanceBudget
+        });
+      }
+      
+      return result;
+    } catch (error) {
+      tracker.stop();
+      throw error;
+    }
+  }
+}
+</example>
+
+<example>
+// Good: Performance budget configuration and monitoring
+const performanceBudgets = {
+  // Single record operations
+  singleRecordRetrieval: 10, // ms
+  singleRecordUpdate: 20, // ms
+  singleRecordCreate: 30, // ms
+  singleRecordDelete: 15, // ms
+  
+  // List operations
+  listRetrieval: {
+    small: 50, // <100 records
+    medium: 100, // 100-500 records
+    large: 200 // 500-1000 records
+  },
+  
+  // Analytics operations
+  simpleAnalytics: 200, // ms
+  complexAnalytics: 500, // ms
+  
+  // Cross-service operations
+  syncOperations: 200 // ms
+};
+
+class PerformanceMonitor {
+  static async checkDatabasePerformance(): Promise<PerformanceReport> {
+    // Run test queries with realistic data volumes
+    const results = await Promise.all([
+      this.benchmarkSingleRecordRetrieval(),
+      this.benchmarkListRetrieval(),
+      this.benchmarkAnalyticsQuery()
+    ]);
+    
+    // Compare with budgets and generate report
+    return {
+      singleRecordPerformance: {
+        executionTime: results[0],
+        budget: performanceBudgets.singleRecordRetrieval,
+        status: results[0] <= performanceBudgets.singleRecordRetrieval ? 'pass' : 'fail'
+      },
+      listRetrievalPerformance: {
+        executionTime: results[1],
+        budget: performanceBudgets.listRetrieval.medium,
+        status: results[1] <= performanceBudgets.listRetrieval.medium ? 'pass' : 'fail'
+      },
+      analyticsPerformance: {
+        executionTime: results[2],
+        budget: performanceBudgets.simpleAnalytics,
+        status: results[2] <= performanceBudgets.simpleAnalytics ? 'pass' : 'fail'
+      }
+    };
+  }
+}
+</example>
+
+<example type="invalid">
+// Bad: No performance tracking or budgets
+async function getUsers(organizationId: string) {
+  // No performance tracking
+  // No limits on query size
+  return await prisma.user.findMany({
+    where: { organizationId }
+  });
+  
+  // No indexing guidance
+  // No performance expectations
+}
+</example>
+
+<example type="invalid">
+// Bad: Inefficient query without monitoring
+async function getAnalyticsData(startDate: Date, endDate: Date) {
+  // Complex query without performance budget
+  const result = await prisma.$queryRaw`
+    SELECT 
+      user_id,
+      COUNT(*) as action_count,
+      AVG(duration) as avg_duration
+    FROM user_actions
+    WHERE created_at BETWEEN ${startDate} AND ${endDate}
+    GROUP BY user_id
+    ORDER BY action_count DESC
+  `;
+  
+  // No tracking of execution time
+  // No alerting for slow performance
+  // No optimization strategy
+  
+  return result;
+}
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Performance patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Analyze query patterns and relationships
+
+### Comprehensive Guides
+- **`guides/Database-Query-Optimization-Guide.md`** - **GOLD STANDARD:** Query optimization patterns!
+- **`guides/ORM-Usage-Guide.md`** - Performant ORM patterns
+- **`guides/Database-Resilience-Guide.md`** - Performance resilience
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @060-performance-metrics.mdc - **CRITICAL:** General performance metrics!
+- @063-client-performance.mdc - Client/server performance
+- @065-database-access-patterns.mdc - **CRITICAL:** Efficient access patterns!
+- @068-database-monitoring-standards.mdc - Performance monitoring
+- @061-code-splitting.mdc - Code/query optimization
+
+### Quick Start
+1. **Optimize:** Follow `guides/Database-Query-Optimization-Guide.md` (GOLD STANDARD!)
+2. **Patterns:** Use efficient patterns from @065-database-access-patterns.mdc
+3. **Monitor:** Set budgets and monitor per @060-performance-metrics.mdc
+4. **Inspect:** Use `.cursor/tools/inspect-model.sh` to understand query patterns

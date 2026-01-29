@@ -1,0 +1,647 @@
+---
+description: Apply when implementing the AppShell layout architecture to ensure consistent navigation, responsive behavior, and proper component integration
+globs: "app/(app)/**/*.{tsx,jsx}, **/components/layout/**/*.{tsx,jsx}"
+---
+
+# AppShell Layout Standards
+
+**Priority**: P0 (CRITICAL - v0.4.0 Foundation)  
+**Domain**: UI Architecture (040-series)  
+**Applies To**: v0.4.0+ authenticated page layouts
+
+---
+
+## Context
+
+- v0.4.0 introduces AppShell as the root layout wrapper for all authenticated pages
+- AppShell consists of TopBanner, Sidebar, Footer components
+- Must be responsive across desktop, tablet, mobile viewports
+- Provides consistent navigation and user experience
+- All authenticated routes MUST use AppShell wrapper
+- Layout must support admin and non-admin users with role-based UI
+
+---
+
+## Requirements
+
+### 1. AppShell Component Structure
+
+**REQUIRED**: AppShell wraps all authenticated page content
+
+```typescript
+// app/(app)/layout.tsx
+import { AppShell } from "@/components/layout/AppShell";
+import { auth } from "@/lib/auth";
+
+export default async function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const session = await auth();
+
+  if (!session) {
+    redirect("/login");
+  }
+
+  return (
+    <AppShell user={session.user} currentPath={/* get from headers */}>
+      {children}
+    </AppShell>
+  );
+}
+```
+
+### 2. TopBanner Component
+
+**REQUIRED**: TopBanner always visible at top of viewport
+
+**Props**:
+
+```typescript
+interface TopBannerProps {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: "USER" | "ADMIN";
+  };
+  onMenuToggle: () => void; // Mobile menu toggle
+}
+```
+
+**Layout**:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  [Logo]              CompSI              [User] [Admin]    │
+│   🏠                                       👤     ⚙️        │
+└────────────────────────────────────────────────────────────┘
+```
+
+**Behavior**:
+
+- ✅ **Desktop**: Logo left, title center, user menu + admin button right
+- ✅ **Mobile**: Hamburger left, logo center, user menu right
+- ✅ **Admin Button**: Only visible if `user.role === 'ADMIN'`
+- ✅ **Z-Index**: `z-50` (always on top)
+- ✅ **Height**: `h-16` (64px) fixed height
+
+**Code Example**:
+
+```typescript
+export function TopBanner({ user, onMenuToggle }: TopBannerProps) {
+  return (
+    <header className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-200 z-50">
+      <div className="flex items-center justify-between h-full px-4">
+        {/* Mobile menu button */}
+        <button
+          onClick={onMenuToggle}
+          className="md:hidden p-2 rounded-md hover:bg-gray-100"
+          aria-label="Toggle navigation menu"
+        >
+          <MenuIcon className="h-6 w-6" />
+        </button>
+
+        {/* Logo */}
+        <Link href="/dashboard" className="flex items-center gap-2">
+          <Logo className="h-8 w-8" />
+          <span className="hidden md:block text-xl font-semibold">CompSI</span>
+        </Link>
+
+        {/* Right side: Admin + User Menu */}
+        <div className="flex items-center gap-4">
+          {user.role === "ADMIN" && (
+            <Link
+              href="/admin"
+              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+            >
+              Admin
+            </Link>
+          )}
+
+          <UserMenu user={user} />
+        </div>
+      </div>
+    </header>
+  );
+}
+```
+
+### 3. Sidebar Component
+
+**REQUIRED**: Primary navigation sidebar
+
+**Props**:
+
+```typescript
+interface SidebarProps {
+  currentPath: string;
+  isOpen: boolean; // Mobile drawer state
+  onClose: () => void; // Mobile drawer close
+}
+```
+
+**Desktop Layout** (≥768px):
+
+```
+┌─────────────────┐
+│  Dashboard  ●   │ ← Active (highlighted)
+│  Run Test       │
+│  Test History   │
+│  Settings       │
+│                 │
+│  ─────────────  │
+│  Admin          │ ← Only if admin
+│  Users          │
+└─────────────────┘
+```
+
+**Mobile Layout** (<768px):
+
+```
+[Overlay Drawer from left]
+┌─────────────────┐
+│  Dashboard  ●   │
+│  Run Test       │
+│  Test History   │
+│  Settings       │
+│                 │
+│  [Close ✕]      │
+└─────────────────┘
+```
+
+**Behavior**:
+
+- ✅ **Desktop**: Fixed sidebar, always visible, `w-64` (256px) width
+- ✅ **Mobile**: Drawer overlay, opens on hamburger click
+- ✅ **Active State**: Highlight current page with `bg-primary text-primary-foreground`
+- ✅ **Z-Index**: `z-40` (below TopBanner)
+- ✅ **Accessibility**: Keyboard navigation, focus trap when open (mobile)
+
+**Code Example**:
+
+```typescript
+export function Sidebar({ currentPath, isOpen, onClose }: SidebarProps) {
+  const navItems = [
+    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+    { label: "Run Test", href: "/test", icon: Play },
+    { label: "Test History", href: "/history", icon: History },
+    { label: "Settings", href: "/settings", icon: Settings },
+  ];
+
+  return (
+    <>
+      {/* Mobile overlay */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          "fixed left-0 top-16 bottom-0 w-64 bg-white border-r border-gray-200 z-40",
+          "transform transition-transform duration-200",
+          // Mobile: slide in from left
+          "md:translate-x-0",
+          isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}
+      >
+        <nav className="p-4 space-y-2">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              icon={item.icon}
+              isActive={currentPath === item.href}
+              onClick={onClose} // Close mobile drawer on navigate
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+    </>
+  );
+}
+```
+
+### 4. Footer Component
+
+**REQUIRED**: Consistent footer across all pages
+
+**Layout**:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  © 2024 CompSI  •  Privacy  •  Terms  •  Contact            │
+└────────────────────────────────────────────────────────────┘
+```
+
+**Code Example**:
+
+```typescript
+export function Footer() {
+  return (
+    <footer className="border-t border-gray-200 bg-gray-50 py-6">
+      <div className="container mx-auto px-4 text-center text-sm text-gray-600">
+        <p>© 2024 CompSI • AI Ethics Assessment Platform</p>
+        <div className="mt-2 flex justify-center gap-4">
+          <Link href="/privacy" className="hover:text-gray-900">
+            Privacy
+          </Link>
+          <Link href="/terms" className="hover:text-gray-900">
+            Terms
+          </Link>
+          <Link href="/contact" className="hover:text-gray-900">
+            Contact
+          </Link>
+        </div>
+      </div>
+    </footer>
+  );
+}
+```
+
+### 5. Main Content Area
+
+**REQUIRED**: Content area with proper spacing and responsive width
+
+```typescript
+export function AppShell({ user, currentPath, children }: AppShellProps) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <TopBanner
+        user={user}
+        onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
+      />
+
+      <Sidebar
+        currentPath={currentPath}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
+
+      {/* Main content area */}
+      <main className="pt-16 md:pl-64 min-h-screen">
+        <div className="container mx-auto px-4 py-8">{children}</div>
+      </main>
+
+      <Footer />
+    </div>
+  );
+}
+```
+
+### 6. Z-Index Layering
+
+**REQUIRED**: Consistent z-index hierarchy
+
+| Layer          | Z-Index | Component        | Purpose               |
+| -------------- | ------- | ---------------- | --------------------- |
+| TopBanner      | `z-50`  | Header           | Always on top         |
+| Mobile Sidebar | `z-40`  | Sidebar (mobile) | Below TopBanner       |
+| Mobile Overlay | `z-40`  | Backdrop         | Same level as sidebar |
+| Modals         | `z-50`  | Dialogs          | Same as TopBanner     |
+| Tooltips       | `z-50`  | Tooltips         | Same as TopBanner     |
+| Main Content   | `z-10`  | Page content     | Base layer            |
+
+### 7. Responsive Breakpoints
+
+**REQUIRED**: Use Tailwind's standard breakpoints
+
+| Breakpoint | Width  | Behavior                 |
+| ---------- | ------ | ------------------------ |
+| `sm`       | 640px  | Mobile-optimized         |
+| `md`       | 768px  | Tablet (sidebar visible) |
+| `lg`       | 1024px | Desktop                  |
+| `xl`       | 1280px | Large desktop            |
+| `2xl`      | 1536px | Extra large              |
+
+**Sidebar Behavior**:
+
+- `<768px`: Drawer (overlay, toggle with hamburger)
+- `≥768px`: Fixed sidebar (always visible)
+
+### 8. Route Groups
+
+**REQUIRED**: Use Next.js route groups for layout organization
+
+```
+app/
+├── (app)/                    # Authenticated pages (use AppShell)
+│   ├── layout.tsx           # AppShell wrapper
+│   ├── dashboard/page.tsx
+│   ├── test/page.tsx
+│   ├── history/page.tsx
+│   └── settings/page.tsx
+├── (auth)/                   # Authentication pages (no AppShell)
+│   ├── layout.tsx           # Simple layout
+│   ├── login/page.tsx
+│   └── signup/page.tsx
+└── (admin)/                  # Admin pages (AppShell + admin check)
+    ├── layout.tsx           # AppShell + admin guard
+    ├── users/page.tsx
+    └── settings/page.tsx
+```
+
+---
+
+## Examples
+
+### ✅ CORRECT: Complete AppShell Implementation
+
+```typescript
+// app/(app)/layout.tsx
+import { AppShell } from "@/components/layout/AppShell";
+import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+
+export default async function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const session = await auth();
+
+  if (!session?.user) {
+    redirect("/login");
+  }
+
+  const headersList = headers();
+  const pathname = headersList.get("x-pathname") || "/dashboard";
+
+  return (
+    <AppShell
+      user={{
+        id: session.user.id,
+        name: session.user.name || "",
+        email: session.user.email || "",
+        role: session.user.role || "USER",
+      }}
+      currentPath={pathname}
+    >
+      {children}
+    </AppShell>
+  );
+}
+```
+
+### ✅ CORRECT: NavLink Component with Active State
+
+```typescript
+interface NavLinkProps {
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  children: React.ReactNode;
+  isActive: boolean;
+  onClick?: () => void;
+}
+
+export function NavLink({
+  href,
+  icon: Icon,
+  children,
+  isActive,
+  onClick,
+}: NavLinkProps) {
+  return (
+    <Link
+      href={href}
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-3 px-4 py-3 rounded-lg transition-colors",
+        isActive
+          ? "bg-primary text-primary-foreground font-medium"
+          : "text-gray-700 hover:bg-gray-100"
+      )}
+    >
+      <Icon className="h-5 w-5" />
+      <span>{children}</span>
+    </Link>
+  );
+}
+```
+
+### ❌ INCORRECT: Missing Mobile Responsive Behavior
+
+```typescript
+// BAD: Sidebar not responsive
+export function BadSidebar() {
+  return (
+    <aside className="fixed left-0 top-16 w-64 bg-white">
+      {/* No mobile drawer, no overlay, always visible */}
+      <nav>...</nav>
+    </aside>
+  );
+}
+```
+
+### ❌ INCORRECT: Inconsistent Z-Index
+
+```typescript
+// BAD: TopBanner and Sidebar same z-index
+<header className="z-40">...</header>  {/* Should be z-50 */}
+<aside className="z-40">...</aside>    {/* Correct */}
+```
+
+---
+
+## Accessibility Requirements
+
+### Keyboard Navigation
+
+- ✅ **Tab Order**: TopBanner → Sidebar → Main Content → Footer
+- ✅ **Skip Link**: "Skip to main content" for screen readers
+- ✅ **Focus Trap**: Mobile drawer traps focus when open
+- ✅ **Escape Key**: Close mobile drawer on Escape
+
+### Screen Reader Support
+
+- ✅ **Landmarks**: `<header>`, `<nav>`, `<main>`, `<footer>`
+- ✅ **ARIA Labels**: Mobile menu button, close buttons
+- ✅ **Live Regions**: Announce navigation changes
+- ✅ **Role Attributes**: Proper roles for interactive elements
+
+### Code Example:
+
+```typescript
+export function AccessibleSidebar({ isOpen, onClose }: SidebarProps) {
+  const sidebarRef = useRef<HTMLElement>(null);
+
+  // Focus trap for mobile drawer
+  useEffect(() => {
+    if (isOpen) {
+      const firstFocusable = sidebarRef.current?.querySelector<HTMLElement>(
+        'a, button, [tabindex]:not([tabindex="-1"])'
+      );
+      firstFocusable?.focus();
+    }
+  }, [isOpen]);
+
+  // Escape key handler
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [isOpen, onClose]);
+
+  return (
+    <aside
+      ref={sidebarRef}
+      role="navigation"
+      aria-label="Primary navigation"
+      aria-hidden={!isOpen}
+    >
+      {/* Navigation items */}
+    </aside>
+  );
+}
+```
+
+---
+
+## Testing Requirements
+
+### Unit Tests
+
+```typescript
+import { render, screen } from "@testing-library/react";
+import { AppShell } from "@/components/layout/AppShell";
+
+describe("AppShell", () => {
+  const mockUser = {
+    id: "123",
+    name: "Test User",
+    email: "test@example.com",
+    role: "USER" as const,
+  };
+
+  it("should render TopBanner with user name", () => {
+    render(
+      <AppShell user={mockUser} currentPath="/dashboard">
+        <div>Content</div>
+      </AppShell>
+    );
+
+    expect(screen.getByText("Test User")).toBeInTheDocument();
+  });
+
+  it("should show admin button only for admin users", () => {
+    const { rerender } = render(
+      <AppShell user={mockUser} currentPath="/dashboard">
+        <div>Content</div>
+      </AppShell>
+    );
+
+    expect(screen.queryByText("Admin")).not.toBeInTheDocument();
+
+    rerender(
+      <AppShell user={{ ...mockUser, role: "ADMIN" }} currentPath="/dashboard">
+        <div>Content</div>
+      </AppShell>
+    );
+
+    expect(screen.getByText("Admin")).toBeInTheDocument();
+  });
+
+  it("should highlight active nav item", () => {
+    render(
+      <AppShell user={mockUser} currentPath="/dashboard">
+        <div>Content</div>
+      </AppShell>
+    );
+
+    const dashboardLink = screen.getByRole("link", { name: /dashboard/i });
+    expect(dashboardLink).toHaveClass("bg-primary");
+  });
+});
+```
+
+---
+
+## Performance Considerations
+
+### Code Splitting
+
+- ✅ Lazy load UserMenu dropdown
+- ✅ Lazy load admin routes
+- ✅ Prefetch nav links on hover
+
+### Optimization
+
+```typescript
+// Lazy load UserMenu
+const UserMenu = dynamic(() => import("./UserMenu"), {
+  loading: () => (
+    <div className="h-10 w-10 rounded-full bg-gray-200 animate-pulse" />
+  ),
+});
+
+// Prefetch on hover
+<Link href="/dashboard" onMouseEnter={() => router.prefetch("/dashboard")}>
+  Dashboard
+</Link>;
+```
+
+---
+
+## See Also
+
+### Related Rules
+
+- @042-ui-component-architecture.mdc - Component patterns
+- @043-design-tokens-standards.mdc - Token usage
+- @044-responsive-design-patterns.mdc - Responsive design
+- @045-route-protection-patterns.mdc - Protected routes
+- @054-accessibility-requirements.mdc - WCAG AA compliance
+- @070-nextjs-architecture.mdc - Next.js patterns
+- @200-shadcn-ui-strictness.mdc - shadcn/ui usage
+
+### Tools & Documentation
+
+- **`.cursor/tools/run-accessibility-audit.sh`** - Accessibility validation
+- **`.cursor/docs/ai-workflows.md`** - Component development workflow
+
+### Comprehensive Guides
+
+- **`guides/ui/AppShell-Architecture-Guide.md`** ⭐ **Essential** - Implementation guide
+- **`guides/ui/Responsive-Design-Guide.md`** - Mobile-first patterns
+- **`docs/SPEC-v0.4.0-01-Layout-Architecture.md`** - Complete layout spec
+
+### Quick Start
+
+```bash
+# 1. Review layout spec
+cat docs/SPEC-v0.4.0-01-Layout-Architecture.md
+
+# 2. Create AppShell component
+mkdir -p app/components/layout
+touch app/components/layout/AppShell.tsx
+
+# 3. Implement TopBanner, Sidebar, Footer
+
+# 4. Test with accessibility audit
+./.cursor/tools/run-accessibility-audit.sh
+
+# 5. Test responsive behavior
+# (Use Chrome DevTools device toolbar)
+```
+
+---
+
+**Status**: ✅ Production Ready (v0.4.0)  
+**Last Updated**: 2024-12-07  
+**Priority**: P0 (CRITICAL)

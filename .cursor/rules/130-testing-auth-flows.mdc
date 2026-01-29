@@ -1,0 +1,1021 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Testing Authentication Flows
+
+## Context
+- When implementing authentication and authorization features
+- When writing tests for protected routes and components
+- When testing user permissions and access controls
+- When validating token handling and session management
+
+## Core Requirements
+
+### 1. Unit Testing Authentication Logic 
+
+Write targeted tests for authentication functions:
+
+```typescript
+// src/lib/auth/__tests__/token.test.ts
+import { verifyAuthToken, generateAuthToken } from '../token';
+import jwt from 'jsonwebtoken';
+
+describe('Token Utilities', () => {
+  const mockUser = {
+    id: 'user-123',
+    email: 'user@example.com',
+    roles: ['user']
+  };
+  
+  const mockSecret = 'test-secret';
+  
+  beforeEach(() => {
+    // Setup environment for tests
+    process.env.JWT_SECRET = mockSecret;
+  });
+  
+  afterEach(() => {
+    // Cleanup
+    jest.resetAllMocks();
+    delete process.env.JWT_SECRET;
+  });
+  
+  test('generateAuthToken creates a valid JWT', async () => {
+    const token = await generateAuthToken(mockUser);
+    
+    // Verify token can be decoded
+    const decoded = jwt.verify(token, mockSecret);
+    
+    expect(decoded).toMatchObject({
+      sub: mockUser.id,
+      email: mockUser.email,
+      roles: mockUser.roles
+    });
+  });
+  
+  test('verifyAuthToken validates a token correctly', async () => {
+    // Generate a valid token
+    const token = await generateAuthToken(mockUser);
+    
+    // Verify it
+    const user = await verifyAuthToken(token);
+    
+    expect(user).toMatchObject({
+      id: mockUser.id,
+      email: mockUser.email,
+      roles: mockUser.roles
+    });
+  });
+  
+  test('verifyAuthToken rejects an invalid token', async () => {
+    const invalidToken = 'invalid.token.string';
+    
+    await expect(verifyAuthToken(invalidToken)).rejects.toThrow();
+  });
+  
+  test('verifyAuthToken rejects an expired token', async () => {
+    // Create a token that's already expired
+    const expiredToken = jwt.sign(
+      { sub: mockUser.id, exp: Math.floor(Date.now() / 1000) - 3600 },
+      mockSecret
+    );
+    
+    await expect(verifyAuthToken(expiredToken)).rejects.toThrow(/expired/i);
+  });
+});
+```
+
+### 2. Testing Authentication Hooks and Components
+
+Test authentication-related React hooks and components:
+
+```typescript
+// src/lib/auth/__tests__/useAuth.test.tsx
+import { renderHook, act } from '@testing-library/react-hooks';
+import { useAuth } from '../useAuth';
+
+// Mock fetch for API calls
+global.fetch = jest.fn();
+
+describe('useAuth hook', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+  
+  test('should start with loading state and no user', () => {
+    const { result } = renderHook(() => useAuth());
+    
+    expect(result.current.loading).toBe(true);
+    expect(result.current.user).toBe(null);
+  });
+  
+  test('should fetch and set user when initialized', async () => {
+    const mockUser = { id: 'user-123', email: 'user@example.com' };
+    
+    // Mock successful auth response
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockUser
+    });
+    
+    const { result, waitForNextUpdate } = renderHook(() => useAuth());
+    
+    // Wait for the effect to run
+    await waitForNextUpdate();
+    
+    expect(result.current.loading).toBe(false);
+    expect(result.current.user).toEqual(mockUser);
+    expect(global.fetch).toHaveBeenCalledWith('/api/auth/me');
+  });
+  
+  test('should handle authentication failure', async () => {
+    // Mock auth failure
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 401
+    });
+    
+    const { result, waitForNextUpdate } = renderHook(() => useAuth());
+    
+    // Wait for the effect to run
+    await waitForNextUpdate();
+    
+    expect(result.current.loading).toBe(false);
+    expect(result.current.user).toBe(null);
+    expect(result.current.error).not.toBe(null);
+  });
+});
+```
+
+### 3. Testing Protected Pages
+
+Test that protected pages correctly handle authentication:
+
+```typescript
+// src/pages/__tests__/dashboard.test.tsx
+import { render, screen } from '@testing-library/react';
+import { getServerSideProps } from '../dashboard';
+import Dashboard from '../dashboard';
+import * as authUtils from '../../lib/auth/server';
+
+// Mock the auth utilities
+jest.mock('../../lib/auth/server');
+
+describe('Dashboard Page', () => {
+  test('getServerSideProps redirects when not authenticated', async () => {
+    // Mock authentication failure
+    (authUtils.getServerUser as jest.Mock).mockResolvedValueOnce(null);
+    
+    const context = {
+      req: {},
+      res: {},
+      resolvedUrl: '/dashboard'
+    };
+    
+    const result = await getServerSideProps(context as any);
+    
+    expect(result).toEqual({
+      redirect: {
+        destination: '/login?returnTo=/dashboard',
+        permanent: false
+      }
+    });
+  });
+  
+  test('getServerSideProps returns user data when authenticated', async () => {
+    const mockUser = { id: 'user-123', name: 'Test User' };
+    
+    // Mock successful authentication
+    (authUtils.getServerUser as jest.Mock).mockResolvedValueOnce(mockUser);
+    
+    const context = {
+      req: {},
+      res: {}
+    };
+    
+    const result = await getServerSideProps(context as any);
+    
+    expect(result).toEqual({
+      props: {
+        user: mockUser
+      }
+    });
+  });
+  
+  test('Dashboard page renders user information', () => {
+    const mockUser = { id: 'user-123', name: 'Test User' };
+    
+    render(<Dashboard user={mockUser} />);
+    
+    expect(screen.getByText(/Welcome, Test User/i)).toBeInTheDocument();
+  });
+});
+```
+
+### 4. Testing API Authentication
+
+Test API routes with authentication:
+
+```typescript
+// src/pages/api/__tests__/user.test.ts
+import { createMocks } from 'node-mocks-http';
+import userHandler from '../user';
+import * as authUtils from '../../../lib/auth/server';
+
+// Mock the auth utilities
+jest.mock('../../../lib/auth/server');
+
+describe('User API Route', () => {
+  test('returns 401 when not authenticated', async () => {
+    // Mock authentication failure
+    (authUtils.getServerUser as jest.Mock).mockResolvedValueOnce(null);
+    
+    const { req, res } = createMocks({
+      method: 'GET'
+    });
+    
+    await userHandler(req, res);
+    
+    expect(res._getStatusCode()).toBe(401);
+    expect(JSON.parse(res._getData())).toEqual(
+      expect.objectContaining({
+        error: expect.stringMatching(/unauthorized/i)
+      })
+    );
+  });
+  
+  test('returns user data when authenticated', async () => {
+    const mockUser = { id: 'user-123', name: 'Test User' };
+    
+    // Mock successful authentication
+    (authUtils.getServerUser as jest.Mock).mockResolvedValueOnce(mockUser);
+    
+    const { req, res } = createMocks({
+      method: 'GET'
+    });
+    
+    await userHandler(req, res);
+    
+    expect(res._getStatusCode()).toBe(200);
+    expect(JSON.parse(res._getData())).toEqual(mockUser);
+  });
+});
+```
+
+### 5. Integration Testing Authentication Flows
+
+Test complete authentication flows with tools like Cypress:
+
+```typescript
+// cypress/integration/auth.spec.ts
+describe('Authentication Flow', () => {
+  beforeEach(() => {
+    // Clear cookies before each test
+    cy.clearCookies();
+  });
+  
+  it('redirects to login when accessing protected page', () => {
+    // Try to access a protected page
+    cy.visit('/dashboard');
+    
+    // Should be redirected to login
+    cy.url().should('include', '/login');
+    cy.url().should('include', 'returnTo=%2Fdashboard');
+  });
+  
+  it('allows login with valid credentials', () => {
+    // Visit login page
+    cy.visit('/login');
+    
+    // Fill in credentials
+    cy.get('[data-testid="email-input"]').type('user@example.com');
+    cy.get('[data-testid="password-input"]').type('password123');
+    
+    // Submit form
+    cy.get('[data-testid="login-button"]').click();
+    
+    // Should be redirected to dashboard
+    cy.url().should('include', '/dashboard');
+    
+    // User should be authenticated
+    cy.get('[data-testid="user-menu"]').should('be.visible');
+  });
+  
+  it('shows error with invalid credentials', () => {
+    // Visit login page
+    cy.visit('/login');
+    
+    // Fill in invalid credentials
+    cy.get('[data-testid="email-input"]').type('user@example.com');
+    cy.get('[data-testid="password-input"]').type('wrongpassword');
+    
+    // Submit form
+    cy.get('[data-testid="login-button"]').click();
+    
+    // Should show error message
+    cy.get('[data-testid="error-message"]')
+      .should('be.visible')
+      .and('contain.text', 'Invalid credentials');
+    
+    // Should still be on login page
+    cy.url().should('include', '/login');
+  });
+  
+  it('allows logout', () => {
+    // Login first
+    cy.login('user@example.com', 'password123');
+    
+    // Visit dashboard
+    cy.visit('/dashboard');
+    
+    // Click logout
+    cy.get('[data-testid="logout-button"]').click();
+    
+    // Should be redirected to homepage or login
+    cy.url().should('not.include', '/dashboard');
+    
+    // Try to visit dashboard again
+    cy.visit('/dashboard');
+    
+    // Should be redirected to login
+    cy.url().should('include', '/login');
+  });
+});
+```
+
+### 6. Testing Permissions and Authorization
+
+Test role-based access controls:
+
+```typescript
+// src/lib/auth/__tests__/permissions.test.ts
+import { hasPermission, PermissionGate } from '../permissions';
+import { render, screen } from '@testing-library/react';
+
+describe('Permission Utilities', () => {
+  const adminUser = {
+    id: 'admin-123',
+    email: 'admin@example.com',
+    roles: ['admin']
+  };
+  
+  const regularUser = {
+    id: 'user-123',
+    email: 'user@example.com',
+    roles: ['user']
+  };
+  
+  test('hasPermission returns true for admin with admin permission', () => {
+    const result = hasPermission(adminUser, 'manage:users');
+    expect(result).toBe(true);
+  });
+  
+  test('hasPermission returns false for regular user with admin permission', () => {
+    const result = hasPermission(regularUser, 'manage:users');
+    expect(result).toBe(false);
+  });
+  
+  test('PermissionGate renders children for user with permission', () => {
+    render(
+      <PermissionGate permission="read:own" user={regularUser}>
+        <div data-testid="protected-content">Protected Content</div>
+      </PermissionGate>
+    );
+    
+    expect(screen.getByTestId('protected-content')).toBeInTheDocument();
+  });
+  
+  test('PermissionGate does not render children for user without permission', () => {
+    render(
+      <PermissionGate permission="manage:users" user={regularUser}>
+        <div data-testid="protected-content">Protected Content</div>
+      </PermissionGate>
+    );
+    
+    expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
+  });
+});
+```
+
+### 7. Testing Auth Middleware
+
+Test authentication middleware:
+
+```typescript
+// src/__tests__/middleware.test.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { middleware } from '../middleware';
+import * as authUtils from '../lib/auth/token';
+
+// Mock NextRequest and NextResponse
+jest.mock('next/server', () => {
+  const originalModule = jest.requireActual('next/server');
+  return {
+    ...originalModule,
+    NextResponse: {
+      ...originalModule.NextResponse,
+      next: jest.fn(),
+      redirect: jest.fn()
+    }
+  };
+});
+
+// Mock auth utilities
+jest.mock('../lib/auth/token');
+
+describe('Authentication Middleware', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+  
+  test('allows access to public paths', async () => {
+    const req = {
+      nextUrl: { pathname: '/login' },
+      cookies: { get: jest.fn().mockReturnValue(null) }
+    } as unknown as NextRequest;
+    
+    (NextResponse.next as jest.Mock).mockReturnValue({ headers: new Headers() });
+    
+    await middleware(req);
+    
+    expect(NextResponse.next).toHaveBeenCalled();
+    expect(NextResponse.redirect).not.toHaveBeenCalled();
+  });
+  
+  test('redirects to login when accessing protected path without token', async () => {
+    const req = {
+      nextUrl: { pathname: '/dashboard' },
+      cookies: { get: jest.fn().mockReturnValue(null) },
+      url: 'http://localhost/dashboard'
+    } as unknown as NextRequest;
+    
+    (NextResponse.redirect as jest.Mock).mockReturnValue({});
+    
+    await middleware(req);
+    
+    expect(NextResponse.redirect).toHaveBeenCalled();
+    const redirectArg = (NextResponse.redirect as jest.Mock).mock.calls[0][0];
+    expect(redirectArg.toString()).toContain('/login');
+  });
+  
+  test('allows access to protected path with valid token', async () => {
+    const req = {
+      nextUrl: { pathname: '/dashboard' },
+      cookies: { 
+        get: jest.fn().mockReturnValue({ value: 'valid-token' }) 
+      }
+    } as unknown as NextRequest;
+    
+    (NextResponse.next as jest.Mock).mockReturnValue({ headers: new Headers() });
+    
+    const mockUser = { id: 'user-123', email: 'user@example.com' };
+    (authUtils.verifyAuthToken as jest.Mock).mockResolvedValueOnce(mockUser);
+    
+    await middleware(req);
+    
+    expect(NextResponse.next).toHaveBeenCalled();
+    expect(NextResponse.redirect).not.toHaveBeenCalled();
+  });
+  
+  test('redirects when token is invalid', async () => {
+    const req = {
+      nextUrl: { pathname: '/dashboard' },
+      cookies: { 
+        get: jest.fn().mockReturnValue({ value: 'invalid-token' }) 
+      },
+      url: 'http://localhost/dashboard'
+    } as unknown as NextRequest;
+    
+    (NextResponse.redirect as jest.Mock).mockReturnValue({});
+    
+    // Mock token verification failure
+    (authUtils.verifyAuthToken as jest.Mock).mockRejectedValueOnce(
+      new Error('Invalid token')
+    );
+    
+    await middleware(req);
+    
+    expect(NextResponse.redirect).toHaveBeenCalled();
+    const redirectArg = (NextResponse.redirect as jest.Mock).mock.calls[0][0];
+    expect(redirectArg.toString()).toContain('/login');
+  });
+});
+```
+
+### 8. Test Authentication Error Handling
+
+Test how your application handles authentication errors:
+
+```typescript
+// src/lib/auth/__tests__/error-handling.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { LoginForm } from '../../components/auth/LoginForm';
+
+// Mock fetch for API calls
+global.fetch = jest.fn();
+
+describe('Authentication Error Handling', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+  
+  test('displays network error message', async () => {
+    // Mock network failure
+    (global.fetch as jest.Mock).mockRejectedValueOnce(
+      new Error('Network error')
+    );
+    
+    render(<LoginForm />);
+    
+    // Fill in form
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: 'user@example.com' }
+    });
+    
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'password123' }
+    });
+    
+    // Submit form
+    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+    
+    // Wait for error to be displayed
+    await waitFor(() => {
+      expect(screen.getByText(/network error/i)).toBeInTheDocument();
+    });
+  });
+  
+  test('displays server validation errors', async () => {
+    // Mock validation error response
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        error: 'Validation failed',
+        fieldErrors: {
+          email: 'Invalid email format'
+        }
+      })
+    });
+    
+    render(<LoginForm />);
+    
+    // Fill in form
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: 'invalid-email' }
+    });
+    
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'password123' }
+    });
+    
+    // Submit form
+    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+    
+    // Wait for field error to be displayed
+    await waitFor(() => {
+      expect(screen.getByText(/invalid email format/i)).toBeInTheDocument();
+    });
+  });
+  
+  test('displays server error message', async () => {
+    // Mock server error response
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({
+        error: 'Internal server error'
+      })
+    });
+    
+    render(<LoginForm />);
+    
+    // Fill in form
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: 'user@example.com' }
+    });
+    
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'password123' }
+    });
+    
+    // Submit form
+    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+    
+    // Wait for error to be displayed
+    await waitFor(() => {
+      expect(screen.getByText(/internal server error/i)).toBeInTheDocument();
+    });
+  });
+});
+```
+
+### 9. Testing Session Management
+
+Test session expiration and refresh flows:
+
+```typescript
+// src/lib/auth/__tests__/session.test.ts
+import { refreshSession, checkSessionExpiry } from '../session';
+import * as tokenUtils from '../token';
+
+// Mock token utilities
+jest.mock('../token');
+
+describe('Session Management', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    
+    // Mock localStorage
+    const localStorageMock = {
+      getItem: jest.fn(),
+      setItem: jest.fn(),
+      removeItem: jest.fn()
+    };
+    
+    Object.defineProperty(window, 'localStorage', {
+      value: localStorageMock,
+      writable: true
+    });
+  });
+  
+  test('checkSessionExpiry returns true for expired session', () => {
+    // Mock expired token
+    const expiryTime = Date.now() - 3600 * 1000; // 1 hour ago
+    (localStorage.getItem as jest.Mock).mockReturnValueOnce(
+      expiryTime.toString()
+    );
+    
+    const isExpired = checkSessionExpiry();
+    
+    expect(isExpired).toBe(true);
+  });
+  
+  test('checkSessionExpiry returns false for valid session', () => {
+    // Mock valid token
+    const expiryTime = Date.now() + 3600 * 1000; // 1 hour in future
+    (localStorage.getItem as jest.Mock).mockReturnValueOnce(
+      expiryTime.toString()
+    );
+    
+    const isExpired = checkSessionExpiry();
+    
+    expect(isExpired).toBe(false);
+  });
+  
+  test('refreshSession gets a new token', async () => {
+    // Mock refresh token response
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        accessToken: 'new-token',
+        expiresAt: Date.now() + 3600 * 1000
+      })
+    });
+    
+    // Mock token verification
+    const mockUser = { id: 'user-123', email: 'user@example.com' };
+    (tokenUtils.verifyAuthToken as jest.Mock).mockResolvedValueOnce(mockUser);
+    
+    const result = await refreshSession();
+    
+    expect(result).toBe(true);
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      'sessionExpiry',
+      expect.any(String)
+    );
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/auth/refresh',
+      expect.any(Object)
+    );
+  });
+  
+  test('refreshSession handles refresh failure', async () => {
+    // Mock refresh token failure
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 401
+    });
+    
+    const result = await refreshSession();
+    
+    expect(result).toBe(false);
+    expect(localStorage.removeItem).toHaveBeenCalledWith('sessionExpiry');
+  });
+});
+```
+
+### 10. Security Testing Auth Implementation
+
+Test for common security vulnerabilities:
+
+```typescript
+// src/lib/auth/__tests__/security.test.ts
+import { login, logout } from '../auth-client';
+import * as tokenUtils from '../token';
+
+// Mock fetch for API calls
+global.fetch = jest.fn();
+
+// Mock token utilities
+jest.mock('../token');
+
+describe('Authentication Security', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+  
+  test('login sanitizes inputs before sending to server', async () => {
+    // Mock successful login
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        accessToken: 'token',
+        user: { id: 'user-123' }
+      })
+    });
+    
+    // Try login with potential XSS payload
+    const email = 'user@example.com<script>alert(1)</script>';
+    const password = 'password123';
+    
+    await login(email, password);
+    
+    // Verify that the payload was sanitized
+    const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
+    const requestBody = JSON.parse(fetchCall[1].body);
+    
+    expect(requestBody.email).not.toContain('<script>');
+    expect(requestBody.email).toBe('user@example.com');
+  });
+  
+  test('login encrypts or hashes password before transmission', async () => {
+    // Mock successful login
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        accessToken: 'token',
+        user: { id: 'user-123' }
+      })
+    });
+    
+    const email = 'user@example.com';
+    const password = 'password123';
+    
+    // Mock password hashing
+    (tokenUtils.hashPassword as jest.Mock).mockReturnValueOnce(
+      'hashed-password'
+    );
+    
+    await login(email, password);
+    
+    // Verify that the password was hashed
+    expect(tokenUtils.hashPassword).toHaveBeenCalledWith(password);
+    
+    const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
+    const requestBody = JSON.parse(fetchCall[1].body);
+    
+    // Password should never be sent in plaintext
+    expect(requestBody.password).not.toBe(password);
+    expect(requestBody.password).toBe('hashed-password');
+  });
+  
+  test('logout clears all auth-related data', async () => {
+    // Setup localStorage mock
+    const localStorageMock = {
+      removeItem: jest.fn(),
+      clear: jest.fn()
+    };
+    
+    Object.defineProperty(window, 'localStorage', {
+      value: localStorageMock,
+      writable: true
+    });
+    
+    // Mock successful logout
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true
+    });
+    
+    await logout();
+    
+    // Verify all auth data was cleared
+    expect(localStorage.removeItem).toHaveBeenCalledWith('sessionExpiry');
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/auth/logout',
+      expect.any(Object)
+    );
+  });
+});
+```
+
+## Examples
+
+<example>
+// Good test for authentication flow
+
+// tests/integration/auth-flow.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { LoginPage } from '../../pages/login';
+import { useRouter } from 'next/router';
+
+// Mock Next.js router
+jest.mock('next/router', () => ({
+  useRouter: jest.fn()
+}));
+
+// Mock fetch for API calls
+global.fetch = jest.fn();
+
+describe('Authentication Flow', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    
+    // Mock router
+    (useRouter as jest.Mock).mockReturnValue({
+      push: jest.fn(),
+      query: {}
+    });
+  });
+  
+  test('successful login redirects to dashboard', async () => {
+    // Mock successful login response
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        user: { id: 'user-123', name: 'Test User' }
+      })
+    });
+    
+    render(<LoginPage />);
+    
+    // Fill in form
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: 'user@example.com' }
+    });
+    
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'password123' }
+    });
+    
+    // Submit form
+    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    
+    // Wait for redirect
+    await waitFor(() => {
+      const router = useRouter();
+      expect(router.push).toHaveBeenCalledWith('/dashboard');
+    });
+  });
+  
+  test('respects returnTo query parameter after login', async () => {
+    // Set returnTo in query
+    (useRouter as jest.Mock).mockReturnValue({
+      push: jest.fn(),
+      query: { returnTo: '/profile/settings' }
+    });
+    
+    // Mock successful login
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        user: { id: 'user-123', name: 'Test User' }
+      })
+    });
+    
+    render(<LoginPage />);
+    
+    // Fill in form
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: 'user@example.com' }
+    });
+    
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'password123' }
+    });
+    
+    // Submit form
+    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    
+    // Wait for redirect to returnTo path
+    await waitFor(() => {
+      const router = useRouter();
+      expect(router.push).toHaveBeenCalledWith('/profile/settings');
+    });
+  });
+  
+  test('shows error message on login failure', async () => {
+    // Mock failed login
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({
+        error: 'Invalid credentials'
+      })
+    });
+    
+    render(<LoginPage />);
+    
+    // Fill in form
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: 'user@example.com' }
+    });
+    
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'wrongpassword' }
+    });
+    
+    // Submit form
+    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    
+    // Error message should be displayed
+    await waitFor(() => {
+      expect(screen.getByText(/invalid credentials/i)).toBeInTheDocument();
+    });
+    
+    // Should not redirect
+    const router = useRouter();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+});
+</example>
+
+<example type="invalid">
+// Poor test for authentication
+
+// tests/login.test.js
+import { LoginPage } from '../pages/login';
+
+// Problems:
+// 1. No proper rendering or test utilities
+// 2. No actual assertions or expectations
+// 3. No mocking of authentication dependencies
+// 4. Hard-coded credentials in test
+// 5. No handling of async behavior
+// 6. No testing of error scenarios
+// 7. No test for actual redirection or success
+
+describe('Login Page', () => {
+  test('user can login', () => {
+    // Directly calling the function without proper setup
+    const result = LoginPage.handleLogin({
+      email: 'real-user@company.com',  // Hard-coded real credentials
+      password: 'actual-password123'   // Hard-coded real credentials
+    });
+    
+    // No assertion or verification
+    console.log('Login result:', result);
+    
+    // No verification of redirect or state changes
+  });
+});
+</example>
+
+## Key Principles
+
+1. **Test Authentication Logic**: Unit test all authentication utility functions
+2. **Mock External Services**: Mock auth providers, tokens, and API calls
+3. **Test Both Success and Failure**: Verify both successful and failed authentication flows
+4. **Test Security Aspects**: Test token validation, expiration, and secure storage
+5. **End-to-End Testing**: Test complete flows from login to protected content access
+6. **Test Permissions**: Verify role-based access controls work correctly
+7. **Test Redirects**: Verify unauthenticated users are redirected appropriately
+8. **Test Token Refresh**: Verify session refresh logic works correctly
+9. **Test Logout**: Verify logout clears all authentication state
+10. **Test Error Handling**: Verify authentication errors are handled gracefully
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Auth flow patterns to test
+- **`.cursor/docs/ai-workflows.md`** - Testing workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate auth before testing
+- **`.cursor/tools/check-env-vars.sh`** - Ensure test env configured
+- **`.cursor/tools/inspect-model.sh`** - Check user/session models for tests
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @300-testing-standards.mdc - General testing standards
+- @330-auth0-testing-standards.mdc - Auth0-specific testing standards (critical!)
+- @374-authentication-architecture-standards.mdc - Auth architecture to test
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @400-auth-testing-patterns.mdc - Auth testing patterns (critical!)
+- @410-auth-debugging.mdc - Debug failing auth tests
+
+### Quick Start
+1. **Setup:** `.cursor/tools/check-auth-config.sh` (validate test environment)
+2. **Follow:** @400-auth-testing-patterns.mdc (proven patterns)
+3. **Test:** See @330-auth0-testing-standards.mdc for Auth0-specific tests
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/TESTING_AUTH_FLOWS_GUIDE.md`** - **CRITICAL:** Auth flow testing guide!
+- **`guides/AUTH_TESTING_PATTERNS_GUIDE.md`** - Auth testing patterns
+- **`guides/auth0/04-Auth0-Testing-Guide.md`** - Auth0-specific testing
+- **`guides/Auth0-Testing-Best-Practices.md`** - Testing best practices

@@ -1,0 +1,690 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Middleware Architecture
+
+## Context
+- When implementing Next.js middleware for authentication, routing, or request modification
+- When designing middleware composition patterns
+- When resolving middleware conflicts
+- When optimizing middleware performance
+
+## Core Requirements
+
+### 1. Middleware Organization 
+
+Structure middleware in a modular, composable way:
+
+```typescript
+// src/lib/middleware/types.ts
+import { NextRequest, NextResponse } from 'next/server';
+
+export type MiddlewareFunction = (
+  request: NextRequest,
+  response?: NextResponse
+) => Promise<NextResponse | undefined | null> | NextResponse | undefined | null;
+
+export interface MiddlewareConfig {
+  matcher?: string | string[];
+  paths?: {
+    include?: string[];
+    exclude?: string[];
+  };
+}
+```
+
+### 2. Middleware Composition
+
+Create a middleware composition system:
+
+```typescript
+// src/lib/middleware/compose.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { MiddlewareFunction } from './types';
+
+/**
+ * Composes multiple middleware functions into a single middleware
+ * Executes them in sequence until one returns a response
+ */
+export function composeMiddleware(
+  ...middlewares: MiddlewareFunction[]
+): MiddlewareFunction {
+  return async function composedMiddleware(req: NextRequest, res?: NextResponse) {
+    // Create default response if none provided
+    let response = res || NextResponse.next();
+    
+    // Execute each middleware in sequence
+    for (const middleware of middlewares) {
+      try {
+        const result = await middleware(req, response);
+        
+        // If middleware returns a response, use it and break the chain
+        if (result) {
+          response = result;
+          // If it's a redirect or rewrite, return immediately
+          if (
+            response.headers.has('x-middleware-rewrite') || 
+            response.headers.has('Location')
+          ) {
+            return response;
+          }
+        }
+      } catch (error) {
+        console.error('Middleware error:', error);
+        // Return 500 error or handle differently based on your error strategy
+        return NextResponse.json(
+          { error: 'Internal Server Error' },
+          { status: 500 }
+        );
+      }
+    }
+    
+    return response;
+  };
+}
+```
+
+### 3. Authentication Middleware
+
+Implement clean authentication middleware:
+
+```typescript
+// src/lib/middleware/auth.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { MiddlewareFunction } from './types';
+import { verifyAuthToken } from '../auth/token';
+
+/**
+ * Authentication middleware factory with customizable options
+ */
+export function createAuthMiddleware(options: {
+  loginUrl?: string;
+  cookieName?: string;
+  headerName?: string;
+  throwOnError?: boolean;
+}): MiddlewareFunction {
+  const {
+    loginUrl = '/auth/login',
+    cookieName = 'auth_token',
+    headerName = 'Authorization',
+    throwOnError = false
+  } = options;
+  
+  return async function authMiddleware(req: NextRequest) {
+    try {
+      // Get token from cookie or authorization header
+      const token =
+        req.cookies.get(cookieName)?.value ||
+        req.headers.get(headerName)?.replace('Bearer ', '');
+      
+      // No token found, redirect to login
+      if (!token) {
+        const url = new URL(loginUrl, req.url);
+        url.searchParams.set('returnTo', req.nextUrl.pathname + req.nextUrl.search);
+        return NextResponse.redirect(url);
+      }
+      
+      // Verify token
+      const user = await verifyAuthToken(token);
+      
+      if (!user) {
+        // Invalid token, redirect to login
+        const url = new URL(loginUrl, req.url);
+        url.searchParams.set('returnTo', req.nextUrl.pathname + req.nextUrl.search);
+        return NextResponse.redirect(url);
+      }
+      
+      // Token is valid, add user to request headers
+      const response = NextResponse.next();
+      response.headers.set('x-user-id', user.id);
+      response.headers.set('x-user-email', user.email);
+      response.headers.set('x-user-roles', JSON.stringify(user.roles || []));
+      
+      return response;
+    } catch (error) {
+      console.error('Authentication middleware error:', error);
+      
+      if (throwOnError) {
+        throw error;
+      }
+      
+      // Redirect to login on error
+      const url = new URL(loginUrl, req.url);
+      url.searchParams.set('returnTo', req.nextUrl.pathname + req.nextUrl.search);
+      return NextResponse.redirect(url);
+    }
+  };
+}
+```
+
+### 4. Path Matching
+
+Implement clean path matching for middleware:
+
+```typescript
+// src/lib/middleware/matcher.ts
+import { NextRequest } from 'next/server';
+
+/**
+ * Determines if a request path should be processed by middleware
+ */
+export function shouldProcessPath(
+  req: NextRequest,
+  config: {
+    include?: string[];
+    exclude?: string[];
+  } = {}
+): boolean {
+  const { pathname } = req.nextUrl;
+  const { include = [], exclude = [] } = config;
+  
+  // Common static assets that should be excluded by default
+  const defaultExclude = [
+    '/_next/',
+    '/api/',
+    '/static/',
+    '/favicon.ico',
+    '/robots.txt',
+    '/sitemap.xml'
+  ];
+  
+  // Check exclusions first (both default and custom)
+  const allExclusions = [...defaultExclude, ...exclude];
+  if (allExclusions.some(path => pathname.startsWith(path))) {
+    return false;
+  }
+  
+  // If includes are specified, path must match at least one
+  if (include.length > 0) {
+    return include.some(path => pathname.startsWith(path));
+  }
+  
+  // If no includes are specified, process all non-excluded paths
+  return true;
+}
+```
+
+### 5. Configuration-based Middleware
+
+Create a configuration-driven middleware system:
+
+```typescript
+// middleware.config.ts
+import { MiddlewareConfig } from './src/lib/middleware/types';
+
+/**
+ * Middleware configuration
+ */
+export const middlewareConfig: Record<string, MiddlewareConfig> = {
+  auth: {
+    paths: {
+      include: ['/dashboard', '/settings', '/profile'],
+      exclude: ['/api/public', '/health']
+    }
+  },
+  metrics: {
+    paths: {
+      include: ['/'],
+      exclude: ['/api/metrics', '/_next']
+    }
+  },
+  rateLimit: {
+    paths: {
+      include: ['/api'],
+      exclude: ['/api/health']
+    }
+  }
+};
+```
+
+### 6. Root Middleware Implementation
+
+Combine middleware components in the root middleware:
+
+```typescript
+// src/middleware.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { composeMiddleware } from './lib/middleware/compose';
+import { shouldProcessPath } from './lib/middleware/matcher';
+import { createAuthMiddleware } from './lib/middleware/auth';
+import { createRateLimitMiddleware } from './lib/middleware/rate-limit';
+import { createMetricsMiddleware } from './lib/middleware/metrics';
+import { middlewareConfig } from '../middleware.config';
+
+// Initialize middleware instances
+const authMiddleware = createAuthMiddleware({
+  loginUrl: '/auth/login'
+});
+
+const rateLimitMiddleware = createRateLimitMiddleware({
+  limit: 60,
+  windowMs: 60 * 1000 // 1 minute
+});
+
+const metricsMiddleware = createMetricsMiddleware();
+
+/**
+ * Process a request through middleware if it matches the configured paths
+ */
+async function processWithMiddleware(
+  req: NextRequest,
+  middlewareName: string,
+  middlewareFn: any
+) {
+  const config = middlewareConfig[middlewareName];
+  
+  if (config && shouldProcessPath(req, config.paths)) {
+    return await middlewareFn(req);
+  }
+  
+  return null;
+}
+
+/**
+ * Root middleware handler
+ */
+export async function middleware(req: NextRequest) {
+  // First, check for authentication
+  const authResult = await processWithMiddleware(req, 'auth', authMiddleware);
+  if (authResult) return authResult;
+  
+  // Apply rate limiting to API routes
+  const rateLimitResult = await processWithMiddleware(req, 'rateLimit', rateLimitMiddleware);
+  if (rateLimitResult) return rateLimitResult;
+  
+  // Apply metrics middleware to configured routes
+  const metricsResult = await processWithMiddleware(req, 'metrics', metricsMiddleware);
+  if (metricsResult) return metricsResult;
+  
+  // If no middleware returned a response, continue
+  return NextResponse.next();
+}
+
+/**
+ * Configure middleware matcher
+ */
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public files (public directory)
+     */
+    '/((?!_next/static|_next/image|favicon.ico|public).*)',
+  ],
+};
+```
+
+### 7. Nested Middleware Handling
+
+Address the nested middleware issue in Next.js:
+
+```typescript
+// src/lib/middleware/nested.ts
+import { NextRequest, NextResponse } from 'next/server';
+
+/**
+ * Prevent double middleware execution on nested routes
+ * This is important because Next.js can execute middleware multiple times
+ * for nested routes due to how it handles rewrites and redirects
+ */
+export function createNestedMiddlewareGuard() {
+  // Create a token to identify middleware execution
+  const executionToken = `mw_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+  
+  return function nestedMiddlewareGuard(req: NextRequest) {
+    // Check if middleware has already executed for this request
+    const previousExecution = req.headers.get('x-middleware-execution');
+    
+    if (previousExecution === executionToken) {
+      // Middleware has already run, skip
+      return NextResponse.next();
+    }
+    
+    // Mark request as processed
+    const response = NextResponse.next();
+    response.headers.set('x-middleware-execution', executionToken);
+    
+    return response;
+  };
+}
+```
+
+### 8. Middleware Testing
+
+Implement testing utilities for middleware:
+
+```typescript
+// src/lib/middleware/testing.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { MiddlewareFunction } from './types';
+
+/**
+ * Create a mock request for testing middleware
+ */
+export function createMockRequest(options: {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  cookies?: Record<string, string>;
+}): NextRequest {
+  const { url, method = 'GET', headers = {}, cookies = {} } = options;
+  
+  // Create URL object
+  const reqUrl = new URL(url.startsWith('http') ? url : `http://localhost${url}`);
+  
+  // Create headers
+  const reqHeaders = new Headers();
+  Object.entries(headers).forEach(([key, value]) => {
+    reqHeaders.set(key, value);
+  });
+  
+  // Create cookie header
+  const cookieString = Object.entries(cookies)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('; ');
+  
+  if (cookieString) {
+    reqHeaders.set('cookie', cookieString);
+  }
+  
+  // Create mock request
+  const req = new NextRequest(reqUrl, {
+    method,
+    headers: reqHeaders
+  });
+  
+  return req;
+}
+
+/**
+ * Run middleware for testing
+ */
+export async function runMiddleware(
+  middleware: MiddlewareFunction,
+  request: NextRequest
+): Promise<NextResponse> {
+  const response = await middleware(request);
+  return response || NextResponse.next();
+}
+```
+
+### 9. Performance Optimization
+
+Implement middleware performance optimization:
+
+```typescript
+// src/lib/middleware/performance.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { MiddlewareFunction } from './types';
+
+/**
+ * Cache middleware results to improve performance
+ */
+export function createCachedMiddleware(
+  middleware: MiddlewareFunction,
+  options: {
+    ttl?: number;
+    maxSize?: number;
+    keyGenerator?: (req: NextRequest) => string;
+  } = {}
+): MiddlewareFunction {
+  const {
+    ttl = 5 * 60 * 1000, // 5 minutes
+    maxSize = 100,
+    keyGenerator = (req) => `${req.method}:${req.nextUrl.pathname}`
+  } = options;
+  
+  const cache = new Map<
+    string,
+    { response: NextResponse; timestamp: number }
+  >();
+  
+  return async function cachedMiddleware(req: NextRequest) {
+    const key = keyGenerator(req);
+    const now = Date.now();
+    
+    // Check cache
+    const cached = cache.get(key);
+    if (cached && now - cached.timestamp < ttl) {
+      // Clone the cached response to avoid mutations
+      return NextResponse.json(
+        await cached.response.json(),
+        {
+          status: cached.response.status,
+          headers: cached.response.headers
+        }
+      );
+    }
+    
+    // Execute middleware
+    const response = await middleware(req);
+    
+    if (response) {
+      // Cache the result
+      cache.set(key, { response, timestamp: now });
+      
+      // Limit cache size
+      if (cache.size > maxSize) {
+        // Remove oldest entry
+        const oldestKey = [...cache.entries()]
+          .sort((a, b) => a[1].timestamp - b[1].timestamp)[0][0];
+        cache.delete(oldestKey);
+      }
+    }
+    
+    return response;
+  };
+}
+```
+
+### 10. Advanced Configuration
+
+Implement advanced configuration for middleware:
+
+```typescript
+// src/lib/middleware/config.ts
+import { MiddlewareConfig } from './types';
+
+// Define middleware execution order
+export const MIDDLEWARE_ORDER = [
+  'metrics',    // First, collect metrics
+  'rateLimit',  // Then, check rate limits
+  'auth',       // Then, authenticate
+  'security',   // Then, apply security headers
+  'params',     // Then, process query parameters
+  'rewrite'     // Finally, handle any rewrites
+];
+
+// Define default paths for common middleware
+export const DEFAULT_PATHS: Record<string, MiddlewareConfig['paths']> = {
+  auth: {
+    include: ['/dashboard', '/account', '/api/private'],
+    exclude: ['/api/public', '/login', '/register', '/reset-password']
+  },
+  metrics: {
+    include: ['/'],
+    exclude: ['/_next', '/public', '/api/metrics']
+  },
+  rateLimit: {
+    include: ['/api'],
+    exclude: ['/api/health']
+  },
+  security: {
+    include: ['/'],
+    exclude: []
+  }
+};
+
+// Helper to merge configs
+export function mergeConfigs(
+  baseConfig: MiddlewareConfig,
+  overrideConfig: Partial<MiddlewareConfig>
+): MiddlewareConfig {
+  return {
+    ...baseConfig,
+    ...overrideConfig,
+    paths: {
+      include: [
+        ...(baseConfig.paths?.include || []),
+        ...(overrideConfig.paths?.include || [])
+      ],
+      exclude: [
+        ...(baseConfig.paths?.exclude || []),
+        ...(overrideConfig.paths?.exclude || [])
+      ]
+    }
+  };
+}
+```
+
+## Examples
+
+<example>
+// Good middleware implementation with clean architecture
+
+// src/middleware.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { composeMiddleware } from './lib/middleware/compose';
+import { createAuthMiddleware } from './lib/middleware/auth';
+import { createRateLimitMiddleware } from './lib/middleware/rate-limit';
+import { createNestedMiddlewareGuard } from './lib/middleware/nested';
+import { shouldProcessPath } from './lib/middleware/matcher';
+import { middlewareConfig } from '../middleware.config';
+
+// Initialize middleware
+const nestedGuard = createNestedMiddlewareGuard();
+const authMiddleware = createAuthMiddleware({ loginUrl: '/auth/login' });
+const rateLimitMiddleware = createRateLimitMiddleware({ limit: 60 });
+
+// Main middleware handler
+export async function middleware(req: NextRequest) {
+  // Prevent nested middleware execution
+  const guardResult = nestedGuard(req);
+  if (guardResult.headers.has('x-middleware-execution')) {
+    // Create the middleware pipeline
+    const pipeline = composeMiddleware(
+      // Rate limiting for API routes
+      async (req) => {
+        if (shouldProcessPath(req, middlewareConfig.rateLimit.paths)) {
+          return rateLimitMiddleware(req);
+        }
+        return null;
+      },
+      
+      // Authentication for protected routes
+      async (req) => {
+        if (shouldProcessPath(req, middlewareConfig.auth.paths)) {
+          return authMiddleware(req);
+        }
+        return null;
+      }
+    );
+    
+    // Execute the pipeline
+    return pipeline(req);
+  }
+  
+  return guardResult;
+}
+
+// Configure middleware matcher
+export const config = {
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico).*)',
+  ],
+};
+</example>
+
+<example type="invalid">
+// Poor middleware implementation with potential for issues
+
+// src/middleware.ts
+import { NextResponse } from 'next/server';
+import { getToken } from 'next-auth/jwt';
+
+// Problems with this implementation:
+// 1. No modular structure
+// 2. No handling for nested middleware execution
+// 3. Hard-coded paths that are difficult to maintain
+// 4. No error handling
+// 5. Mixes multiple concerns in a single function
+
+export async function middleware(req) {
+  // Hard-coded path checks
+  const { pathname } = req.nextUrl;
+  
+  // API rate limiting (mixed in with auth logic)
+  if (pathname.startsWith('/api')) {
+    // Count requests from this IP
+    const ip = req.headers.get('x-forwarded-for');
+    const count = getRequestCount(ip); // Undefined function
+    
+    if (count > 100) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    }
+  }
+  
+  // Auth check with no error handling
+  if (
+    pathname.startsWith('/dashboard') || 
+    pathname.startsWith('/profile') ||
+    pathname.startsWith('/settings')
+  ) {
+    const session = await getToken({ req });
+    
+    if (!session) {
+      // No validation of URLs
+      return NextResponse.redirect(new URL('/login', req.url));
+    }
+    
+    // Manually modifying headers without abstraction
+    const res = NextResponse.next();
+    res.headers.set('x-user-id', session.sub);
+    return res;
+  }
+  
+  return NextResponse.next();
+}
+</example>
+
+## Key Principles
+
+1. **Modular Design**: Create small, focused middleware components
+2. **Composition**: Use composition to build complex middleware pipelines
+3. **Configuration-Driven**: Make middleware behavior configurable
+4. **Path Matching**: Implement clean path matching logic
+5. **Error Handling**: Add robust error handling to all middleware
+6. **Prevent Nested Execution**: Guard against nested middleware execution
+7. **Testing**: Create utilities for middleware testing
+8. **Performance**: Optimize middleware for performance
+9. **Clean Interfaces**: Define clear interfaces for middleware functions
+10. **Separation of Concerns**: Each middleware should handle one responsibility
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Middleware patterns
+- **`.cursor/docs/security-workflows.md`** - Security middleware
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools
+- **`.cursor/tools/check-auth-config.sh`** - Validate auth middleware
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @012-api-security.mdc - API security (middleware!)
+- @025-multi-tenancy.mdc - Organization isolation middleware
+- @046-session-validation.mdc - Session middleware
+- @060-api-standards.mdc - API patterns
+- @070-nextjs-architecture.mdc - Architecture patterns
+- @355-rate-limiting-implementation.mdc - Rate limiting middleware
+
+### Quick Start
+1. **Auth:** See @046-session-validation.mdc (session middleware)
+2. **Security:** Follow @012-api-security.mdc patterns
+3. **Rate Limit:** Use @355-rate-limiting-implementation.mdc

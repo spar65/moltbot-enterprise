@@ -1,0 +1,320 @@
+---
+description: Use when implementing tests for third-party integrations, especially payment processors and critical external services
+globs: "**/__tests__/**/*{payment,stripe,paypal,integration}*.{ts,tsx,js,jsx}, **/test/**/*{payment,stripe,paypal,integration}*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+
+___
+description: Apply third-party integration testing standards when implementing tests for external service integrations to ensure reliable behavior
+globs: "**/*.test.{js,jsx,ts,tsx}"
+___
+
+# Third-Party Integration Testing Standards
+
+## Context
+- Critical business functionality often depends on third-party integrations
+- Payment processors, authentication services, and APIs require special testing attention
+- Third-party integrations have their own contracts, edge cases, and error modes
+- Failures in integration points can have severe business impact (lost revenue, data corruption)
+- Third-party services may have complex testing requirements and environments
+
+## General Requirements
+
+### Documentation-First Testing
+- **REQUIRED**: Always reference official documentation when writing integration tests
+- **REQUIRED**: Review and follow provider-specific testing guidelines
+- Use official testing libraries and mock servers when available
+- Maintain reference links to documentation in test file headers
+- Keep integration tests updated when third-party APIs change
+- Document workarounds for known testing limitations
+
+```typescript
+/**
+ * Stripe Payment Integration Tests
+ * 
+ * Based on official Stripe testing guidelines:
+ * https://stripe.com/docs/testing
+ * 
+ * Using Stripe test mode and test API keys
+ */
+import Stripe from 'stripe';
+import { setupStripeTestEnv } from '../test-utils/stripe-helpers';
+
+describe('Stripe Payment Processing', () => {
+  let stripe: Stripe;
+  
+  beforeAll(async () => {
+    // Setup using official test helpers
+    stripe = setupStripeTestEnv();
+  });
+  
+  // Tests follow...
+});
+```
+
+### Test Environment Isolation
+- Maintain separate test environments for third-party integrations
+- Never use production credentials in tests, even in CI environments
+- Create dedicated test accounts with each provider
+- Document test account details securely in team knowledge base
+- Regularly rotate test credentials
+- Handle test data cleanup to prevent test pollution
+
+### Comprehensive Test Coverage
+
+- **REQUIRED**: Test critical integration paths extensively, particularly for payment flows
+- Test successful operations, failures, and edge cases
+- Implement tests for webhook handling and asynchronous responses
+- Test API version compatibility
+- Test rate limiting and quota behavior where applicable
+- Test error handling and recovery
+
+```typescript
+// GOOD: Comprehensive payment testing
+describe('Stripe Subscription Creation', () => {
+  // Success path
+  test('creates a subscription successfully with valid payment method', async () => {
+    // Implementation
+  });
+  
+  // Failure paths
+  test('handles card declined gracefully', async () => {
+    // Implementation using Stripe test card numbers that trigger declines
+  });
+  
+  test('handles insufficient funds scenario', async () => {
+    // Implementation
+  });
+  
+  test('handles expired cards correctly', async () => {
+    // Implementation
+  });
+  
+  // Edge cases
+  test('handles zero amount trial subscriptions', async () => {
+    // Implementation
+  });
+  
+  test('handles currency conversion edge cases', async () => {
+    // Implementation
+  });
+  
+  // Webhooks
+  test('processes subscription_updated webhook correctly', async () => {
+    // Implementation
+  });
+  
+  // Rate limiting
+  test('implements backoff when rate limits are hit', async () => {
+    // Implementation
+  });
+});
+```
+
+## Payment Integration Specific Requirements
+
+### Test Cards and Scenarios
+- Use documented test card numbers for various scenarios
+- Test different payment methods when supported (credit card, ACH, etc.)
+- Test currency conversion scenarios where applicable
+- Test refund and partial refund flows
+- Test subscription lifecycle including upgrades/downgrades
+- Test invoice generation and reconciliation
+
+```typescript
+// GOOD: Using documented test cards
+test('handles 3D Secure authentication', async () => {
+  // Stripe-specific test card that triggers 3D Secure
+  const testCardFor3dSecure = {
+    number: '4000000000003220',
+    exp_month: 12,
+    exp_year: 2030,
+    cvc: '123',
+  };
+  
+  const paymentMethod = await stripe.paymentMethods.create({
+    type: 'card',
+    card: testCardFor3dSecure,
+  });
+  
+  // Test implementation for 3D Secure flow
+  // ...
+});
+```
+
+### Mock External Services Appropriately
+- Use official testing APIs and sandboxes when available
+- Implement realistic mocks based on API documentation
+- Consider using recorded API responses for complex scenarios
+- Test with intentionally delayed responses to verify timeout handling
+- Document mock limitations clearly in test files
+
+```typescript
+// GOOD: Using official test helpers with fallback to mocks
+import { mockStripeApi } from '../test-utils/stripe-mocks';
+
+test('handles webhook verification', async () => {
+  // Try to use real test mode if available
+  if (process.env.USE_STRIPE_TEST_MODE === 'true') {
+    const event = await stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+    // Test with real webhook verification
+    expect(event.type).toBe('payment_intent.succeeded');
+  } else {
+    // Fall back to mock with documented limitations
+    const { event, errors } = mockStripeApi.webhooks.constructEvent(
+      rawBody,
+      signature,
+      'mock_webhook_secret'
+    );
+    expect(event.type).toBe('payment_intent.succeeded');
+  }
+});
+```
+
+### Error Simulation
+- Test handling of all documented error types
+- Simulate network failures and API downtime
+- Test retry mechanisms and circuit breakers
+- Verify error reporting and monitoring
+- Test error messaging presented to end users
+- Validate error logging for debugging purposes
+
+```typescript
+// GOOD: Thorough error testing
+test('handles Stripe API outage gracefully', async () => {
+  // Mock a Stripe API outage
+  jest.spyOn(stripe.paymentIntents, 'create').mockRejectedValue(
+    new Error('Connection error')
+  );
+  
+  // Attempt payment
+  const result = await paymentService.processPayment({
+    amount: 2000,
+    currency: 'usd',
+    paymentMethodId: 'pm_card_visa',
+  });
+  
+  // Verify graceful handling
+  expect(result.success).toBe(false);
+  expect(result.error.userMessage).toBe(
+    'We are experiencing issues processing your payment. Please try again in a few minutes.'
+  );
+  expect(result.error.shouldRetry).toBe(true);
+  
+  // Verify the error was logged for monitoring
+  expect(mockLogger.error).toHaveBeenCalledWith(
+    expect.objectContaining({
+      event: 'payment_processing_error',
+      error: expect.any(Error),
+    })
+  );
+});
+```
+
+## Other Critical Integrations
+
+### Authentication Service Testing
+- Test account creation, login, logout flows
+- Test multi-factor authentication scenarios
+- Test token refresh and expiration handling
+- Test authorization failures and access control
+- Test account recovery workflows
+- Test integration with your application's permission system
+
+### API Integration Testing
+- Test API version compatibility
+- Test handling of rate limits and quotas
+- Test authentication and credential management
+- Test data transformation and normalization
+- Test synchronization mechanisms
+- Verify correct implementation of API best practices
+
+## Test Maintenance
+
+### Integration Test Monitoring
+- Monitor test failures closely, as they may indicate API changes
+- Set up alerts for integration test failures in CI
+- Regularly review integration test performance
+- Update tests promptly when third-party APIs change
+- Document known flakiness and mitigation strategies
+- Consider implementing quarantine for flaky tests
+
+### Documentation
+- Document all test environment setup requirements
+- Maintain links to relevant third-party documentation
+- Document test data requirements and cleanup procedures
+- Keep track of test account credentials (securely)
+- Document any mock limitations or assumptions
+- Include troubleshooting guides for common test failures
+
+## Stripe API Testing
+- Use Stripe test mode APIs for all test environments
+- Implement standardized Stripe API mocks for unit tests
+- Create test fixtures for common Stripe objects (Customer, Product, Price, etc.)
+- Test error handling for common Stripe API errors
+- Validate webhooks using Stripe CLI in development
+
+## Test Account Management
+- Maintain dedicated test accounts for different payment scenarios
+- Document test account credentials in secure location
+- Use consistent test data patterns across environments
+- Implement test account cleanup procedures
+- Create reference documentation for test account usage
+
+## Integration Test Patterns
+- Test the full payment lifecycle from creation to completion
+- Implement verification for subscription state changes
+- Test payment error scenarios and recovery paths
+- Validate proper database updates following payment events
+- Test integration points with authentication system
+
+## Payment Mocking Strategy
+- Create consistent mocks for Stripe SDK methods
+- Implement realistic mock responses matching Stripe API structure
+- Test different payment states (succeeded, processing, failed)
+- Simulate webhook events in integration tests
+- Document mocking approaches for different test scenarios
+
+## Real-World Scenario Testing
+- Test 3D Secure authentication flows
+- Simulate card decline scenarios with various decline codes
+- Test rate limiting and API outage recovery
+- Verify webhook event ordering and duplicate handling
+- Test international payment scenarios with different currencies
+
+## A/B Testing Framework
+- Implement test harness for payment flow variants
+- Create consistent measurement for conversion rates
+- Apply statistical significance calculations
+- Document test methodology and analysis approach
+- Implement user segmentation for payment experiments 
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Integration testing workflows
+- **`.cursor/docs/security-workflows.md`** - Security patterns to test
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-env-vars.sh`** - Verify third-party API keys
+- **`.cursor/tools/scan-secrets.sh`** - Check for exposed keys
+- **`.cursor/tools/inspect-model.sh`** - Check integration data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @078-payment-testing-standards.mdc - Stripe testing patterns
+- @121-mindstudio-testing.mdc - AI integration testing
+- @300-testing-standards.mdc - General testing standards
+- @330-auth0-testing-standards.mdc - Auth0 testing patterns
+- @331-high-risk-feature-testing.mdc - Critical testing (integrations are high-risk!)
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Quick Start
+1. **Security:** `.cursor/tools/scan-secrets.sh` (no exposed keys)
+2. **Mock:** Follow integration-specific testing rule
+3. **Test:** See @380-comprehensive-testing-standards.mdc

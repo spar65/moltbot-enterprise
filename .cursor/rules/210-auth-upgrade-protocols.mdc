@@ -1,0 +1,192 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Follow structured protocols when upgrading authentication providers to ensure security, stability and minimal user disruption
+globs: "**/*.{ts,tsx,js,jsx,md}"
+___
+
+# Auth Provider Upgrade Protocols
+
+## Context
+- This rule applies when upgrading authentication provider libraries or APIs
+- Especially critical for Auth0, Firebase Auth, or other identity services
+- Applies to both major and minor version upgrades
+- Auth upgrades are high-risk operations that can affect all users
+
+## Requirements
+
+### Pre-upgrade Assessment
+- Complete a comprehensive pre-upgrade assessment checklist:
+  - Document current version and target version
+  - Catalog all authentication flows in the application
+  - Identify deprecated methods or APIs being used
+  - Review breaking changes in upgrade documentation
+  - Assess impact on existing sessions and tokens
+  - Document potential security improvements in new version
+  - Create backup plan for user authentication data
+  - Define fallback authentication method if upgrade fails
+
+### Upgrade Testing Strategy
+- Implement a multi-environment testing strategy:
+  - Create an isolated development environment for testing
+  - Use test accounts with various permission levels and scenarios
+  - Test all authentication flows (login, logout, password reset, etc.)
+  - Test token validation and session management
+  - Validate social login providers continue to function
+  - Simulate edge cases (expired tokens, network issues)
+  - Conduct performance testing of auth operations
+  - Validate all protected routes remain secured
+
+### Rollback Procedures
+- Document detailed rollback procedures before beginning upgrade:
+  - Create library version snapshots prior to upgrade
+  - Document configuration state before changes
+  - Maintain database migration scripts to revert schema changes
+  - Test rollback procedure in development environment
+  - Define clear criteria for when to initiate rollback
+  - Designate rollback decision maker with clear authority
+  - Establish timeline constraints for rollback decision
+
+### User Communication Plan
+- Create a communication plan for users:
+  - Prepare advance notifications for planned authentication changes
+  - Document potential user-visible impacts
+  - Create help documentation for any new authentication flows
+  - Prepare support team with FAQs and troubleshooting guides
+  - Define escalation path for authentication issues
+  - Create templates for different communication channels
+  - Plan for immediate notification if security issues arise
+
+### Deployment Strategy
+- Implement a phased deployment strategy:
+  - Begin with internal testing environment
+  - Progress to employee-only testing
+  - Consider beta testing with limited external users
+  - Implement canary deployment for wider rollout
+  - Monitor authentication metrics during each phase
+  - Define success criteria for each deployment phase
+  - Schedule deployment during low-traffic periods
+  - Ensure support team availability during deployment
+
+## Examples
+
+<example>
+// Good pre-upgrade assessment document
+
+# Auth0 SDK Upgrade Assessment
+## Current: v1.2.3 → Target: v2.0.0
+
+### Authentication Flows in Use
+- Username/password login: Used in main app
+- Social logins: Google, GitHub
+- Password reset flow
+- Email verification flow
+- Silent refresh for token renewal
+
+### Breaking Changes Assessment
+- `getTokenSilently()` API signature changed
+- Session storage format modified
+- Auth configuration structure updated
+
+### Estimated Impact
+- All existing user sessions will be invalidated
+- Users will need to log in again after deployment
+- No impact on user accounts or credentials
+
+### Rollback Plan
+See detailed rollback procedure in docs/auth/rollback-v2.md
+</example>
+
+<example type="invalid">
+// Insufficient upgrade planning
+
+// Let's upgrade Auth0 to the latest version
+npm install @auth0/auth0-react@latest
+
+// Update the configuration to match new version
+const auth0Config = {
+  domain: process.env.AUTH0_DOMAIN,
+  clientId: process.env.AUTH0_CLIENT_ID,
+  // Just following their docs for the rest
+};
+</example>
+
+<example>
+// Good rollback procedure documentation
+
+# Auth0 SDK v2 Rollback Procedure
+
+## Conditions for Rollback
+- More than 5% of login attempts failing
+- Any security vulnerabilities discovered
+- Session persistence issues affecting multiple users
+
+## Decision Authority
+- Primary: Director of Engineering
+- Backup: Lead Backend Developer
+
+## Rollback Steps
+1. Deploy previous version of auth package:
+   ```
+   npm install @auth0/auth0-react@1.2.3 --exact
+   ```
+2. Restore previous configuration from backup:
+   ```
+   git checkout HEAD~1 -- src/auth/auth0-config.js
+   ```
+3. Redeploy application with rollback changes
+4. Send notification to all users via email and in-app alert
+5. Monitor authentication success rate for 1 hour
+
+## Verification Steps
+1. Test login with test accounts across all supported auth methods
+2. Verify token validation works correctly
+3. Confirm protected routes remain secured
+</example>
+
+<example type="invalid">
+// Insufficient rollback planning
+
+// If things go wrong, we can just:
+// 1. Revert the PR
+// 2. Reinstall the old package
+// 3. Redeploy
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Upgrade workflows
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Pre/post-upgrade checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate before and after upgrade
+- **`.cursor/tools/check-env-vars.sh`** - Verify env changes
+- **`.cursor/tools/audit-dependencies.sh`** - Check auth library versions
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @013-auth0-deployment-validation.mdc - Deployment validation
+- @019-auth0-integration.mdc - Auth0 integration patterns
+- @100-auth-provider-migration.mdc - Provider migration patterns
+- @120-auth-architecture-patterns.mdc - Architecture considerations
+- @203-production-deployment-safety.mdc - Safe deployment patterns
+- @330-auth0-testing-standards.mdc - Testing after upgrade
+- @374-authentication-architecture-standards.mdc - Auth architecture
+- @400-auth-testing-patterns.mdc - Testing auth changes
+
+### Quick Start
+1. **Pre-Upgrade:** `.cursor/tools/check-auth-config.sh` (baseline)
+2. **Upgrade:** Follow protocol in this rule
+3. **Post-Upgrade:** `.cursor/tools/check-auth-config.sh` (validate)
+4. **Test:** See @400-auth-testing-patterns.mdc (comprehensive testing!)
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH0_MIGRATION_GUIDE.md`** - Auth0 migration and upgrade guide
+- **`guides/AUTH0_V4_IMPLEMENTATION_GUIDE.md`** - Auth0 SDK v4 implementation
+- **`guides/auth0/05-Version-Compatibility-Guide.md`** - **CRITICAL:** SDK version compatibility!

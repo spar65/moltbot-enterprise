@@ -1,0 +1,614 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Implement consistent styling patterns in Next.js applications to ensure maintainable, accessible, and consistent UI across the application
+globs: "src/**/*.{js,jsx,ts,tsx,css,scss}"
+___
+
+# Next.js Styling Consistency Standards
+
+## Context
+
+- Next.js applications often use multiple styling approaches
+- Tailwind CSS and Shadcn UI are primary styling tools in our stack
+- Consistent styling patterns prevent design fragmentation and technical debt
+
+## Requirements
+
+### Tailwind CSS Implementation
+
+- Use Tailwind utility classes for component styling
+- Follow consistent class ordering convention
+- Extract common patterns to component classes
+- Implement proper responsive design using Tailwind breakpoints
+
+### Shadcn UI Integration
+
+- Use Shadcn UI components as foundational building blocks
+- Follow customization patterns using the theming system
+- Maintain component API consistency when extending components
+- Document component variants and their use cases
+
+### CSS Architecture
+
+- Avoid global CSS except for root-level theme variables
+- Use CSS modules or styled-components for component-specific styles
+- Implement consistent naming conventions for CSS classes
+- Organize CSS imports to prevent specificity conflicts
+
+### Theme Management
+
+- Use CSS variables for theme values (colors, spacing, etc.)
+- Implement proper dark mode support using Tailwind's dark mode
+- Create consistent color palette with semantic naming
+- Document theme override patterns
+
+## Common Pitfalls
+
+- **Inconsistent class ordering**: Different ordering patterns across components
+- **Utility overuse**: Not extracting common patterns to component classes
+- **Direct style overrides**: Modifying Shadcn components directly instead of using theme
+- **Specificity wars**: Using !important or overly specific selectors
+- **Undocumented variants**: Custom component variants without proper documentation
+
+## Migration Patterns
+
+- Create utility functions for class composition
+- Implement staged migration of legacy styling
+- Use design tokens for consistent values
+- Document component styling patterns
+
+## Evidence Source
+
+Based on HitList issues:
+
+- HitList-Test-Problem-UI-Inconsistency.md (style inconsistencies)
+- HitList-Performance-CSS-Bloat.md (CSS optimization)
+- HitList-Test-Problem-Framework08-Styling.md (styling integration issues)
+- HitList-Test-Component-Props.md (component API inconsistencies)
+
+## Success Metrics
+
+- Consistent component styling across the application
+- Reduced CSS bundle size
+- Improved theme consistency
+- Easier component maintenance and reuse
+- Reduced time to implement new UI features
+
+## Examples
+
+<example>
+// Good Tailwind class organization
+// components/Button.tsx
+import { cva, type VariantProps } from 'class-variance-authority';
+import { cn } from '@/lib/utils';
+
+const buttonVariants = cva(
+  // Base styles applied to all variants
+  "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        outline: "border border-input hover:bg-accent hover:text-accent-foreground",
+        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
+        link: "underline-offset-4 hover:underline text-primary",
+      },
+      size: {
+        default: "h-10 py-2 px-4",
+        sm: "h-9 px-3 rounded-md",
+        lg: "h-11 px-8 rounded-md",
+        icon: "h-10 w-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+);
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean;
+}
+
+export function Button({
+  className,
+  variant,
+  size,
+  asChild = false,
+  ...props
+}: ButtonProps) {
+  const Comp = asChild ? "div" : "button";
+  return (
+    <Comp
+      className={cn(buttonVariants({ variant, size }), className)}
+      {...props}
+    />
+  );
+}
+</example>
+
+<example>
+// Good component styling with Tailwind and theme consistency
+// components/Card.tsx
+import { cn } from "@/lib/utils";
+
+interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  variant?: "default" | "bordered" | "flat";
+  size?: "sm" | "md" | "lg";
+  children: React.ReactNode;
+}
+
+export function Card({
+  className,
+  variant = "default",
+  size = "md",
+  children,
+  ...props
+}: CardProps) {
+  return (
+    <div
+      className={cn(
+        // Base styles
+        "rounded-lg overflow-hidden",
+        
+        // Variant styles
+        variant === "default" && "bg-card text-card-foreground shadow-sm",
+        variant === "bordered" && "bg-background border border-border",
+        variant === "flat" && "bg-muted/50 text-muted-foreground",
+        
+        // Size styles
+        size === "sm" && "p-4",
+        size === "md" && "p-6",
+        size === "lg" && "p-8",
+        
+        // Custom class overrides
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+}
+
+// Sub-components with consistent styling
+Card.Header = function CardHeader({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn("flex flex-col space-y-1.5 pb-4", className)}
+      {...props}
+    />
+  );
+};
+
+Card.Title = function CardTitle({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLHeadingElement>) {
+  return (
+    <h3
+      className={cn("text-lg font-semibold leading-none tracking-tight", className)}
+      {...props}
+    />
+  );
+};
+
+Card.Content = function CardContent({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("", className)} {...props} />;
+};
+
+Card.Footer = function CardFooter({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn("flex items-center pt-4", className)}
+      {...props}
+    />
+  );
+};
+</example>
+
+<example>
+// Good theme configuration
+// tailwind.config.js
+const { fontFamily } = require("tailwindcss/defaultTheme");
+
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  darkMode: ["class"],
+  content: ["./src/**/*.{js,ts,jsx,tsx}"],
+  theme: {
+    container: {
+      center: true,
+      padding: "2rem",
+      screens: {
+        "2xl": "1400px",
+      },
+    },
+    extend: {
+      colors: {
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
+      fontFamily: {
+        sans: ["var(--font-sans)", ...fontFamily.sans],
+        heading: ["var(--font-heading)", ...fontFamily.sans],
+      },
+      keyframes: {
+        "accordion-down": {
+          from: { height: 0 },
+          to: { height: "var(--radix-accordion-content-height)" },
+        },
+        "accordion-up": {
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: 0 },
+        },
+      },
+      animation: {
+        "accordion-down": "accordion-down 0.2s ease-out",
+        "accordion-up": "accordion-up 0.2s ease-out",
+      },
+    },
+  },
+  plugins: [require("tailwindcss-animate")],
+};
+</example>
+
+<example>
+// Good CSS variables setup
+// styles/globals.css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 47.4% 11.2%;
+ 
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+ 
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 47.4% 11.2%;
+ 
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+ 
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 47.4% 11.2%;
+ 
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+ 
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+ 
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+ 
+    --destructive: 0 100% 50%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --ring: 215 20.2% 65.1%;
+ 
+    --radius: 0.5rem;
+  }
+ 
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+ 
+    --muted: 223 47% 11%;
+    --muted-foreground: 215.4 16.3% 56.9%;
+ 
+    --accent: 216 34% 17%;
+    --accent-foreground: 210 40% 98%;
+ 
+    --popover: 224 71% 4%;
+    --popover-foreground: 215 20.2% 65.1%;
+ 
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+ 
+    --card: 224 71% 4%;
+    --card-foreground: 213 31% 91%;
+ 
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 1.2%;
+ 
+    --secondary: 222.2 47.4% 11.2%;
+    --secondary-foreground: 210 40% 98%;
+ 
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --ring: 216 34% 17%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  
+  /* Consistent focus styles */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2;
+  }
+}
+
+@layer components {
+  /* Reusable component classes */
+  .heading-1 {
+    @apply text-4xl font-bold tracking-tight lg:text-5xl font-heading;
+  }
+  
+  .heading-2 {
+    @apply text-3xl font-semibold tracking-tight lg:text-4xl font-heading;
+  }
+  
+  .heading-3 {
+    @apply text-2xl font-semibold tracking-tight font-heading;
+  }
+  
+  .body-large {
+    @apply text-lg leading-7;
+  }
+  
+  .body-normal {
+    @apply text-base leading-6;
+  }
+  
+  .body-small {
+    @apply text-sm leading-5;
+  }
+}
+</example>
+
+<example>
+// Good utility function for class merging
+// lib/utils.ts
+import { ClassValue, clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+/**
+ * Merge classes with tailwind-merge
+ * @param inputs - Classes to merge
+ * @returns Merged classes
+ */
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+</example>
+
+<example type="invalid">
+// Bad styling practices - inconsistent pattern
+// components/ProductCard.tsx
+import styles from './ProductCard.module.css';
+
+export function ProductCard({ product }) {
+  // Mixing Tailwind with custom CSS modules
+  return (
+    <div className={`${styles.card} bg-white p-4 rounded-lg`}>
+      {/* Inline styles mixed with Tailwind */}
+      <img 
+        src={product.image} 
+        alt={product.name}
+        style={{ width: '100%', height: 200, objectFit: 'cover' }}
+        className="rounded"
+      />
+      
+      {/* Inconsistent spacing pattern */}
+      <h3 className="text-xl font-bold mt-3">{product.name}</h3>
+      <p className="mt-2 text-gray-600">{product.description}</p>
+      
+      {/* !important usage */}
+      <div className={styles.priceTag}>
+        ${product.price}
+      </div>
+      
+      {/* Hardcoded colors instead of theme variables */}
+      <button className="bg-blue-500 hover:bg-blue-700 text-white px-4 py-2 rounded mt-4">
+        Add to Cart
+      </button>
+    </div>
+  );
+}
+</example>
+
+<example type="invalid">
+// Bad CSS module with inconsistent naming
+// components/ProductCard.module.css
+.card {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1) !important;
+  /* Using px instead of theme values */
+  margin-bottom: 15px;
+}
+
+/* Inconsistent naming convention */
+.priceTag {
+  /* Hardcoded colors */
+  background-color: #f8f9fa;
+  color: #333;
+  font-weight: bold;
+  /* Hardcoded sizing */
+  padding: 5px 10px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-top: 10px;
+}
+
+/* Element selector instead of class */
+.card h3 {
+  /* Specificity issues */
+  color: #222 !important;
+}
+</example>
+
+## Documentation Template
+
+<example>
+// Component documentation template
+/**
+ * @component Button
+ * @description Primary button component with multiple variants
+ * 
+ * @example
+ * <Button variant="primary" size="md">Click me</Button>
+ * 
+ * @styling
+ * - Uses Tailwind classes for styling
+ * - Follows shadcn/ui pattern for variants
+ * - Supports theme customization through CSS variables
+ * 
+ * @variants
+ * - default: Primary brand color
+ * - secondary: Less prominent action
+ * - outline: Bordered button with transparent background
+ * - ghost: No background until hover
+ * 
+ * @sizes
+ * - sm: Small button (32px height)
+ * - md: Medium button (40px height)
+ * - lg: Large button (48px height)
+ * 
+ * @customization
+ * Override in tailwind.config.js:
+ * ```js
+ * theme: {
+ *   extend: {
+ *     colors: {
+ *       primary: {
+ *         DEFAULT: "hsl(var(--primary))",
+ *         foreground: "hsl(var(--primary-foreground))",
+ *       },
+ *     }
+ *   }
+ * }
+ * ```
+ */
+</example>
+
+## Testing Component Styles
+
+<example>
+// Testing component styles
+// components/Button.test.tsx
+import { render, screen } from '@testing-library/react';
+import { Button } from './Button';
+
+describe('Button', () => {
+  it('applies the correct base styles', () => {
+    render(<Button>Test Button</Button>);
+    const button = screen.getByRole('button', { name: 'Test Button' });
+    
+    // Test base classes are present
+    expect(button).toHaveClass('inline-flex');
+    expect(button).toHaveClass('items-center');
+    expect(button).toHaveClass('rounded-md');
+  });
+  
+  it('applies the correct variant styles', () => {
+    render(<Button variant="destructive">Destructive Button</Button>);
+    const button = screen.getByRole('button', { name: 'Destructive Button' });
+    
+    // Test variant-specific classes
+    expect(button).toHaveClass('bg-destructive');
+    expect(button).toHaveClass('text-destructive-foreground');
+  });
+  
+  it('applies the correct size styles', () => {
+    render(<Button size="lg">Large Button</Button>);
+    const button = screen.getByRole('button', { name: 'Large Button' });
+    
+    // Test size-specific classes
+    expect(button).toHaveClass('h-11');
+    expect(button).toHaveClass('px-8');
+  });
+  
+  it('merges custom classNames correctly', () => {
+    render(<Button className="custom-class">Custom Button</Button>);
+    const button = screen.getByRole('button', { name: 'Custom Button' });
+    
+    // Test that custom class is added without removing other classes
+    expect(button).toHaveClass('custom-class');
+    expect(button).toHaveClass('inline-flex'); // Base class still exists
+  });
+});
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Styling workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @030-visual-design-system.mdc - Design system patterns
+- @042-ui-component-architecture.mdc - Component architecture
+- @050-css-architecture.mdc - CSS organization
+- @200-shadcn-ui-strictness.mdc - UI library usage
+
+### Quick Start
+1. **Design:** Follow @030-visual-design-system.mdc
+2. **CSS:** Organize per @050-css-architecture.mdc
+3. **Components:** See @042-ui-component-architecture.mdc

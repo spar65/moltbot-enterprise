@@ -1,0 +1,414 @@
+---
+
+description: Use when debugging SQL mock failures, sequence misalignments, or database schema evolution in tests
+globs: "**/**tests**/**/_.{ts,tsx,js,jsx}, \*\*/_.test.{ts,tsx,js,jsx}, \*\*/sql-mock-helper.{ts,js}"
+
+---
+
+# SQL Mock Debugging Guidelines
+
+## Context
+
+- SQL mock sequences often misalign with evolved API query patterns
+- Database schema changes break existing mock data structures
+- Complex API endpoints make multiple SQL calls that are hard to track
+- Mock sequence debugging requires systematic approaches over random fixes
+- Helper utilities can standardize common mock patterns and reduce debugging time
+
+## Requirements
+
+### Understanding Actual vs Expected Query Sequences
+
+- Read the actual API code to understand current SQL call patterns
+- Log actual SQL calls in development to understand sequence evolution
+- Map mock sequences to match real API behavior before debugging
+- Account for hidden queries like user upserts and validation checks
+- Document query sequences for future mock debugging
+
+### SQL Mock Helper Utility Patterns
+
+#### Core Helper Structure
+
+```typescript
+export class SQLMockHelper {
+  private mocks: any[] = [];
+  private mockSql: jest.Mock;
+
+  constructor(mockSql: jest.Mock) {
+    this.mockSql = mockSql;
+  }
+
+  // Pattern: Match actual API query sequences exactly
+  addBasicCreatePRD(prdId: string = "prd-test-123") {
+    // Step 1: Recent PRDs check (common first query in create APIs)
+    this.mocks.push([]); // Empty result for new PRD
+
+    // Step 2: INSERT with EXACT RETURNING clause from actual API
+    this.mocks.push([
+      {
+        id: prdId,
+        title: "Task Management System",
+        description: "Users cannot track tasks",
+        created_at: new Date().toISOString(),
+        // Include ONLY fields that actual API RETURNING clause specifies
+      },
+    ]);
+
+    // Step 3: Buffer for unknown SQL calls (common in evolved APIs)
+    this.mocks.push([]);
+
+    return this;
+  }
+
+  addListPRDs(prds: any[] = []) {
+    // COUNT query - PostgreSQL returns string numbers
+    this.mocks.push([{ total: prds.length.toString() }]);
+    // SELECT query with actual PRD data
+    this.mocks.push(prds);
+    return this;
+  }
+
+  addUpdatePRDWithData(prdId: string, userData: any) {
+    // Common UPDATE sequence: check existence, get current data, update
+    this.mocks.push([userData]); // Existing PRD check
+    this.mocks.push([userData]); // Current PRD lookup
+    this.mocks.push([{ ...userData, updated_at: new Date().toISOString() }]); // UPDATE
+    return this;
+  }
+
+  addError(errorMessage: string, atPosition?: number) {
+    if (atPosition !== undefined) {
+      this.mocks.splice(atPosition, 0, new Error(errorMessage));
+    } else {
+      // Default: error after common setup queries
+      this.mocks.push([]); // Setup query
+      this.mocks.push(new Error(errorMessage)); // Operation fails
+    }
+    return this;
+  }
+}
+```
+
+#### Debug-Enabled Mock Application
+
+```typescript
+export class DebugSQLMockHelper extends SQLMockHelper {
+  apply() {
+    console.log("🔧 APPLYING SQL MOCKS - DEBUG MODE:");
+    console.log(`Total mocks: ${this.mocks.length}`);
+
+    this.mocks.forEach((mockData, index) => {
+      const type = mockData instanceof Error ? "❌ ERROR" : "✅ SUCCESS";
+      const preview =
+        mockData instanceof Error
+          ? mockData.message
+          : JSON.stringify(mockData).slice(0, 100) + "...";
+
+      console.log(`  ${index}: ${type} - ${preview}`);
+
+      if (mockData instanceof Error) {
+        this.mockSql.mockRejectedValueOnce(mockData);
+      } else {
+        this.mockSql.mockResolvedValueOnce(mockData);
+      }
+    });
+
+    return this;
+  }
+
+  // Add call counter for sequence debugging
+  enableCallTracker() {
+    const originalImplementation = this.mockSql.getMockImplementation();
+    let callCount = 0;
+
+    this.mockSql.mockImplementation((...args) => {
+      const query = args[0]?.toString().slice(0, 100);
+      console.log(`🔍 SQL Call ${++callCount}: ${query}...`);
+      return originalImplementation?.(...args);
+    });
+
+    return this;
+  }
+}
+```
+
+### Database Schema Evolution Patterns
+
+#### Handling Data Structure Changes
+
+```typescript
+// Pattern: Version-aware mock data
+export const createMockPRDData = (
+  version: "v1" | "v2" | "current" = "current"
+) => {
+  const baseData = {
+    id: "prd-test-123",
+    title: "Test PRD",
+    description: "Test Description",
+    created_at: new Date().toISOString(),
+  };
+
+  // Handle schema evolution
+  switch (version) {
+    case "v1":
+      return {
+        ...baseData,
+        status: "draft", // Old status field
+      };
+    case "v2":
+      return {
+        ...baseData,
+        status: "in_progress", // Updated status values
+        current_step: 1,
+      };
+    case "current":
+    default:
+      return {
+        ...baseData,
+        status: "in_progress",
+        current_step: 1,
+        completed_steps: [1],
+        wizard_data: JSON.stringify({ step1: { completed: true } }),
+        version: "1.0", // New fields in current schema
+        save_count: 1,
+      };
+  }
+};
+
+// Pattern: Flexible field matching
+export const createFlexibleMockData = (
+  requiredFields: string[],
+  optionalData: any = {}
+) => {
+  const allFields = {
+    id: "mock-id",
+    title: "Mock Title",
+    description: "Mock Description",
+    status: "in_progress",
+    current_step: 1,
+    completed_steps: [],
+    wizard_data: "{}",
+    version: "1.0",
+    save_count: 1,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...optionalData,
+  };
+
+  // Return only required fields to match RETURNING clauses
+  return Object.keys(allFields)
+    .filter((key) => requiredFields.includes(key))
+    .reduce((obj, key) => {
+      obj[key] = allFields[key];
+      return obj;
+    }, {} as any);
+};
+```
+
+### Mock Sequence Debugging Methodology
+
+#### Step-by-Step Debugging Process
+
+```typescript
+// 1. Enable SQL call logging in test
+beforeEach(() => {
+  const sqlSpy = jest.spyOn(require("../../src/lib/database"), "sql");
+
+  // Log actual SQL calls to understand sequence
+  sqlSpy.mockImplementation((...args) => {
+    console.log("🔍 ACTUAL SQL CALL:", args[0]?.toString().slice(0, 150));
+    return Promise.resolve([]);
+  });
+});
+
+// 2. Run single failing test to see actual sequence
+// npm test path/to/failing-test.test.ts --verbose
+
+// 3. Compare with mock sequence
+new DebugSQLMockHelper(mockSql)
+  .enableCallTracker()
+  .addBasicCreatePRD("test-123")
+  .apply();
+
+// 4. Adjust mock sequence to match actual calls
+// Add/remove mocks based on logged actual calls
+
+// 5. Validate corrected sequence
+// Re-run test to confirm mock alignment
+```
+
+#### Common Mock Sequence Issues
+
+```typescript
+// Issue 1: User upsert calls not accounted for
+// Solution: Add buffer mocks for user management
+addCreatePRDWithUser(userId: string, prdData: any) {
+  // Many APIs start with user upsert
+  this.mocks.push([{ id: userId }]); // upsertUser result
+  this.addBasicCreatePRD(prdData.id);
+  return this;
+}
+
+// Issue 2: Multiple validation queries before main operation
+// Solution: Account for all validation steps
+addValidatedCreatePRD(prdId: string) {
+  this.mocks.push([]); // Recent PRDs check
+  this.mocks.push([]); // Duplicate title check
+  this.mocks.push([]); // User permissions check
+  this.addBasicCreatePRD(prdId); // Main operation
+  return this;
+}
+
+// Issue 3: Database constraint errors
+// Solution: Simulate constraint violations realistically
+addConstraintError(constraintType: 'unique' | 'foreign_key' | 'check') {
+  this.mocks.push([]); // Setup queries succeed
+
+  const error = new Error(`Database constraint error: ${constraintType}`);
+  error.name = 'ConstraintError';
+  this.mocks.push(error);
+
+  return this;
+}
+```
+
+### Mock Data Structure Alignment
+
+#### Matching Database Return Types
+
+```typescript
+// Pattern: Match PostgreSQL return behavior
+export const createPostgreSQLMocks = {
+  // COUNT queries return string numbers
+  count: (num: number) => [{ total: num.toString() }],
+
+  // EXISTS queries return boolean
+  exists: (exists: boolean) => [{ exists }],
+
+  // INSERT with RETURNING returns array of objects
+  insertReturning: (data: any) => [data],
+
+  // SELECT queries return array (empty for no results)
+  select: (data: any[]) => data,
+
+  // UPDATE with RETURNING returns array of updated objects
+  updateReturning: (data: any) => [{ ...data, updated_at: new Date().toISOString() }],
+};
+
+// Usage in mock helper
+addDashboardData(summary: any, prds: any[]) {
+  // Match actual dashboard API query sequence
+  this.mocks.push(createPostgreSQLMocks.count(summary.total || 0));
+  this.mocks.push(createPostgreSQLMocks.select(prds));
+  this.mocks.push(createPostgreSQLMocks.select([summary])); // Summary data
+  return this;
+}
+```
+
+## Implementation Guidelines
+
+### Mock Helper Usage Patterns
+
+```typescript
+// Test setup with helper
+beforeEach(() => {
+  jest.clearAllMocks();
+
+  // Use appropriate helper method for test scenario
+  mockHelper = new SQLMockHelper(mockSql);
+});
+
+// For create operations
+test("should create PRD successfully", async () => {
+  mockHelper.addBasicCreatePRD("new-prd-123").apply();
+
+  await createHandler(req, res);
+  // Test expectations...
+});
+
+// For list operations
+test("should list PRDs", async () => {
+  const testPRDs = [createMockPRDData("current"), createMockPRDData("current")];
+
+  mockHelper.addListPRDs(testPRDs).apply();
+
+  await listHandler(req, res);
+  // Test expectations...
+});
+
+// For error scenarios
+test("should handle database errors", async () => {
+  mockHelper.addError("Connection failed").apply();
+
+  await createHandler(req, res);
+  expect(res._getStatusCode()).toBe(500);
+});
+```
+
+### Debugging Checklist
+
+- [ ] Read actual API code to understand SQL call sequence
+- [ ] Enable SQL call logging to see actual vs expected calls
+- [ ] Create mock helper method that matches actual sequence
+- [ ] Account for hidden queries (user upserts, validations)
+- [ ] Use correct PostgreSQL return types (strings for counts, arrays for selects)
+- [ ] Test error scenarios with realistic constraint violations
+- [ ] Document mock patterns for reuse across similar tests
+
+## Integration with Other Rules
+
+- Supports [350-debug-test-failures.mdc](mdc:350-debug-test-failures.mdc) for systematic test debugging
+- Complements [320-test-resilience.mdc](mdc:320-test-resilience.mdc) for resilient test patterns
+- Works with [300-testing-standards.mdc](mdc:300-testing-standards.mdc) for overall testing approach
+- Follows [116-testing-environments.mdc](mdc:116-testing-environments.mdc) for test architecture
+
+## Anti-Patterns to Avoid
+
+1. **Random Mock Adjustments**: Making mock changes without understanding actual SQL sequence
+2. **Exact Mock Counts**: Hardcoding exact number of mocks without buffer for API evolution
+3. **Wrong Data Types**: Using JavaScript types instead of PostgreSQL return types
+4. **Missing Error Scenarios**: Not testing database constraint and connection failures
+5. **Sequence Assumptions**: Assuming mock sequences without validating against actual API calls
+
+## Measuring Success
+
+### Mock Debugging Indicators
+
+- Tests pass consistently without flakiness
+- Mock sequences align with actual API query patterns
+- Error scenarios are realistically simulated
+- Mock helpers are reusable across similar test cases
+- Debugging time decreases with established patterns
+  description:
+  globs:
+  alwaysApply: false
+
+---
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#debugging-with-ai`** - SQL debugging workflows
+- **`.cursor/docs/tools-guide.md`** - Schema inspection tools
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - CRITICAL: Inspect schema for mock alignment!
+  ```bash
+  ./.cursor/tools/inspect-model.sh YourModel
+  # Check: field names, types, relationships for mocks
+  ```
+- **`.cursor/tools/check-schema-changes.sh`** - Detect schema drift
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (Prisma schema first!)
+- @300-testing-standards.mdc - General testing standards
+- @350-debug-test-failures.mdc - Systematic debugging (critical!)
+- @375-api-test-first-time-right.mdc - Schema-first testing prevents mock issues
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Quick Start
+1. **ALWAYS:** `.cursor/tools/inspect-model.sh YourModel` (check schema!)
+2. **Debug:** See @350-debug-test-failures.mdc (systematic approach)
+3. **Align:** Match mock data to actual schema fields

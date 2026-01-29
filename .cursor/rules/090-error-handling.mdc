@@ -1,0 +1,882 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Error Handling Patterns
+
+## Context
+- When implementing error handling in any part of the application
+- When designing API endpoints and handling failures
+- When creating user interfaces that need to display errors
+- When implementing logging and monitoring for errors
+
+## Core Requirements
+
+### 1. Standardized Error Classes
+
+Define a hierarchy of error classes:
+
+```typescript
+// src/lib/errors.ts
+export class AppError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number = 500,
+    public code: string = 'INTERNAL_ERROR',
+    public originalError?: any
+  ) {
+    super(message);
+    this.name = this.constructor.name;
+    
+    // Capture stack trace
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+  }
+  
+  toJSON() {
+    return {
+      error: {
+        message: this.message,
+        code: this.code,
+        statusCode: this.statusCode
+      }
+    };
+  }
+}
+
+// Client-side errors (4xx)
+export class ValidationError extends AppError {
+  constructor(
+    message: string = 'Validation failed',
+    public fieldErrors?: Record<string, string>,
+    originalError?: any
+  ) {
+    super(message, 400, 'VALIDATION_ERROR', originalError);
+    this.fieldErrors = fieldErrors;
+  }
+  
+  toJSON() {
+    return {
+      error: {
+        message: this.message,
+        code: this.code,
+        statusCode: this.statusCode,
+        fieldErrors: this.fieldErrors
+      }
+    };
+  }
+}
+
+export class AuthenticationError extends AppError {
+  constructor(message: string = 'Authentication required', originalError?: any) {
+    super(message, 401, 'UNAUTHORIZED', originalError);
+  }
+}
+
+export class AuthorizationError extends AppError {
+  constructor(message: string = 'You do not have permission to access this resource', originalError?: any) {
+    super(message, 403, 'FORBIDDEN', originalError);
+  }
+}
+
+export class NotFoundError extends AppError {
+  constructor(message: string = 'Resource not found', originalError?: any) {
+    super(message, 404, 'NOT_FOUND', originalError);
+  }
+}
+
+export class RateLimitError extends AppError {
+  constructor(
+    message: string = 'Rate limit exceeded',
+    public retryAfter?: number,
+    originalError?: any
+  ) {
+    super(message, 429, 'RATE_LIMIT_EXCEEDED', originalError);
+    this.retryAfter = retryAfter;
+  }
+  
+  toJSON() {
+    return {
+      error: {
+        message: this.message,
+        code: this.code,
+        statusCode: this.statusCode,
+        retryAfter: this.retryAfter
+      }
+    };
+  }
+}
+
+// Server-side errors (5xx)
+export class DatabaseError extends AppError {
+  constructor(message: string = 'Database operation failed', originalError?: any) {
+    super(message, 500, 'DATABASE_ERROR', originalError);
+  }
+}
+
+export class ExternalServiceError extends AppError {
+  constructor(
+    message: string = 'External service error',
+    public service?: string,
+    originalError?: any
+  ) {
+    super(message, 502, 'EXTERNAL_SERVICE_ERROR', originalError);
+    this.service = service;
+  }
+  
+  toJSON() {
+    return {
+      error: {
+        message: this.message,
+        code: this.code,
+        statusCode: this.statusCode,
+        service: this.service
+      }
+    };
+  }
+}
+```
+
+### 2. API Error Handling
+
+Implement consistent API error handling:
+
+```typescript
+// src/lib/api/error-handler.ts
+import { NextApiRequest, NextApiResponse } from 'next';
+import { 
+  AppError, 
+  ValidationError,
+  AuthenticationError,
+  AuthorizationError,
+  NotFoundError,
+  DatabaseError,
+  ExternalServiceError,
+  RateLimitError
+} from '../errors';
+
+export function handleApiError(error: any, res: NextApiResponse) {
+  console.error('API Error:', error);
+  
+  // Log error details for debugging
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(error.stack);
+  }
+  
+  // Known error types
+  if (error instanceof AppError) {
+    // Mask sensitive error information in production
+    const message = process.env.NODE_ENV === 'production' && error instanceof DatabaseError
+      ? 'A database error occurred'
+      : error.message;
+    
+    // Return appropriate error response
+    return res.status(error.statusCode).json({
+      error: {
+        message,
+        code: error.code,
+        ...(error instanceof ValidationError && { fieldErrors: error.fieldErrors }),
+        ...(error instanceof RateLimitError && { retryAfter: error.retryAfter }),
+        ...(error instanceof ExternalServiceError && { service: error.service })
+      },
+      meta: {
+        timestamp: new Date().toISOString()
+      }
+    });
+  }
+  
+  // Default error response for unknown errors
+  return res.status(500).json({
+    error: {
+      message: 'An unexpected error occurred',
+      code: 'INTERNAL_SERVER_ERROR'
+    },
+    meta: {
+      timestamp: new Date().toISOString()
+    }
+  });
+}
+
+// Middleware for wrapping handlers with error handling
+export function withErrorHandling(
+  handler: (req: NextApiRequest, res: NextApiResponse) => Promise<void>
+) {
+  return async (req: NextApiRequest, res: NextApiResponse) => {
+    try {
+      await handler(req, res);
+    } catch (error) {
+      handleApiError(error, res);
+    }
+  };
+}
+```
+
+### 3. Input Validation
+
+Implement validation with proper error handling:
+
+```typescript
+// src/lib/validation.ts
+import { z } from "zod";
+import { ValidationError } from "./errors";
+
+/**
+ * Validates data against a Zod schema and throws ValidationError if invalid
+ */
+export async function validateData<T>(
+  schema: z.ZodType<T>,
+  data: unknown
+): Promise<T> {
+  try {
+    return schema.parse(data);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const fieldErrors = error.errors.reduce((acc, curr) => {
+        const path = curr.path.join(".");
+        acc[path] = curr.message;
+        return acc;
+      }, {} as Record<string, string>);
+      
+      throw new ValidationError("Validation failed", fieldErrors, error);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Validates request data and returns validation result without throwing
+ */
+export async function validateRequest<T>(
+  schema: z.ZodType<T>,
+  data: unknown
+): Promise<{ success: boolean; data?: T; errors?: Record<string, string> }> {
+  try {
+    const validData = schema.parse(data);
+    return { success: true, data: validData };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const fieldErrors = error.errors.reduce((acc, curr) => {
+        const path = curr.path.join(".");
+        acc[path] = curr.message;
+        return acc;
+      }, {} as Record<string, string>);
+      
+      return { success: false, errors: fieldErrors };
+    }
+    throw error;
+  }
+}
+```
+
+### 4. Client-Side Error Handling
+
+Implement error handling hooks for frontend components:
+
+```typescript
+// src/hooks/useErrorHandler.ts
+import { useState, useCallback } from 'react';
+
+interface ErrorState {
+  message: string;
+  code?: string;
+  fieldErrors?: Record<string, string>;
+}
+
+export function useErrorHandler() {
+  const [error, setError] = useState<ErrorState | null>(null);
+  
+  const handleError = useCallback((err: any) => {
+    console.error('Error caught by useErrorHandler:', err);
+    
+    // Handle API error responses
+    if (err?.response?.data?.error) {
+      const { message, code, fieldErrors } = err.response.data.error;
+      setError({ message, code, fieldErrors });
+      return;
+    }
+    
+    // Handle network errors
+    if (err?.message === 'Network Error') {
+      setError({ 
+        message: 'Unable to connect to the server. Please check your internet connection.',
+        code: 'NETWORK_ERROR' 
+      });
+      return;
+    }
+    
+    // Handle other errors
+    setError({ 
+      message: err?.message || 'An unexpected error occurred',
+      code: err?.code || 'UNKNOWN_ERROR'
+    });
+  }, []);
+  
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+  
+  return { error, handleError, clearError };
+}
+```
+
+### 5. Error Boundary Components
+
+Create reusable error boundary components:
+
+```tsx
+// src/components/error/ErrorBoundary.tsx
+import React from 'react';
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+  fallback?: React.ReactNode | ((error: Error, resetError: () => void) => React.ReactNode);
+  onError?: (error: Error, errorInfo: React.ErrorInfo) => void;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    // Log the error
+    console.error('Error caught by ErrorBoundary:', error, errorInfo);
+    
+    // Call the optional error handler
+    if (this.props.onError) {
+      this.props.onError(error, errorInfo);
+    }
+  }
+  
+  resetError = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      // Render the fallback UI
+      if (typeof this.props.fallback === 'function') {
+        return this.props.fallback(this.state.error!, this.resetError);
+      }
+      
+      return this.props.fallback || (
+        <div role="alert">
+          <h2>Something went wrong</h2>
+          <p>{this.state.error?.message || 'An unexpected error occurred'}</p>
+          <button onClick={this.resetError}>Try again</button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+```
+
+### 6. Component-Level Error Displays
+
+Create reusable error display components:
+
+```tsx
+// src/components/error/ErrorDisplay.tsx
+import React from 'react';
+
+interface ErrorDisplayProps {
+  error: {
+    message: string;
+    code?: string;
+    fieldErrors?: Record<string, string>;
+  } | null;
+  onDismiss?: () => void;
+  variant?: 'inline' | 'toast' | 'banner';
+}
+
+export function ErrorDisplay({ 
+  error, 
+  onDismiss, 
+  variant = 'inline' 
+}: ErrorDisplayProps) {
+  if (!error) return null;
+  
+  // Common content
+  const errorContent = (
+    <>
+      <div className="error-message">
+        {error.message}
+      </div>
+      {error.code && (
+        <div className="error-code">
+          Code: {error.code}
+        </div>
+      )}
+      {error.fieldErrors && Object.keys(error.fieldErrors).length > 0 && (
+        <ul className="error-fields">
+          {Object.entries(error.fieldErrors).map(([field, message]) => (
+            <li key={field}>
+              <strong>{field}:</strong> {message}
+            </li>
+          ))}
+        </ul>
+      )}
+      {onDismiss && (
+        <button 
+          onClick={onDismiss} 
+          className="error-dismiss"
+          aria-label="Dismiss error"
+        >
+          ×
+        </button>
+      )}
+    </>
+  );
+  
+  // Render based on variant
+  switch (variant) {
+    case 'toast':
+      return (
+        <div role="alert" className="error-toast">
+          {errorContent}
+        </div>
+      );
+    case 'banner':
+      return (
+        <div role="alert" className="error-banner">
+          {errorContent}
+        </div>
+      );
+    case 'inline':
+    default:
+      return (
+        <div role="alert" className="error-inline">
+          {errorContent}
+        </div>
+      );
+  }
+}
+
+// Field-level error display
+export function FieldError({ error }: { error?: string }) {
+  if (!error) return null;
+  
+  return (
+    <div className="field-error" role="alert">
+      {error}
+    </div>
+  );
+}
+```
+
+### 7. Async Error Handling
+
+Implement utilities for handling async errors:
+
+```typescript
+// src/lib/async-utils.ts
+import { DatabaseError, ExternalServiceError } from './errors';
+
+/**
+ * Safely executes an async function with proper error handling
+ */
+export async function safeAsync<T>(
+  fn: () => Promise<T>,
+  errorHandler?: (error: any) => Promise<T> | T
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (errorHandler) {
+      return errorHandler(error);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Wraps database operations with proper error handling
+ */
+export async function safeDbOperation<T>(
+  operation: () => Promise<T>,
+  errorMessage: string = 'Database operation failed'
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    console.error('Database error:', error);
+    throw new DatabaseError(errorMessage, error);
+  }
+}
+
+/**
+ * Wraps external API calls with proper error handling
+ */
+export async function safeExternalCall<T>(
+  call: () => Promise<T>,
+  serviceName: string,
+  errorMessage: string = 'External service error'
+): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    console.error(`${serviceName} API error:`, error);
+    throw new ExternalServiceError(errorMessage, serviceName, error);
+  }
+}
+
+/**
+ * Utility for retry logic with exponential backoff
+ */
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  options: {
+    maxRetries?: number;
+    initialDelay?: number;
+    maxDelay?: number;
+    factor?: number;
+    shouldRetry?: (error: any) => boolean;
+  } = {}
+): Promise<T> {
+  const {
+    maxRetries = 3,
+    initialDelay = 1000,
+    maxDelay = 10000,
+    factor = 2,
+    shouldRetry = () => true
+  } = options;
+  
+  let lastError: any;
+  let delay = initialDelay;
+  
+  for (let retry = 0; retry <= maxRetries; retry++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      
+      if (retry >= maxRetries || !shouldRetry(error)) {
+        throw error;
+      }
+      
+      // Wait before next retry with exponential backoff
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay = Math.min(delay * factor, maxDelay);
+    }
+  }
+  
+  throw lastError;
+}
+```
+
+### 8. Error Logging and Monitoring
+
+Implement structured error logging:
+
+```typescript
+// src/lib/logger.ts
+interface LogContext {
+  [key: string]: any;
+}
+
+class Logger {
+  private context: LogContext = {};
+  
+  setContext(context: LogContext) {
+    this.context = { ...this.context, ...context };
+    return this;
+  }
+  
+  private formatLog(level: string, message: string, context?: LogContext) {
+    const timestamp = new Date().toISOString();
+    const logContext = { ...this.context, ...context };
+    
+    return {
+      level,
+      message,
+      timestamp,
+      ...logContext
+    };
+  }
+  
+  error(message: string, error?: any, context?: LogContext) {
+    const errorContext = error ? {
+      errorName: error.name,
+      errorMessage: error.message,
+      errorStack: error.stack,
+      errorCode: error.code
+    } : {};
+    
+    const formattedLog = this.formatLog(
+      'error', 
+      message, 
+      { ...context, ...errorContext }
+    );
+    
+    console.error(JSON.stringify(formattedLog));
+    
+    // In a real implementation, you might send this to a logging service
+    // sendToLoggingService(formattedLog);
+  }
+  
+  warn(message: string, context?: LogContext) {
+    const formattedLog = this.formatLog('warn', message, context);
+    console.warn(JSON.stringify(formattedLog));
+  }
+  
+  info(message: string, context?: LogContext) {
+    const formattedLog = this.formatLog('info', message, context);
+    console.info(JSON.stringify(formattedLog));
+  }
+  
+  debug(message: string, context?: LogContext) {
+    if (process.env.NODE_ENV !== 'production') {
+      const formattedLog = this.formatLog('debug', message, context);
+      console.debug(JSON.stringify(formattedLog));
+    }
+  }
+}
+
+export const logger = new Logger();
+```
+
+## Examples
+
+<example>
+// Good implementation of error handling in an API endpoint
+
+// src/pages/api/products/index.ts
+import { NextApiRequest, NextApiResponse } from 'next';
+import { withErrorHandling } from '../../../lib/api/error-handler';
+import { validateData } from '../../../lib/validation';
+import { 
+  safeDbOperation,
+  safeExternalCall 
+} from '../../../lib/async-utils';
+import { logger } from '../../../lib/logger';
+import { z } from 'zod';
+import { NotFoundError, AuthorizationError } from '../../../lib/errors';
+
+// Validation schema
+const createProductSchema = z.object({
+  name: z.string().min(1, "Name is required").max(100),
+  price: z.number().positive("Price must be positive"),
+  description: z.string().optional(),
+  categoryId: z.string().uuid("Invalid category ID")
+});
+
+async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Method validation
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', ['POST']);
+    return res.status(405).json({
+      error: {
+        message: `Method ${req.method} not allowed`,
+        code: "METHOD_NOT_ALLOWED"
+      }
+    });
+  }
+  
+  // Authentication
+  const user = req.session?.user;
+  if (!user) {
+    throw new AuthenticationError();
+  }
+  
+  // Authorization
+  if (!user.permissions.includes('create:products')) {
+    throw new AuthorizationError("You don't have permission to create products");
+  }
+  
+  // Input validation
+  const validatedData = await validateData(createProductSchema, req.body);
+  
+  // Check if category exists
+  const category = await safeDbOperation(
+    () => getCategoryById(validatedData.categoryId),
+    "Failed to verify category"
+  );
+  
+  if (!category) {
+    throw new NotFoundError("Category not found");
+  }
+  
+  // Create product
+  const product = await safeDbOperation(
+    () => createProduct({
+      ...validatedData,
+      createdBy: user.id
+    }),
+    "Failed to create product"
+  );
+  
+  // Notify inventory system
+  await safeExternalCall(
+    () => notifyInventorySystem(product.id),
+    "InventoryAPI",
+    "Failed to notify inventory system"
+  );
+  
+  // Log the action
+  logger.info("Product created", {
+    userId: user.id,
+    productId: product.id,
+    action: "product_created"
+  });
+  
+  // Return success response
+  return res.status(201).json({
+    data: product,
+    meta: {
+      timestamp: new Date().toISOString()
+    }
+  });
+}
+
+export default withErrorHandling(handler);
+</example>
+
+<example type="invalid">
+// Poor error handling implementation
+
+// src/pages/api/products/bad-example.ts
+import { NextApiRequest, NextApiResponse } from 'next';
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  try {
+    // No method validation
+    
+    // No proper authentication check
+    const user = req.session?.user;
+    
+    // No input validation
+    const { name, price, description, categoryId } = req.body;
+    
+    // No authorization check
+    
+    // Direct database access without error handling
+    const category = await db.categories.findUnique({ where: { id: categoryId } });
+    
+    // No null check
+    
+    const product = await db.products.create({
+      data: {
+        name,
+        price,
+        description,
+        categoryId,
+        createdBy: user.id
+      }
+    });
+    
+    // Direct external API call without error handling
+    await fetch('https://inventory-api.example.com/notify', {
+      method: 'POST',
+      body: JSON.stringify({ productId: product.id })
+    });
+    
+    // Inconsistent response format
+    res.status(201).json(product);
+  } catch (err) {
+    // Generic error handling without proper logging
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+</example>
+
+## Key Principles
+
+1. **Error Hierarchy**: Use a hierarchy of error classes for different error types
+2. **Consistent Format**: Maintain consistent error response formats
+3. **Validation First**: Validate all inputs before processing
+4. **Informative Messages**: Provide user-friendly error messages
+5. **Security Awareness**: Don't expose sensitive information in error messages
+6. **Comprehensive Logging**: Log errors with context for debugging
+7. **Graceful UI Handling**: Implement UI components to display errors appropriately
+8. **Async Safety**: Use utilities for safe async operations
+9. **Retry Strategy**: Implement retry logic for transient failures
+10. **Error Boundaries**: Use React error boundaries to prevent UI crashes
+
+## See Also
+
+### Related Rules
+
+**Error Handling & Monitoring**:
+- @130-error-handling.mdc - User-facing error handling
+- @135-error-monitoring-observability.mdc - Error monitoring with Sentry/Datadog
+- @136-error-recovery-resilience.mdc - Circuit breakers, retry patterns
+- @137-error-budget-slo.mdc - Error budgets and SLO management
+- @138-frontend-error-patterns.mdc - React error boundaries, form validation
+- @139-error-context-debugging.mdc - Error context capture for debugging
+- @141-error-testing-strategies.mdc - Testing error scenarios
+
+**Logging & Troubleshooting**:
+- @130-logging-standards.mdc - Logging standards and practices
+- @140-troubleshooting-standards.mdc - Troubleshooting procedures
+- @210-operations-incidents.mdc - Incident response
+
+**API & Security**:
+- @012-api-security.mdc - API security and error responses
+- @060-api-standards.mdc - API design standards
+
+### Tools & Documentation
+
+**Error Monitoring Tools**:
+- **`.cursor/tools/setup-sentry.sh`** - Set up Sentry error monitoring
+  ```bash
+  ./.cursor/tools/setup-sentry.sh
+  # Configures Sentry, source maps, error tracking
+  ```
+- **`.cursor/tools/analyze-errors.sh`** - Analyze error patterns
+  ```bash
+  ./.cursor/tools/analyze-errors.sh --last 7d
+  # Shows: Error trends, top errors, impact analysis
+  ```
+
+**Documentation**:
+- **`.cursor/docs/ai-workflows.md`** - Error debugging workflows
+
+### Comprehensive Guides
+
+**Essential Guides**:
+- **`guides/Error-Handling-Complete-Guide.md`** ⭐ **ESSENTIAL** - Complete error handling strategy from error classes to monitoring
+- **`guides/Production-Monitoring-Complete-Guide.md`** - Production monitoring and alerting setup
+
+### Quick Start - Error Handling
+
+```typescript
+// 1. Define custom error classes
+export class ValidationError extends AppError { /* ... */ }
+
+// 2. Use in API routes
+if (!isValid) {
+  throw new ValidationError("Invalid input");
+}
+
+// 3. Add global error handler
+app.use((error, req, res, next) => { /* ... */ });
+
+// 4. Add React error boundaries
+<GlobalErrorBoundary>
+  <App />
+</GlobalErrorBoundary>
+
+// 5. Monitor with Sentry
+Sentry.captureException(error, { contexts: { /* ... */ } });
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P0 (Required)  
+**Last Updated**: November 20, 2025

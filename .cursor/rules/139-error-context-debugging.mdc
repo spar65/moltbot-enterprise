@@ -1,0 +1,613 @@
+---
+description: Capture comprehensive error context when debugging to enable rapid root cause analysis and effective troubleshooting
+globs: ["**/*.{ts,tsx,js,jsx}", "**/lib/**/*", "**/middleware/**/*"]
+---
+
+# Error Context & Debugging Standards
+
+## Context
+
+Errors without context are mysteries. Errors with rich context are solved in minutes. This rule establishes standards for capturing comprehensive error context to enable rapid debugging and root cause analysis.
+
+**Context Categories**:
+1. **User Context** - Who experienced the error?
+2. **Request Context** - What were they doing?
+3. **Application Context** - What state was the system in?
+4. **Environment Context** - Where did it happen?
+5. **Breadcrumbs** - What led to the error?
+
+## Requirements
+
+### 1. User Context
+
+**Always Capture**:
+
+```typescript
+// lib/errors/user-context.ts
+export interface UserContext {
+  userId?: string;
+  email?: string;
+  organizationId?: string;
+  role?: string;
+  permissions?: string[];
+  authenticated: boolean;
+  sessionDuration?: number;
+  lastActivity?: string;
+}
+
+export function getUserContext(session: Session | null): UserContext {
+  return {
+    userId: session?.user?.id,
+    email: session?.user?.email,
+    organizationId: session?.organizationId,
+    role: session?.user?.role,
+    permissions: session?.user?.permissions,
+    authenticated: !!session,
+    sessionDuration: session ? Date.now() - session.createdAt : undefined,
+    lastActivity: session?.lastActivity,
+  };
+}
+
+// Usage in error capture
+Sentry.captureException(error, {
+  user: {
+    id: session?.user?.id,
+    email: session?.user?.email,
+    username: session?.user?.name,
+  },
+  tags: {
+    organizationId: session?.organizationId,
+    role: session?.user?.role,
+  },
+});
+```
+
+### 2. Request Context
+
+**HTTP Request Context**:
+
+```typescript
+// lib/errors/request-context.ts
+export interface RequestContext {
+  method: string;
+  url: string;
+  path: string;
+  query: Record<string, string>;
+  headers: Record<string, string>;
+  body?: any;
+  ip?: string;
+  userAgent?: string;
+  referer?: string;
+  requestId?: string;
+}
+
+export function getRequestContext(req: Request): RequestContext {
+  return {
+    method: req.method,
+    url: req.url,
+    path: new URL(req.url).pathname,
+    query: Object.fromEntries(new URL(req.url).searchParams),
+    headers: Object.fromEntries(req.headers),
+    ip: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip"),
+    userAgent: req.headers.get("user-agent") || undefined,
+    referer: req.headers.get("referer") || undefined,
+    requestId: req.headers.get("x-request-id") || crypto.randomUUID(),
+  };
+}
+
+// Middleware to add request context
+export async function errorContextMiddleware(
+  req: Request,
+  handler: () => Promise<Response>
+) {
+  const requestContext = getRequestContext(req);
+  
+  try {
+    return await handler();
+  } catch (error) {
+    Sentry.captureException(error, {
+      contexts: {
+        request: requestContext,
+      },
+      tags: {
+        method: requestContext.method,
+        path: requestContext.path,
+      },
+    });
+    throw error;
+  }
+}
+```
+
+### 3. Application Context
+
+**System State Context**:
+
+```typescript
+// lib/errors/app-context.ts
+export interface ApplicationContext {
+  version: string;
+  environment: string;
+  buildId?: string;
+  deployedAt?: string;
+  region?: string;
+  featureFlags?: Record<string, boolean>;
+  experiments?: Record<string, string>;
+}
+
+export function getApplicationContext(): ApplicationContext {
+  return {
+    version: process.env.NEXT_PUBLIC_APP_VERSION || "unknown",
+    environment: process.env.NODE_ENV,
+    buildId: process.env.VERCEL_GIT_COMMIT_SHA,
+    deployedAt: process.env.VERCEL_DEPLOYMENT_DATE,
+    region: process.env.VERCEL_REGION,
+    featureFlags: getActiveFeatureFlags(),
+    experiments: getActiveExperiments(),
+  };
+}
+
+// Initialize Sentry with app context
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  release: process.env.NEXT_PUBLIC_APP_VERSION,
+  initialScope: {
+    tags: getApplicationContext(),
+  },
+});
+```
+
+### 4. Performance Context
+
+**Performance Metrics at Error Time**:
+
+```typescript
+// lib/errors/performance-context.ts
+export interface PerformanceContext {
+  memoryUsage?: NodeJS.MemoryUsage;
+  uptime: number;
+  loadAverage?: number[];
+  responseTime?: number;
+  cpuUsage?: NodeJS.CpuUsage;
+}
+
+export function getPerformanceContext(
+  startTime?: number
+): PerformanceContext {
+  return {
+    memoryUsage: process.memoryUsage(),
+    uptime: process.uptime(),
+    loadAverage: process.platform === "linux" ? require("os").loadavg() : undefined,
+    responseTime: startTime ? Date.now() - startTime : undefined,
+    cpuUsage: process.cpuUsage(),
+  };
+}
+
+// Capture performance context on error
+try {
+  await operation();
+} catch (error) {
+  Sentry.captureException(error, {
+    contexts: {
+      performance: getPerformanceContext(startTime),
+    },
+  });
+}
+```
+
+### 5. Breadcrumbs (User Journey)
+
+**Track User Actions Leading to Error**:
+
+```typescript
+// lib/errors/breadcrumbs.ts
+export type BreadcrumbType = "navigation" | "http" | "user" | "console" | "query";
+
+export interface Breadcrumb {
+  type: BreadcrumbType;
+  category: string;
+  message: string;
+  level: "info" | "warning" | "error";
+  timestamp: number;
+  data?: Record<string, any>;
+}
+
+// Automatic breadcrumbs (Sentry handles these)
+Sentry.init({
+  integrations: [
+    new Sentry.BrowserTracing(),
+    new Sentry.Replay(),
+  ],
+  tracePropagationTargets: ["localhost", /^https:\/\/yoursite\.com/],
+});
+
+// Manual breadcrumbs
+export function addBreadcrumb(
+  category: string,
+  message: string,
+  data?: Record<string, any>
+) {
+  Sentry.addBreadcrumb({
+    type: "user",
+    category,
+    message,
+    level: "info",
+    data,
+  });
+}
+
+// Usage examples
+export function PaymentForm() {
+  const handleSubmit = async (data: PaymentData) => {
+    addBreadcrumb("payment", "Payment form submitted", {
+      amount: data.amount,
+      currency: data.currency,
+    });
+    
+    try {
+      addBreadcrumb("payment", "Validating payment data");
+      await validatePayment(data);
+      
+      addBreadcrumb("payment", "Creating payment intent");
+      const intent = await createPaymentIntent(data);
+      
+      addBreadcrumb("payment", "Processing payment", {
+        intentId: intent.id,
+      });
+      const result = await processPayment(intent);
+      
+      addBreadcrumb("payment", "Payment successful", {
+        transactionId: result.id,
+      });
+    } catch (error) {
+      // Sentry automatically includes all breadcrumbs
+      Sentry.captureException(error);
+    }
+  };
+}
+```
+
+### 6. Database Query Context
+
+**Capture Query Information**:
+
+```typescript
+// lib/errors/database-context.ts
+export interface DatabaseContext {
+  query?: string;
+  params?: any[];
+  duration?: number;
+  rowCount?: number;
+  error?: string;
+}
+
+// Prisma middleware for query context
+prisma.$use(async (params, next) => {
+  const startTime = Date.now();
+  
+  try {
+    const result = await next(params);
+    return result;
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    
+    Sentry.captureException(error, {
+      contexts: {
+        database: {
+          model: params.model,
+          action: params.action,
+          args: params.args,
+          duration,
+        },
+      },
+      tags: {
+        dbModel: params.model,
+        dbAction: params.action,
+      },
+    });
+    
+    throw error;
+  }
+});
+```
+
+### 7. External Service Context
+
+**Track Third-Party Service Calls**:
+
+```typescript
+// lib/errors/external-service-context.ts
+export async function callExternalService<T>(
+  serviceName: string,
+  operation: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const startTime = Date.now();
+  
+  addBreadcrumb("external-service", `Calling ${serviceName}.${operation}`);
+  
+  try {
+    const result = await fn();
+    
+    addBreadcrumb("external-service", `${serviceName}.${operation} succeeded`, {
+      duration: Date.now() - startTime,
+    });
+    
+    return result;
+  } catch (error) {
+    Sentry.captureException(error, {
+      contexts: {
+        externalService: {
+          name: serviceName,
+          operation,
+          duration: Date.now() - startTime,
+        },
+      },
+      tags: {
+        service: serviceName,
+        operation,
+      },
+    });
+    
+    throw error;
+  }
+}
+
+// Usage
+const data = await callExternalService(
+  "stripe",
+  "createPaymentIntent",
+  () => stripe.paymentIntents.create({ amount: 1000, currency: "usd" })
+);
+```
+
+### 8. Error Context Helper
+
+**Unified Context Capture**:
+
+```typescript
+// lib/errors/context-helper.ts
+export interface ErrorContext {
+  user?: UserContext;
+  request?: RequestContext;
+  application?: ApplicationContext;
+  performance?: PerformanceContext;
+  database?: DatabaseContext;
+  externalService?: any;
+  custom?: Record<string, any>;
+}
+
+export function captureErrorWithContext(
+  error: Error,
+  context: Partial<ErrorContext> = {}
+) {
+  const fullContext: ErrorContext = {
+    application: getApplicationContext(),
+    performance: getPerformanceContext(),
+    ...context,
+  };
+  
+  Sentry.captureException(error, {
+    contexts: fullContext,
+    tags: {
+      ...(context.user?.organizationId && { organizationId: context.user.organizationId }),
+      ...(context.request?.method && { method: context.request.method }),
+      ...(context.request?.path && { path: context.request.path }),
+    },
+  });
+  
+  // Also log for local debugging
+  console.error("Error with context:", {
+    error: {
+      message: error.message,
+      stack: error.stack,
+    },
+    context: fullContext,
+  });
+}
+
+// Usage
+try {
+  await processPayment(data);
+} catch (error) {
+  captureErrorWithContext(error as Error, {
+    user: getUserContext(session),
+    request: getRequestContext(req),
+    custom: {
+      paymentAmount: data.amount,
+      paymentCurrency: data.currency,
+      attemptNumber: attemptCount,
+    },
+  });
+  throw error;
+}
+```
+
+### 9. Frontend Context Capture
+
+**Browser-Specific Context**:
+
+```typescript
+// lib/errors/browser-context.ts
+export interface BrowserContext {
+  userAgent: string;
+  viewport: { width: number; height: number };
+  screen: { width: number; height: number };
+  language: string;
+  timezone: string;
+  online: boolean;
+  cookiesEnabled: boolean;
+  localStorage: boolean;
+  sessionStorage: boolean;
+}
+
+export function getBrowserContext(): BrowserContext {
+  return {
+    userAgent: navigator.userAgent,
+    viewport: {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    },
+    screen: {
+      width: window.screen.width,
+      height: window.screen.height,
+    },
+    language: navigator.language,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    online: navigator.onLine,
+    cookiesEnabled: navigator.cookieEnabled,
+    localStorage: !!window.localStorage,
+    sessionStorage: !!window.sessionStorage,
+  };
+}
+
+// Initialize Sentry with browser context
+if (typeof window !== "undefined") {
+  Sentry.setContext("browser", getBrowserContext());
+}
+```
+
+### 10. Debugging Helpers
+
+**Context Display for Development**:
+
+```typescript
+// components/ErrorDebugPanel.tsx
+export function ErrorDebugPanel({ error, context }: {
+  error: Error;
+  context: ErrorContext;
+}) {
+  if (process.env.NODE_ENV !== "development") {
+    return null;
+  }
+
+  return (
+    <details className="mt-4 p-4 bg-gray-100 rounded">
+      <summary className="cursor-pointer font-semibold">
+        🐛 Debug Information
+      </summary>
+      
+      <div className="mt-2 space-y-2">
+        <div>
+          <strong>Error:</strong>
+          <pre className="text-xs overflow-auto">{error.stack}</pre>
+        </div>
+        
+        <div>
+          <strong>User Context:</strong>
+          <pre className="text-xs overflow-auto">
+            {JSON.stringify(context.user, null, 2)}
+          </pre>
+        </div>
+        
+        <div>
+          <strong>Request Context:</strong>
+          <pre className="text-xs overflow-auto">
+            {JSON.stringify(context.request, null, 2)}
+          </pre>
+        </div>
+        
+        <div>
+          <strong>Application Context:</strong>
+          <pre className="text-xs overflow-auto">
+            {JSON.stringify(context.application, null, 2)}
+          </pre>
+        </div>
+      </div>
+    </details>
+  );
+}
+```
+
+## Examples
+
+<example>
+// ✅ GOOD - Rich error context
+
+try {
+  await processOrder(orderId);
+} catch (error) {
+  captureErrorWithContext(error as Error, {
+    user: getUserContext(session),
+    request: getRequestContext(req),
+    custom: {
+      orderId,
+      orderTotal: order.total,
+      paymentMethod: order.paymentMethod,
+      attemptNumber: 3,
+      previousErrors: order.errorHistory,
+    },
+  });
+  
+  // Now Sentry shows:
+  // - Who: User #12345, org #67
+  // - What: Processing order #89
+  // - When: 2025-11-20 14:30:45
+  // - Where: /api/orders/process
+  // - Why: Payment gateway timeout
+  // - Context: 3rd attempt, Stripe, $99.99
+}
+</example>
+
+<example type="invalid">
+// ❌ BAD - No context
+
+try {
+  await processOrder(orderId);
+} catch (error) {
+  Sentry.captureException(error);
+  // Error shows in Sentry but:
+  // - Unknown user
+  // - Unknown order
+  // - No previous attempts
+  // - Can't reproduce
+  // - Takes hours to debug
+}
+</example>
+
+## See Also
+
+### Related Rules
+
+**Error Handling**:
+- @090-error-handling.mdc - Error classes
+- @130-error-handling.mdc - User-facing errors
+- @135-error-monitoring-observability.mdc - Sentry setup
+- @140-troubleshooting-standards.mdc - Troubleshooting
+- @130-logging-standards.mdc - Logging standards
+
+**Testing**:
+- @141-error-testing-strategies.mdc - Testing errors
+- @320-test-resilience.mdc - Test reliability
+
+### Tools & Documentation
+
+- **`.cursor/docs/ai-workflows.md`** - Debugging workflows
+
+### Comprehensive Guides
+
+- **`guides/Error-Handling-Complete-Guide.md`** ⭐ - Complete guide
+
+### Quick Start
+
+```typescript
+// 1. Initialize Sentry with context
+Sentry.init({ /* config */ });
+
+// 2. Add breadcrumbs throughout app
+addBreadcrumb("feature", "Action taken");
+
+// 3. Capture errors with full context
+captureErrorWithContext(error, {
+  user: getUserContext(session),
+  request: getRequestContext(req),
+  custom: { /* specific data */ },
+});
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P2 (Recommended)  
+**Generated**: November 20, 2025

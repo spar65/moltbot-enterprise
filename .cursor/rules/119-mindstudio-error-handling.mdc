@@ -1,0 +1,574 @@
+---
+
+description: Use when implementing MindStudio agent error handling to ensure resilient, debuggable, and user-friendly error management
+globs: "src/\*_/_.{js,jsx,ts,tsx}"
+
+---
+
+# MindStudio Error Handling Patterns
+
+## Context
+
+- MindStudio agents can fail due to API issues, workflow errors, model limitations, or invalid inputs
+- Different error types require different handling strategies and user messaging
+- Proper error handling prevents cascading failures in AI orchestration scenarios
+- Error logging and monitoring are critical for debugging production AI workflows
+
+## Requirements
+
+### Error Classification and Handling
+
+- **REQUIRED**: Distinguish between API errors, workflow errors, and application errors
+- **REQUIRED**: Handle `MindStudioError` specifically for agent workflow failures
+- **REQUIRED**: Implement retry logic with exponential backoff for transient errors
+- **REQUIRED**: Log all errors with sufficient context for debugging
+- **REQUIRED**: Provide user-friendly error messages while preserving technical details for logs
+
+### Retry and Circuit Breaker Patterns
+
+- **REQUIRED**: Implement exponential backoff for rate limiting (429) and server errors (5xx)
+- **REQUIRED**: Set maximum retry limits to prevent infinite loops
+- **REQUIRED**: Implement circuit breakers for critical agent dependencies
+- **REQUIRED**: Use different retry strategies for different error types
+- **REQUIRED**: Monitor retry patterns to identify systemic issues
+
+### Error Logging and Monitoring
+
+- **REQUIRED**: Log all agent errors with thread IDs for traceability
+- **REQUIRED**: Include organization context in error logs for multi-tenant debugging
+- **REQUIRED**: Monitor error rates and set up alerts for unusual patterns
+- **REQUIRED**: Track billing costs even for failed requests when available
+- **REQUIRED**: Implement structured logging for easier error analysis
+
+### User Experience and Error Communication
+
+- **REQUIRED**: Provide meaningful error messages to end users
+- **REQUIRED**: Avoid exposing sensitive technical details in user-facing errors
+- **REQUIRED**: Implement fallback behaviors when possible
+- **REQUIRED**: Show appropriate loading states during retry attempts
+- **REQUIRED**: Allow users to retry failed operations when appropriate
+
+## Examples
+
+<example>
+// Good: Comprehensive error handling with classification
+import { MindStudio, MindStudioError } from 'mindstudio';
+
+enum ErrorType {
+AUTHENTICATION = 'AUTHENTICATION',
+VALIDATION = 'VALIDATION',
+RATE_LIMIT = 'RATE_LIMIT',
+WORKFLOW = 'WORKFLOW',
+NETWORK = 'NETWORK',
+UNKNOWN = 'UNKNOWN'
+}
+
+interface ErrorContext {
+organizationId?: string;
+userId?: string;
+agentId: string;
+workflow: string;
+threadId?: string;
+attempt: number;
+timestamp: Date;
+}
+
+class AgentErrorHandler {
+private logger: Logger;
+
+constructor(logger: Logger) {
+this.logger = logger;
+}
+
+classifyError(error: any): ErrorType {
+if (error instanceof MindStudioError) {
+return ErrorType.WORKFLOW;
+}
+
+    if (error.message?.includes('401') || error.message?.includes('unauthorized')) {
+      return ErrorType.AUTHENTICATION;
+    }
+
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      return ErrorType.RATE_LIMIT;
+    }
+
+    if (error.message?.includes('400') || error.message?.includes('validation')) {
+      return ErrorType.VALIDATION;
+    }
+
+    if (error.code === 'NETWORK_ERROR' || error.message?.includes('fetch')) {
+      return ErrorType.NETWORK;
+    }
+
+    return ErrorType.UNKNOWN;
+
+}
+
+shouldRetry(errorType: ErrorType, attempt: number): boolean {
+const maxRetries = {
+[ErrorType.RATE_LIMIT]: 5,
+[ErrorType.NETWORK]: 3,
+[ErrorType.UNKNOWN]: 2,
+[ErrorType.WORKFLOW]: 1,
+[ErrorType.AUTHENTICATION]: 0,
+[ErrorType.VALIDATION]: 0
+};
+
+    return attempt < (maxRetries[errorType] || 0);
+
+}
+
+calculateBackoffMs(attempt: number, errorType: ErrorType): number {
+const baseDelay = errorType === ErrorType.RATE_LIMIT ? 5000 : 1000;
+return Math.min(baseDelay \* Math.pow(2, attempt), 30000); // Max 30 seconds
+}
+
+async handleError(
+error: any,
+context: ErrorContext
+): Promise<{ shouldRetry: boolean; delayMs: number; userMessage: string }> {
+const errorType = this.classifyError(error);
+const shouldRetry = this.shouldRetry(errorType, context.attempt);
+const delayMs = this.calculateBackoffMs(context.attempt, errorType);
+
+    // Log error with full context
+    this.logger.error('Agent execution failed', {
+      errorType,
+      errorMessage: error.message,
+      stack: error.stack,
+      context,
+      shouldRetry,
+      delayMs
+    });
+
+    // Generate user-friendly message
+    const userMessage = this.getUserMessage(errorType, shouldRetry);
+
+    return { shouldRetry, delayMs, userMessage };
+
+}
+
+private getUserMessage(errorType: ErrorType, willRetry: boolean): string {
+const retryMessage = willRetry ? ' We\'ll try again automatically.' : '';
+
+    switch (errorType) {
+      case ErrorType.AUTHENTICATION:
+        return 'Authentication failed. Please check your credentials.';
+      case ErrorType.VALIDATION:
+        return 'Invalid input provided. Please check your request and try again.';
+      case ErrorType.RATE_LIMIT:
+        return `Rate limit exceeded.${retryMessage}`;
+      case ErrorType.WORKFLOW:
+        return `AI processing failed.${retryMessage}`;
+      case ErrorType.NETWORK:
+        return `Network error occurred.${retryMessage}`;
+      default:
+        return `An unexpected error occurred.${retryMessage}`;
+    }
+
+}
+}
+</example>
+
+<example>
+// Good: Resilient agent execution with retry logic
+class ResilientAgentService {
+  private client: MindStudio;
+  private errorHandler: AgentErrorHandler;
+  private circuitBreaker: CircuitBreaker;
+
+constructor(client: MindStudio, errorHandler: AgentErrorHandler) {
+this.client = client;
+this.errorHandler = errorHandler;
+this.circuitBreaker = new CircuitBreaker({
+failureThreshold: 5,
+resetTimeout: 60000 // 1 minute
+});
+}
+
+async executeWithRetry<T>(
+operation: () => Promise<T>,
+context: ErrorContext
+): Promise<{ success: boolean; data?: T; error?: string }> {
+// Check circuit breaker
+if (this.circuitBreaker.isOpen()) {
+return {
+success: false,
+error: 'Service temporarily unavailable. Please try again later.'
+};
+}
+
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        const result = await operation();
+
+        // Reset circuit breaker on success
+        this.circuitBreaker.recordSuccess();
+
+        return { success: true, data: result };
+      } catch (error) {
+        lastError = error;
+
+        // Record failure in circuit breaker
+        this.circuitBreaker.recordFailure();
+
+        const errorContext = { ...context, attempt };
+        const { shouldRetry, delayMs, userMessage } = await this.errorHandler.handleError(
+          error,
+          errorContext
+        );
+
+        if (!shouldRetry || attempt === 5) {
+          return { success: false, error: userMessage };
+        }
+
+        // Wait before retry
+        await this.delay(delayMs);
+      }
+    }
+
+    return {
+      success: false,
+      error: 'Maximum retry attempts exceeded. Please try again later.'
+    };
+
+}
+
+async generateContent(
+input: ContentGenerationInput
+): Promise<{ success: boolean; data?: ContentGenerationOutput; error?: string }> {
+const context: ErrorContext = {
+organizationId: input.organizationId,
+userId: input.userId,
+agentId: 'content-generator',
+workflow: 'generateText',
+attempt: 0,
+timestamp: new Date()
+};
+
+    return this.executeWithRetry(async () => {
+      const response = await this.client.workers.ContentGenerator.generateText({
+        prompt: input.prompt,
+        organizationId: input.organizationId,
+        maxTokens: input.maxTokens || 1000
+      });
+
+      return {
+        result: response.result,
+        threadId: response.threadId,
+        billingCost: response.billingCost,
+        metadata: {
+          tokensUsed: response.tokensUsed || 0,
+          model: response.model || 'unknown',
+          processingTime: response.processingTime || 0
+        }
+      };
+    }, context);
+
+}
+
+private delay(ms: number): Promise<void> {
+return new Promise(resolve => setTimeout(resolve, ms));
+}
+}
+</example>
+
+<example>
+// Good: Circuit breaker implementation for agent services
+class CircuitBreaker {
+  private failureCount = 0;
+  private lastFailureTime = 0;
+  private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+
+constructor(
+private config: {
+failureThreshold: number;
+resetTimeout: number;
+}
+) {}
+
+isOpen(): boolean {
+if (this.state === 'OPEN') {
+if (Date.now() - this.lastFailureTime > this.config.resetTimeout) {
+this.state = 'HALF_OPEN';
+return false;
+}
+return true;
+}
+return false;
+}
+
+recordSuccess(): void {
+this.failureCount = 0;
+this.state = 'CLOSED';
+}
+
+recordFailure(): void {
+this.failureCount++;
+this.lastFailureTime = Date.now();
+
+    if (this.failureCount >= this.config.failureThreshold) {
+      this.state = 'OPEN';
+    }
+
+}
+
+getState(): { state: string; failureCount: number; lastFailureTime: number } {
+return {
+state: this.state,
+failureCount: this.failureCount,
+lastFailureTime: this.lastFailureTime
+};
+}
+}
+</example>
+
+<example>
+// Good: Error monitoring and alerting setup
+class AgentMonitoringService {
+  private metrics: MetricsClient;
+  private alerting: AlertingService;
+
+constructor(metrics: MetricsClient, alerting: AlertingService) {
+this.metrics = metrics;
+this.alerting = alerting;
+}
+
+recordAgentError(
+errorType: ErrorType,
+context: ErrorContext,
+error: any
+): void {
+// Record metrics
+this.metrics.increment('agent.errors.total', {
+errorType,
+agentId: context.agentId,
+workflow: context.workflow,
+organizationId: context.organizationId || 'unknown'
+});
+
+    // Check for alert conditions
+    this.checkAlertConditions(errorType, context);
+
+    // Log structured error
+    console.error('Agent error recorded', {
+      timestamp: new Date().toISOString(),
+      errorType,
+      context,
+      errorMessage: error.message,
+      errorStack: error.stack
+    });
+
+}
+
+private async checkAlertConditions(errorType: ErrorType, context: ErrorContext): Promise<void> {
+// Alert on high error rates
+const errorRate = await this.metrics.getRate('agent.errors.total', {
+timeWindow: '5m',
+agentId: context.agentId
+});
+
+    if (errorRate > 0.1) { // 10% error rate
+      await this.alerting.send({
+        severity: 'high',
+        title: 'High Agent Error Rate',
+        message: `Agent ${context.agentId} has ${(errorRate * 100).toFixed(1)}% error rate`,
+        context
+      });
+    }
+
+    // Alert on authentication failures
+    if (errorType === ErrorType.AUTHENTICATION) {
+      await this.alerting.send({
+        severity: 'critical',
+        title: 'Agent Authentication Failure',
+        message: `Authentication failed for agent ${context.agentId}`,
+        context
+      });
+    }
+
+    // Alert on circuit breaker trips
+    if (errorType === ErrorType.WORKFLOW && context.attempt > 3) {
+      await this.alerting.send({
+        severity: 'medium',
+        title: 'Agent Circuit Breaker Alert',
+        message: `Multiple failures detected for agent ${context.agentId}`,
+        context
+      });
+    }
+
+}
+}
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Generic error handling without classification
+async function callAgent() {
+  try {
+    const result = await client.workers.MyAgent.process({ input: 'test' });
+    return result;
+  } catch (error) {
+    // Generic error handling - no classification or retry logic
+    console.log('Error:', error);
+    throw new Error('Agent failed');
+  }
+}
+
+// ❌ AVOID: No retry logic for transient failures
+async function generateContent(prompt: string) {
+try {
+return await client.workers.ContentGenerator.generateText({ prompt });
+} catch (error) {
+// Immediate failure - no retry for potentially transient issues
+throw error;
+}
+}
+
+// ❌ AVOID: Exposing technical details to users
+async function handleUserRequest(req: any, res: any) {
+try {
+const result = await callAgent();
+res.json(result);
+} catch (error) {
+// Exposing raw error to user
+res.status(500).json({ error: error.message, stack: error.stack });
+}
+}
+
+// ❌ AVOID: No error context or logging
+async function processDocument(doc: any) {
+const result = await client.workers.DocumentProcessor.analyze(doc);
+// No error handling at all - will crash on any failure
+return result.analysis;
+}
+
+// ❌ AVOID: Infinite retry loops
+async function retryForever() {
+while (true) {
+try {
+return await client.workers.MyAgent.process({});
+} catch (error) {
+// Infinite retry without backoff or exit condition
+continue;
+}
+}
+}
+</example>
+
+## Error Recovery Strategies
+
+### Fallback Mechanisms
+
+```typescript
+// Implement fallback when primary agent fails
+async function generateContentWithFallback(input: ContentGenerationInput) {
+  try {
+    return await primaryContentAgent.generate(input);
+  } catch (error) {
+    console.warn("Primary agent failed, trying fallback", error);
+
+    try {
+      return await fallbackContentAgent.generate(input);
+    } catch (fallbackError) {
+      // Both failed - return cached content or default
+      return (await getCachedContent(input.prompt)) || getDefaultContent();
+    }
+  }
+}
+```
+
+### Graceful Degradation
+
+```typescript
+// Provide reduced functionality when agents are unavailable
+async function getContentRecommendations(userId: string) {
+  try {
+    return await aiRecommendationAgent.getRecommendations({ userId });
+  } catch (error) {
+    console.warn("AI recommendations unavailable, using rule-based fallback");
+    return await getRuleBasedRecommendations(userId);
+  }
+}
+```
+
+### Partial Success Handling
+
+```typescript
+// Handle scenarios where some operations succeed and others fail
+async function processBatchContent(items: ContentItem[]) {
+  const results = await Promise.allSettled(
+    items.map((item) => processContentItem(item))
+  );
+
+  const succeeded = results
+    .filter(
+      (result): result is PromiseFulfilledResult<any> =>
+        result.status === "fulfilled"
+    )
+    .map((result) => result.value);
+
+  const failed = results
+    .filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected"
+    )
+    .map((result, index) => ({ index, error: result.reason }));
+
+  if (failed.length > 0) {
+    console.warn(`${failed.length} items failed processing`, failed);
+  }
+
+  return { succeeded, failed: failed.length };
+}
+```
+
+## Integration with Other Rules
+
+- Builds on [117-mindstudio-agent-integration.mdc](mdc:117-mindstudio-agent-integration.mdc) for basic integration patterns
+- Complements [118-mindstudio-type-safety.mdc](mdc:118-mindstudio-type-safety.mdc) for typed error handling
+- Supports [130-error-handling.mdc](mdc:130-error-handling.mdc) for general error management patterns
+- Works with [130-logging-standards.mdc](mdc:130-logging-standards.mdc) for consistent error logging
+- Aligns with [025-multi-tenancy.mdc](mdc:025-multi-tenancy.mdc) for organization-aware error handling
+
+## See Also
+
+### Related MindStudio Rules (Complete Domain)
+- @115-mindstudio-integration.mdc - Core MindStudio API integration
+- @117-mindstudio-agent-integration.mdc - **CRITICAL:** Secure agent integration patterns
+- @118-mindstudio-type-safety.mdc - **CRITICAL:** Type safety with `npx mindstudio sync`
+- @120-mindstudio-orchestration.mdc - Multi-agent coordination patterns
+- @121-mindstudio-testing.mdc - **CRITICAL:** Testing AI agent integrations
+
+### Related Domain Rules
+- @069-database-resilience-patterns.mdc - **CRITICAL:** Retry, circuit breaker, graceful degradation
+- @130-error-handling.mdc - General error handling patterns
+- @130-logging-standards.mdc - Error logging standards
+- @221-application-monitoring.mdc - Error monitoring and alerting
+- @025-multi-tenancy.mdc - Organization-aware error handling
+
+### Tools & Documentation
+- **`.cursor/docs/ai-workflows.md`** - AI integration workflows with error handling
+
+### Comprehensive Guides
+- **`guides/MindStudio-Integration-Complete-Guide.md`** ⭐ **Essential** - Complete integration guide
+- **`guides/Error-Handling-Complete-Guide.md`** - Error handling strategies
+
+### Quick Start - Error Handling Pattern
+```typescript
+try {
+  const result = await client.workers.MyAgent.workflow({ input });
+  return { success: true, data: result.output };
+} catch (error) {
+  if (error instanceof MindStudioError) {
+    // Workflow error - retry if transient
+    if (isTransientError(error)) {
+      return await retryWithBackoff(() => /* ... */);
+    }
+  }
+  // Log and return user-friendly error
+  logger.error('Agent failed', { error, context });
+  return { success: false, error: 'Please try again' };
+}
+```

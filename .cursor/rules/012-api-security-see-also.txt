@@ -1,0 +1,19 @@
+
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/rules-guide.md`** - Understanding the rule system
+- **`.cursor/docs/ai-workflows.md`** - Proven API development patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools
+- **`.cursor/tools/check-schema-changes.sh`** - Validate changes before deploying
+
+### Related Rules
+- @002-rule-application.mdc - Rule priority and application  
+- @060-api-standards.mdc - Organization-scoped API patterns
+- @025-multi-tenancy.mdc - Multi-tenant security
+- @375-api-test-first-time-right.mdc - Secure API testing
+- @355-rate-limiting-implementation.mdc - Rate limiting patterns
+

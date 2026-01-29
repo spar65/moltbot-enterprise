@@ -1,0 +1,76 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply performance measurement standards when implementing any user-facing feature to ensure optimal page performance
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Performance Metrics Standards
+
+## Core Web Vitals Targets
+- Largest Contentful Paint (LCP): < 2.5s
+- First Input Delay (FID): < 100ms
+- Cumulative Layout Shift (CLS): < 0.1
+- Time to Interactive (TTI): < 3.5s
+
+## Next.js Specific Optimizations
+- Implement page-level code splitting using dynamic imports with named exports
+- Utilize `next/image` for all image assets with proper sizing and optimization
+- Apply font optimization using `next/font` with appropriate subsetting
+- Implement route prefetching for anticipated user journeys
+
+## Server-Side Rendering Strategy
+- Use Static Site Generation (SSG) for content that rarely changes
+- Implement Incremental Static Regeneration (ISR) for semi-dynamic content with appropriate revalidation intervals
+- Reserve Server-Side Rendering (SSR) for highly dynamic or personalized pages
+- Use Client-Side Rendering only when absolutely necessary for interactive components
+
+## Measurement and Monitoring
+- Implement Lighthouse CI in pull request workflow
+- Add Web Vitals reporting to analytics platform
+- Conduct monthly performance audits
+- Document performance impacts in feature PRs
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Performance measurement patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### ⭐ NEW: Comprehensive Performance Guides
+- **`guides/Frontend-Performance-Complete-Guide.md`** ⭐ **MASTER GUIDE** - Complete frontend performance
+- **`guides/Core-Web-Vitals-Optimization-Guide.md`** - Detailed LCP, INP, CLS optimization
+- **`guides/Performance-Monitoring-Complete-Guide.md`** - Monitoring & alerting setup
+- **`guides/Caching-Complete-Guide.md`** - Multi-layer caching strategies
+- **`guides/Database-Query-Optimization-Guide.md`** - Database performance metrics
+
+### ⭐ NEW: Performance Automation Tools (USE THESE!)
+- **`.cursor/tools/run-lighthouse.sh`** ⭐ - Automated Lighthouse audits
+- **`.cursor/tools/check-bundle-size.sh`** ⭐ - Bundle size analysis & budget checking
+- **`.cursor/tools/analyze-performance.sh`** ⭐ - Comprehensive performance analysis
+
+### ⭐ NEW: Core Performance Rules
+- @062-core-web-vitals.mdc - **CRITICAL:** Core Web Vitals optimization (LCP, INP, CLS)
+- @064-caching-strategies.mdc - **CRITICAL:** Multi-layer caching
+- @062-rendering-strategies.mdc - SSR, SSG, ISR, RSC patterns
+- @064-font-optimization.mdc - Font loading optimization
+- @065-third-party-script-management.mdc - Third-party script optimization
+- @066-network-optimization.mdc - Network performance
+- @067-runtime-optimization.mdc - React & runtime performance
+
+### Related Rules (Existing)
+- @063-client-performance.mdc - Client-side performance metrics
+- @061-code-splitting.mdc - Bundle optimization metrics
+- @082-database-performance-budgets.mdc - **CRITICAL:** Database performance budgets!
+- @068-database-monitoring-standards.mdc - Database monitoring
+- @073-nextjs-image-optimization.mdc - Image performance
+
+### Quick Start
+1. **Read:** `guides/Frontend-Performance-Complete-Guide.md` (master guide)
+2. **Audit:** Run `.cursor/tools/analyze-performance.sh` for baseline
+3. **Optimize:** Follow Core Web Vitals guide for LCP, INP, CLS
+4. **Monitor:** Set up continuous monitoring per monitoring guide
+5. **Budget:** Enforce performance budgets in CI/CD

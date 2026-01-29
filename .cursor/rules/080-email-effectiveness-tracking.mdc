@@ -1,0 +1,119 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply email effectiveness tracking standards when implementing email marketing features to ensure measurable improvements and data-driven optimization
+globs: "src/{lib,pages/api}/**/*.{js,jsx,ts,tsx}"
+___
+
+# Email Effectiveness Tracking Standards
+
+## Baseline Metrics Capture
+- Record baseline performance metrics before implementing changes
+- Document key metrics including open rates, click rates, and conversion rates
+- Implement consistent measurement methodology across campaigns
+- Create performance benchmarks for different email types
+- Store historical performance data in structured format
+- Apply statistical significance thresholds for valid comparisons
+
+## Privacy-First Tracking (2024 Standards)
+- **Deprecate reliance on open rates** as primary engagement metric (Apple Mail Privacy Protection impact)
+- Implement click-based engagement as primary signal of user interest
+- Apply server-side tracking where possible for accurate metrics
+- Document distinction between "machine opens" (Apple MPP) vs "human opens"
+- Create composite engagement scores combining clicks, conversions, and time-based signals
+- Implement statistical modeling for estimated true open rates
+- Track "unique clicks" as more reliable engagement indicator
+- Apply engagement decay modeling (recent activity weighted higher)
+- Document privacy protection impact on metrics and adjust benchmarks accordingly
+- Implement alternative engagement signals (replies, forwards, social shares)
+
+## Improvement Measurement
+- Calculate and record percentage change for key metrics
+- Implement before/after comparison for all email enhancements
+- Document methodology for measuring each enhancement's impact
+- Create attribution models for multi-factor improvements
+- Establish timeframes for short-term and long-term impact assessment
+- Apply consistent measurement windows for comparative analysis
+
+## ROI Calculation
+- Implement cost tracking for email marketing initiatives
+- Calculate direct revenue attribution from email campaigns
+- Document methodology for attributing indirect revenue impact
+- Create customer lifetime value models for subscriber segments
+- Apply cost-per-acquisition metrics for acquisition campaigns
+- Implement return on investment reporting for stakeholders
+
+## Testing Framework
+- Apply A/B testing methodology for all significant changes
+- Implement multivariate testing for complex enhancements
+- Create statistically valid sample sizes for all tests
+- Document confidence intervals for test results
+- Apply holdout groups for long-term impact assessment
+- Implement test result documentation and knowledge sharing
+
+## Continuous Improvement Process
+- Create feedback loops between measurement and implementation
+- Document learnings from each enhancement initiative
+- Apply insights to future campaign planning
+- Implement regular review cycles for optimization
+- Create improvement roadmaps based on performance data
+- Document best practices derived from measurement results
+
+## See Also
+
+### Related Rules
+- @075-email-marketing-standards.mdc - Email marketing standards and compliance
+- @076-mailchimp-integration-standards.mdc - MailChimp API and data synchronization
+- @077-user-communication-standards.mdc - Communication strategy and messaging
+- @078-email-deliverability-standards.mdc - Deliverability monitoring and optimization
+- @081-cross-platform-integration.mdc - Cross-platform analytics and data unification
+- @082-email-automation-optimization.mdc - Automation performance analysis
+- @083-lifecycle-marketing-automation.mdc - Lifecycle stage effectiveness
+- @084-email-content-optimization-ai.mdc - AI-powered content optimization
+- @221-application-monitoring.mdc - Application monitoring and metrics
+
+### Tools & Documentation
+- **`.cursor/tools/analyze-email-metrics.sh`** - Email metrics analysis tool
+  ```bash
+  ./.cursor/tools/analyze-email-metrics.sh --campaign-id 12345
+  # Analyzes: Opens, clicks, conversions, engagement scores, privacy-adjusted metrics
+  ```
+- **`.cursor/tools/email-ab-test-calculator.sh`** - A/B test statistical significance calculator
+  ```bash
+  ./.cursor/tools/email-ab-test-calculator.sh --control 1000,50 --variant 1000,75
+  # Calculates: Statistical significance, confidence intervals, required sample size
+  ```
+
+### Comprehensive Guides
+- **`guides/Email-Analytics-Guide.md`** ⭐ **ESSENTIAL** - Complete analytics and reporting
+- **`guides/Email-Implementation-Effectiveness-Tracking.md`** - Implementation measurement
+- **`guides/Email-Automation-Performance-Optimization.md`** - Automation optimization
+- **`guides/Email-MailChimp-Integration-Guide.md`** - MailChimp analytics integration
+
+### Quick Start - Email Effectiveness Tracking
+
+```bash
+# 1. Capture baseline metrics
+# Document current open, click, conversion rates
+
+# 2. Implement privacy-first tracking
+# Add click tracking, server-side events, composite scores
+
+# 3. Set up A/B testing framework
+./.cursor/tools/email-ab-test-calculator.sh --help
+
+# 4. Analyze campaign performance
+./.cursor/tools/analyze-email-metrics.sh --campaign-id latest
+
+# 5. Create improvement roadmap
+# Use insights to plan optimization initiatives
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important)  
+**Last Updated**: November 20, 2025

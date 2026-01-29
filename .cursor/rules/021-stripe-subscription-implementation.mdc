@@ -1,0 +1,221 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+ # Stripe Subscription Implementation Standards
+
+## Context
+- Apply when implementing or modifying any payment-related features, especially those using Stripe subscriptions
+- This rule builds upon the general payment security standards in [020-payment-security.mdc](mdc:020-payment-security.mdc)
+- Prerequisites: Stripe API keys, JWT secret, and database connection must be set up
+
+## Requirements
+
+### Environment Configuration
+- Store all Stripe-related API keys (publishable key, secret key, webhook secret) as environment variables
+- Never commit Stripe API keys to version control
+- Provide clear template examples for required environment variables in documentation
+- Use different API keys for development, testing, and production environments
+
+### Backend Implementation
+- Implement dedicated API routes for:
+  - Creating subscriptions (`/api/stripe/create-subscription`)
+  - Processing webhooks (`/api/stripe/webhook`)
+  - Checking feature access (`/api/check-feature`)
+- Use middleware to protect raw body data for webhook requests
+- Validate Stripe webhook signatures to prevent spoofing
+- Map Stripe Price IDs to features via metadata in the Stripe dashboard
+- Store user subscription data in the database with these required fields:
+  - User identifier (connected to auth system)
+  - Stripe Customer ID
+  - Subscription ID
+  - Entitled features list
+  - Subscription status
+- Implement proper error handling with appropriate HTTP status codes
+
+### JWT Implementation
+- Generate JWTs upon successful subscription creation
+- Include only necessary entitlement data in tokens:
+  - User ID
+  - Subscription ID (optional)
+  - Feature list
+  - Expiration time (1 hour recommended)
+- Verify JWT signatures when checking feature access
+- Implement token refresh mechanisms to maintain user sessions
+- Never store sensitive payment information in tokens
+
+### Frontend Implementation
+- Load Stripe.js dynamically on pages that need it
+- Use Stripe Elements for collecting payment information
+- Prevent form submission if Stripe.js has not loaded
+- Show clear loading states during payment processing
+- Display appropriate error messages for payment failures
+- Redirect to success/failure pages based on payment outcomes
+- Implement optimistic UI for feature access when appropriate
+
+### Feature Gating
+- Check feature entitlements before enabling premium features
+- Support multiple subscription tiers with different feature sets
+- Implement graceful degradation for users without access
+- Show clear upgrade paths when users attempt to access gated features
+- Create reusable components to handle feature access checks
+- Cache feature access results appropriately to minimize API calls
+
+### Testing
+- Use Stripe test mode and test API keys for development
+- Create test cases for all subscription paths (success, failure, etc.)
+- Simulate webhook events during testing
+- Test feature access controls thoroughly
+- Use Stripe CLI for local webhook testing
+
+## Examples
+
+<example>
+// Good feature access check implementation
+async function checkFeatureAccess(feature) {
+  try {
+    // Get token from secure storage
+    const token = localStorage.getItem('subscriptionToken');
+    if (!token) return false;
+    
+    // Verify with server
+    const response = await fetch('/api/check-feature', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, feature }),
+    });
+    
+    const data = await response.json();
+    return data.access;
+  } catch (error) {
+    console.error('Feature check error:', error);
+    return false; // Fail closed - no access on error
+  }
+}
+</example>
+
+<example type="invalid">
+// Poor implementation with hardcoded API keys
+const stripe = Stripe('pk_live_actual_key_here');
+
+// Creating subscription without proper error handling
+async function subscribe() {
+  // No try/catch block
+  const response = await fetch('/api/create-subscription', {
+    method: 'POST',
+    body: JSON.stringify({ plan: 'premium' }),
+  });
+  
+  const data = await response.json();
+  localStorage.setItem('hasAccess', 'true'); // Easily spoofable
+}
+</example>
+
+<example>
+// Good webhook handler implementation
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).end('Method Not Allowed');
+  }
+
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  
+  try {
+    // Verify webhook signature
+    const event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      webhookSecret
+    );
+    
+    // Handle specific events
+    switch (event.type) {
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+        await handleSubscriptionChange(event.data.object);
+        break;
+      // Handle other events...
+    }
+    
+    res.status(200).json({ received: true });
+  } catch (err) {
+    console.error(`Webhook error: ${err.message}`);
+    res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+}
+</example>
+
+<example>
+// Good feature-gated component implementation
+function PremiumFeature({ feature, fallback }) {
+  const [hasAccess, setHasAccess] = useState(false);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    async function checkAccess() {
+      setLoading(true);
+      const access = await checkFeatureAccess(feature);
+      setHasAccess(access);
+      setLoading(false);
+    }
+    
+    checkAccess();
+  }, [feature]);
+  
+  if (loading) return <LoadingIndicator />;
+  if (!hasAccess) return fallback || <UpgradePrompt feature={feature} />;
+  
+  return <div className="premium-feature">/* Feature content */</div>;
+}
+</example>
+
+<example type="invalid">
+// Poor implementation with client-side only verification
+function PremiumFeature() {
+  // No server verification, easily manipulated
+  const hasSubscription = localStorage.getItem('hasSubscription') === 'true';
+  
+  if (!hasSubscription) {
+    return <div>Please subscribe</div>;
+  }
+  
+  return <div>Premium feature content</div>;
+}
+</example>
+
+## Related Rules
+
+- [020-payment-security.mdc](mdc:020-payment-security.mdc) - Core payment security standards
+- [011-env-var-security.mdc](mdc:011-env-var-security.mdc) - Environment variable protection
+- [012-api-security.mdc](mdc:012-api-security.mdc) - API security measures
+- [046-session-validation.mdc](mdc:046-session-validation.mdc) - Session security for auth flows
+- [131-error-handling.mdc](mdc:131-error-handling.mdc) - Application error flows
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Subscription patterns
+- **`.cursor/docs/security-checklist.md#payment-security-if-applicable`** - Deployment checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Detect exposed Stripe keys
+- **`.cursor/tools/check-env-vars.sh`** - Validate Stripe configuration
+- **`.cursor/tools/inspect-model.sh`** - Check Subscription data model
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @020-payment-security.mdc - Payment security (critical!)
+- @020-stripe-integration.mdc - Primary Stripe integration patterns
+- @021-stripe-sync-implementation.mdc - Stripe data sync patterns
+- @026-subscription-access-control.mdc - Subscription access patterns
+- @070-subscription-management-standards.mdc - Subscription management
+- @072-subscription-health-monitoring.mdc - Subscription monitoring
+- @078-payment-testing-standards.mdc - Testing subscriptions
+- @331-high-risk-feature-testing.mdc - Critical path testing
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh Subscription`
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Test:** See @078-payment-testing-standards.mdc

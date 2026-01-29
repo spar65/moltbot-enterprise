@@ -1,0 +1,199 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Standardize data synchronization patterns between the database and external services like Auth0 and Stripe to ensure consistency
+globs: "src/**/*.{ts,tsx}"
+___
+
+# Cross-Service Data Consistency Standards
+
+## Context
+- Data synchronization between the database and external services like Auth0 and Stripe often leads to inconsistencies
+- Asynchronous operations can result in race conditions without proper safeguards
+- Without standard patterns, different teams implement inconsistent solutions
+- Production issues frequently arise at the boundaries between services
+
+## Requirements
+
+### Event-Driven Synchronization
+- Implement idempotent sync operations for Auth0 profile updates
+- Use compensating transactions for failed cross-service operations
+- Apply eventual consistency patterns with conflict resolution
+- Document sync operation timeouts and retry policies
+
+### Stripe Integration Patterns
+- Wrap payment operations in database transactions
+- Implement webhook event deduplication using event IDs
+- Apply proper handling of partial payment states
+- Use state machines for complex payment flows
+
+### Auth0 Integration Patterns
+- Use distributed locks for profile update operations
+- Implement retry logic with exponential backoff for Auth0 API calls
+- Store Auth0 profile hash to detect changed fields
+- Apply conflict resolution with local changes taking precedence
+
+### Data Integrity Verification
+- Implement periodic consistency checks between services
+- Create repair operations for detected inconsistencies
+- Apply monitoring for sync operation failures
+- Document escalation procedures for sync issues
+
+## Examples
+
+<example>
+// Good: Idempotent Auth0 profile synchronization
+async function syncUserProfile(userId: string, profileData: UserProfile): Promise<void> {
+  // Use distributed lock to prevent concurrent updates
+  const lock = await distributedLock.acquire(`user-profile-${userId}`);
+  
+  try {
+    // Get current profile hash from database
+    const user = await userRepository.findById(userId);
+    const currentHash = user.profileHash;
+    
+    // Calculate new hash
+    const newHash = calculateProfileHash(profileData);
+    
+    // Skip update if hash matches (idempotent operation)
+    if (currentHash === newHash) {
+      return;
+    }
+    
+    // Begin transaction
+    await db.transaction(async (tx) => {
+      // Update local database first
+      await userRepository.updateProfile(userId, profileData, { transaction: tx });
+      
+      // Update Auth0 profile
+      try {
+        await auth0Client.updateUser(userId, profileData);
+      } catch (error) {
+        // Log error for later reconciliation
+        await syncErrorRepository.logError({
+          service: 'auth0',
+          operation: 'updateProfile',
+          userId,
+          error: error.message,
+          data: profileData,
+          transaction: tx
+        });
+        
+        // Continue transaction - will fix later with reconciliation job
+      }
+      
+      // Store new hash
+      await userRepository.updateProfileHash(userId, newHash, { transaction: tx });
+    });
+  } finally {
+    // Always release lock
+    await lock.release();
+  }
+}
+</example>
+
+<example>
+// Good: Stripe webhook event processing with idempotency
+async function processStripeWebhook(event: StripeEvent): Promise<void> {
+  // Check if we've already processed this event
+  const existingEvent = await webhookEventRepository.findByEventId(event.id);
+  
+  if (existingEvent && existingEvent.processed) {
+    console.log(`Skipping already processed Stripe event: ${event.id}`);
+    return;
+  }
+  
+  // Begin transaction
+  await db.transaction(async (tx) => {
+    // Store event with processing status
+    await webhookEventRepository.createOrUpdate(event.id, {
+      type: event.type,
+      data: event.data,
+      processedAt: new Date(),
+      processed: true
+    }, { transaction: tx });
+    
+    // Process based on event type
+    switch (event.type) {
+      case 'invoice.payment_succeeded':
+        await subscriptionService.activateSubscription(
+          event.data.object.subscription,
+          { transaction: tx }
+        );
+        break;
+      
+      case 'customer.subscription.updated':
+        await subscriptionService.updateSubscription(
+          event.data.object.id,
+          event.data.object.status,
+          { transaction: tx }
+        );
+        break;
+      
+      // ... other event types
+    }
+  });
+}
+</example>
+
+<example type="invalid">
+// Bad: Direct updates without transaction or idempotency checks
+async function updateUserAndAuth0(userId: string, data: any) {
+  // Update database
+  await db.user.update({
+    where: { id: userId },
+    data: data
+  });
+  
+  // Update Auth0 separately - no transaction coordination
+  await auth0Client.updateUser(userId, data);
+  
+  // No error handling or retry logic
+}
+</example>
+
+<example type="invalid">
+// Bad: Processing webhook events without deduplication
+async function handleStripeEvent(event: any) {
+  // No check for previously processed events
+  
+  if (event.type === 'invoice.payment_succeeded') {
+    // Direct database update without transaction
+    await db.subscription.update({
+      where: { stripeSubscriptionId: event.data.object.subscription },
+      data: { status: 'active' }
+    });
+  }
+  
+  // No error handling or consistency verification
+}
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Sync patterns
+- **`.cursor/docs/ai-workflows.md`** - Data consistency workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check data models for sync
+- **`.cursor/tools/scan-secrets.sh`** - Check webhook secrets
+- **`.cursor/tools/check-env-vars.sh`** - Validate sync configuration
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @020-stripe-integration.mdc - Stripe patterns
+- @021-stripe-sync-implementation.mdc - Stripe sync (critical!)
+- @069-stripe-webhook-debugging.mdc - Webhook debugging
+- @069-webhook-processing-standards.mdc - Webhook patterns
+- @078-payment-testing-standards.mdc - Testing sync
+- @331-high-risk-feature-testing.mdc - Critical testing
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (check sync models)
+2. **Follow:** @021-stripe-sync-implementation.mdc (sync patterns)
+3. **Test:** See @078-payment-testing-standards.mdc (test sync flows)

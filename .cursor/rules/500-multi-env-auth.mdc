@@ -1,0 +1,249 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Implement consistent authentication configuration across multiple environments while maintaining appropriate security isolation
+globs: "**/*.{ts,js,tsx,jsx,json}"
+___
+
+# Multi-Environment Auth Configuration
+
+## Context
+- This rule applies when configuring authentication across different environments
+- Addresses the challenges of managing auth in development, staging, and production
+- Ensures consistent authentication behavior while maintaining security isolation
+- Particularly important for Auth0 and other third-party authentication providers
+
+## Requirements
+
+### Environment-Specific Auth Configuration
+- Configure separate authentication tenants for each environment:
+  - Development tenant for local development
+  - Staging/QA tenant for testing
+  - Production tenant for live applications
+- Never share production auth tenants for development/testing
+- Maintain consistent application IDs and configuration structure across environments
+- Document the purpose and access requirements for each environment
+- Configure appropriate security settings based on environment sensitivity
+
+### Managing Auth Across Environments
+- Implement an environment-aware auth configuration system:
+  - Use environment variables to switch auth configuration
+  - Create environment-specific configuration files
+  - Apply consistent naming conventions across environments
+  - Separate sensitive from non-sensitive configuration
+  - Document differences between environment configurations
+- Use infrastructure as code to manage auth configuration changes
+- Implement automated verification of configuration consistency
+
+### Testing Auth in Different Environments
+- Create structured approach for testing auth across environments:
+  - Define test cases that work across all environments
+  - Create dedicated test users for each environment
+  - Implement automated auth tests for environment validation
+  - Verify token validation works correctly in each environment
+  - Test login, logout, and token refresh flows
+  - Ensure correct redirect URIs are configured per environment
+  - Validate CORS settings for each environment
+- Document environment-specific testing procedures
+- Test user migration paths between environments where applicable
+
+### Local Development Auth Patterns
+- Implement developer-friendly local auth configuration:
+  - Configure redirect URIs for localhost development
+  - Document local development setup procedures
+  - Provide mock auth options for offline development
+  - Create development-specific auth utilities
+  - Enable appropriate debug logging for local auth
+  - Implement easy switching between auth environments
+  - Document environment-specific limitations
+- Avoid using production credentials in local development
+- Provide tools for simulating different auth scenarios locally
+
+### Environment Transition Management
+- Implement processes for auth configuration during environment promotion:
+  - Document auth configuration differences between environments
+  - Create checklists for environment promotion
+  - Implement configuration validation during CI/CD
+  - Track auth-related configuration changes
+  - Test auth after promoting to a new environment
+  - Implement rollback procedures for auth configuration changes
+  - Ensure existing sessions are handled appropriately during transitions
+- Create runbooks for common environment transition scenarios
+- Define ownership and approval process for auth configuration changes
+
+## Examples
+
+<example>
+// Good multi-environment auth configuration
+// auth-config.ts
+
+import { AuthConfig } from './types';
+
+// Environment-specific configurations
+const authConfigs: Record<string, AuthConfig> = {
+  development: {
+    domain: 'dev-app.us.auth0.com',
+    clientId: 'DEV_CLIENT_ID',
+    audience: 'https://api-dev.example.com',
+    redirectUri: 'http://localhost:3000/callback',
+    logoutRedirectUri: 'http://localhost:3000/',
+    scope: 'openid profile email',
+    useRefreshTokens: true,
+    // Development-specific settings
+    enableDebugLogging: true,
+    tokenRefreshBuffer: 120, // seconds
+  },
+  
+  staging: {
+    domain: 'staging-app.us.auth0.com',
+    clientId: 'STAGING_CLIENT_ID',
+    audience: 'https://api-staging.example.com',
+    redirectUri: 'https://staging.example.com/callback',
+    logoutRedirectUri: 'https://staging.example.com/',
+    scope: 'openid profile email',
+    useRefreshTokens: true,
+    // Staging-specific settings
+    enableDebugLogging: true,
+    tokenRefreshBuffer: 300, // seconds
+  },
+  
+  production: {
+    domain: 'app.us.auth0.com',
+    clientId: 'PROD_CLIENT_ID',
+    audience: 'https://api.example.com',
+    redirectUri: 'https://app.example.com/callback',
+    logoutRedirectUri: 'https://app.example.com/',
+    scope: 'openid profile email',
+    useRefreshTokens: true,
+    // Production-specific settings
+    enableDebugLogging: false,
+    tokenRefreshBuffer: 600, // seconds
+  }
+};
+
+// Select config based on environment
+const environment = process.env.NODE_ENV || 'development';
+const baseConfig = authConfigs[environment] || authConfigs.development;
+
+// Override with env variables if specified
+export const authConfig: AuthConfig = {
+  ...baseConfig,
+  // Allow runtime override of certain configs
+  domain: process.env.AUTH_DOMAIN || baseConfig.domain,
+  clientId: process.env.AUTH_CLIENT_ID || baseConfig.clientId,
+  audience: process.env.AUTH_AUDIENCE || baseConfig.audience,
+};
+
+// Export environment name for logging
+export const currentEnvironment = environment;
+</example>
+
+<example type="invalid">
+// Poor multi-environment auth configuration
+
+// Hardcoded configuration with no environment awareness
+const authConfig = {
+  domain: 'app.us.auth0.com', // Production domain used everywhere
+  clientId: 'ACTUAL_PRODUCTION_CLIENT_ID',
+  redirectUri: 'http://localhost:3000/callback', // Localhost with production credentials
+};
+
+// No environment-specific configuration
+export default authConfig;
+</example>
+
+<example>
+// Good environment transition checklist
+
+/**
+ * Auth Configuration Promotion Checklist
+ * 
+ * Use this checklist when promoting auth configuration from staging to production.
+ */
+
+/**
+ * 1. Pre-Promotion Verification
+ * 
+ * [ ] Verify all auth flows work correctly in staging
+ * [ ] Confirm production Auth0 tenant has matching rules and hooks
+ * [ ] Validate production redirect URIs are correctly configured
+ * [ ] Verify production logout URLs are correctly configured
+ * [ ] Confirm CORS settings are appropriate for production
+ * [ ] Check rate limiting settings for production traffic volume
+ * [ ] Review token expiration settings for production
+ * [ ] Verify custom claims and scopes match between environments
+ * [ ] Confirm connection settings (social, database) are properly configured
+ * [ ] Verify branding and customization settings are correct
+ */
+
+/**
+ * 2. Promotion Process
+ * 
+ * [ ] Schedule promotion during low-traffic period
+ * [ ] Update environment variables in production deployment
+ * [ ] Deploy updated auth configuration
+ * [ ] Verify configuration has been applied
+ * [ ] Test login flow in production with test account
+ * [ ] Test token validation in production
+ * [ ] Monitor auth logs for errors
+ * [ ] Verify analytics are recording auth events correctly
+ */
+
+/**
+ * 3. Post-Promotion Verification
+ * 
+ * [ ] Monitor auth success rate for 24 hours
+ * [ ] Check for increased error rates
+ * [ ] Verify session persistence works correctly
+ * [ ] Confirm token refresh works properly
+ * [ ] Test social login connections if applicable
+ * [ ] Verify MFA works correctly if enabled
+ * [ ] Document any configuration differences for future reference
+ */
+</example>
+
+<example type="invalid">
+// Insufficient environment transition process
+
+// Comment describing vague process
+// When moving to production:
+// 1. Change the domain in the config file
+// 2. Update the client ID
+// 3. Deploy and test
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Multi-env setup
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Per-env validation
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate each environment
+- **`.cursor/tools/check-env-vars.sh`** - Verify env-specific variables
+- **`.cursor/tools/scan-secrets.sh`** - Ensure no cross-env secret leakage
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @011-env-var-security.mdc - Environment variable management
+- @013-auth0-deployment-validation.mdc - Per-environment validation
+- @019-auth0-integration.mdc - Auth0 integration patterns
+- @204-vercel-build-environment-variables.mdc - Vercel env var management
+- @300-env-variable-management.mdc - Environment variable standards
+- @330-auth0-testing-standards.mdc - Testing across environments
+- @374-authentication-architecture-standards.mdc - Auth architecture
+
+### Quick Start
+1. **Per Environment:** `.cursor/tools/check-auth-config.sh` (dev, staging, prod)
+2. **Verify:** `.cursor/tools/check-env-vars.sh` (no cross-contamination)
+3. **Follow:** `.cursor/docs/security-workflows.md#auth0-integration-workflow`
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/MULTI_ENV_AUTH_CONFIGURATION_GUIDE.md`** - **CRITICAL:** Multi-environment auth!
+- **`guides/auth0/02-Environment-Specific-Guides.md`** - Environment-specific configurations
+- **`guides/AUTH0_CURRENT_IMPLEMENTATION.md`** - Current setup per environment

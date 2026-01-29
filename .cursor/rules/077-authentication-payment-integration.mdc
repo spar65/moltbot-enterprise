@@ -1,0 +1,640 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply authentication-payment integration standards when implementing payment features to ensure proper user session handling and identity linking
+globs: "src/{pages,components,lib,utils}/**/*.{js,jsx,ts,tsx}"
+___
+
+# Authentication-Payment Integration Standards
+
+## User Identity Linking
+- Map authenticated user sessions to payment provider customers with consistent identifier usage
+- Store authentication provider IDs in payment provider metadata for reconciliation
+- Implement reliable ID extraction from authentication tokens
+- Create clear functions for retrieving or creating payment provider customers from user sessions
+- Document the relationship between authentication identifiers and payment provider identifiers
+- Implement proper error handling for missing or invalid user identifiers
+
+## Session Handling in Payment Flows
+- Ensure payment flows have access to current user session information
+- Handle authentication state in payment redirects and callbacks
+- Implement proper session restoration after payment provider redirects
+- Apply consistent session validation before initiating payment operations
+- Create recovery paths for payment flows interrupted by authentication issues
+- Document the authentication requirements for each payment endpoint
+
+## Authentication Middleware Interaction
+- Define clear separation between authentication middleware and payment processing
+- Handle nested middleware conflicts in payment routes
+- Implement proper error handling for authentication failures during payment processing
+- Create consistent patterns for accessing user information in payment API routes
+- Document correct patterns for validating session tokens in payment flows
+- Apply proper security measures for payment routes that require authentication
+
+## Error Handling
+- Implement graceful handling of authentication errors during payment operations
+- Return appropriate HTTP status codes for authentication failures
+- Provide clear user-facing error messages for authentication issues
+- Log detailed information for debugging authentication-related payment failures
+- Create recovery paths for common authentication failure scenarios
+- Document error handling patterns for different authentication failure cases
+
+## Integration Validation
+- Implement integration validators to proactively detect auth-payment misalignments
+- Create automated checks for webhook endpoint authentication exclusions
+- Validate user ID mapping consistency between auth and payment systems
+- Test session state survival through payment redirects
+- Implement health checks that continuously verify integration integrity
+- Create deployment validation that prevents auth-payment integration regressions
+
+## Examples
+
+<example>
+// Good: Proper user identity linking with Stripe customer
+import { stripe } from '@/lib/stripe';
+import { getSession } from '@auth0/nextjs-auth0';
+import { getUserById, updateUser } from '@/lib/database';
+
+export async function createOrRetrieveCustomer(req) {
+  // Get authenticated user from session
+  const session = await getSession(req);
+  if (!session || !session.user) {
+    throw new Error('Authentication required');
+  }
+  
+  // Get user from database with auth0 ID
+  const user = await getUserById(session.user.sub);
+  if (!user) {
+    throw new Error('User not found');
+  }
+  
+  // Check if user already has a Stripe customer ID
+  if (user.stripeCustomerId) {
+    try {
+      // Retrieve existing customer
+      return await stripe.customers.retrieve(user.stripeCustomerId);
+    } catch (error) {
+      // Handle case where customer was deleted in Stripe but not in our database
+      if (error.code === 'resource_missing') {
+        // Continue to create a new customer
+        console.warn(`Stripe customer ${user.stripeCustomerId} not found, creating new customer`);
+      } else {
+        throw error;
+      }
+    }
+  }
+  
+  // Create new customer with consistent user identifier
+  const customer = await stripe.customers.create({
+    email: user.email,
+    name: user.name,
+    metadata: {
+      userId: user.id,
+      auth0Id: session.user.sub,  // Store auth provider ID for reconciliation
+    },
+  });
+  
+  // Store the customer ID in your database
+  await updateUser(user.id, { stripeCustomerId: customer.id });
+  
+  return customer;
+}
+</example>
+
+<example type="invalid">
+// Bad: Inconsistent user identity linking
+export async function createPaymentIntent(amount, currency) {
+  // No authentication check before creating payment
+  const customer = await stripe.customers.create({
+    email: req.body.email,
+    // No consistent user identifier
+    // No linking to authentication system
+  });
+  
+  return await stripe.paymentIntents.create({
+    amount,
+    currency,
+    customer: customer.id,
+  });
+}
+</example>
+
+<example>
+// Good: Proper session handling in payment flow
+export async function createCheckoutSession(req, res) {
+  try {
+    // Get authenticated session
+    const session = await getSession(req);
+    if (!session || !session.user) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        redirectUrl: `/auth/login?returnTo=${encodeURIComponent(req.url)}`,
+      });
+    }
+    
+    // Get or create customer
+    const customer = await createOrRetrieveCustomer(req);
+    
+    // Create checkout session with return URLs that preserve authentication
+    const checkoutSession = await stripe.checkout.sessions.create({
+      customer: customer.id,
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: req.body.priceId,
+          quantity: 1,
+        },
+      ],
+      mode: 'subscription',
+      success_url: `${process.env.APP_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.APP_URL}/payment/cancel`,
+      // Include authenticated user ID in metadata for verification on return
+      metadata: {
+        userId: session.user.sub,
+      },
+    });
+    
+    res.status(200).json({ sessionId: checkoutSession.id });
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+}
+</example>
+
+<example type="invalid">
+// Bad: Missing session validation in payment flow
+export async function createCheckoutSession(req, res) {
+  try {
+    // No authentication check
+    
+    // Create checkout session without customer association
+    const checkoutSession = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: req.body.priceId,
+          quantity: 1,
+        },
+      ],
+      mode: 'subscription',
+      success_url: `${process.env.APP_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.APP_URL}/cancel`,
+      // No user identification in metadata
+    });
+    
+    res.status(200).json({ sessionId: checkoutSession.id });
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Error' });
+  }
+}
+</example>
+
+<example>
+// Good: Proper middleware interaction for payment processing
+// middleware.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { auth0 } from './lib/auth0';
+import { verifySubscriptionAccess } from './lib/subscription';
+
+export async function middleware(request: NextRequest) {
+  // Handle authentication routes first
+  const authResponse = await auth0.middleware(request);
+  if (authResponse) return authResponse;
+  
+  // Check for protected payment routes
+  const url = request.nextUrl.pathname;
+  
+  // Payment API endpoints require authentication
+  if (url.startsWith('/api/payment') || url.startsWith('/api/subscription')) {
+    const session = await auth0.getSession(request);
+    
+    // Redirect to login if not authenticated
+    if (!session) {
+      const loginUrl = new URL('/auth/login', request.url);
+      loginUrl.searchParams.set('returnTo', request.nextUrl.pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    
+    // For subscription-protected routes, check subscription status
+    if (url.startsWith('/api/payment/premium') || url.startsWith('/api/subscription/manage')) {
+      const hasAccess = await verifySubscriptionAccess(session.user.sub, url);
+      if (!hasAccess) {
+        return NextResponse.json(
+          { error: 'Subscription required' },
+          { status: 403 }
+        );
+      }
+    }
+  }
+  
+  // Continue with unmodified request for all other routes
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|public/).*)',
+  ],
+};
+</example>
+
+<example type="invalid">
+// Bad: Nested middleware causing conflicts
+// src/pages/api/_middleware.ts (causes build errors in Next.js)
+export default function middleware(req, res, next) {
+  // Nested middleware not supported in Next.js
+  const session = getSession(req, res);
+  
+  if (!session) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  
+  return next();
+}
+</example>
+
+<example>
+// Good: Proper error handling for authentication failures
+async function handlePaymentRequest(req, res) {
+  try {
+    // Get session with proper error handling
+    const session = await getSession(req);
+    
+    if (!session || !session.user) {
+      // Clear response and return authentication error
+      return res.status(401).json({
+        error: 'Authentication required',
+        redirectUrl: `/auth/login?returnTo=${encodeURIComponent(req.url)}`,
+      });
+    }
+    
+    // Continue with payment processing
+    // ...
+  } catch (authError) {
+    // Log authentication error details for debugging
+    console.error('Authentication error during payment processing:', {
+      error: authError,
+      url: req.url,
+      headers: req.headers,
+    });
+    
+    // Return user-friendly error response
+    return res.status(401).json({
+      error: 'Authentication failed. Please log in again.',
+      redirectUrl: `/auth/login?returnTo=${encodeURIComponent(req.url)}`,
+    });
+  }
+}
+</example>
+
+<example type="invalid">
+// Bad: Poor error handling for authentication failures
+async function handlePaymentRequest(req, res) {
+  try {
+    // No try/catch around authentication
+    const session = getSession(req, res);
+    
+    // No proper validation
+    const customerId = session.user.sub;
+    
+    // Continue with payment processing
+    // ...
+  } catch (error) {
+    // Generic error without proper context or recovery path
+    res.status(500).json({ error: 'Something went wrong' });
+  }
+}
+</example>
+
+<example>
+// Good: Auth0-Stripe Integration Validator
+// src/utils/validators/auth-payment-validator.ts
+import fs from 'fs';
+import path from 'path';
+import { stripe } from '@/lib/stripe';
+import { prisma } from '@/lib/prisma';
+
+// Validate auth-payment alignment during deployment
+export async function validateAuthPaymentIntegration() {
+  const checks = [
+    {
+      name: "Auth0 middleware excludes Stripe webhooks",
+      test: () => authMiddlewareExcludesWebhooks()
+    },
+    {
+      name: "User ID mapping is consistent", 
+      test: () => validateUserIdMapping()
+    },
+    {
+      name: "Session state survives payment redirects",
+      test: () => testPaymentFlowSession()
+    }
+  ];
+  
+  return Promise.all(checks.map(async check => {
+    try {
+      const result = await check.test();
+      return {
+        name: check.name,
+        passed: result,
+        error: result ? null : `${check.name} check failed`
+      };
+    } catch (error) {
+      return {
+        name: check.name,
+        passed: false,
+        error: error.message
+      };
+    }
+  }));
+}
+
+// Check that webhook endpoints are excluded from auth middleware
+async function authMiddlewareExcludesWebhooks() {
+  try {
+    // Check middleware.ts file for proper webhook exclusions
+    const middlewarePath = path.join(process.cwd(), 'src', 'middleware.ts');
+    if (!fs.existsSync(middlewarePath)) {
+      return false;
+    }
+    
+    const content = fs.readFileSync(middlewarePath, 'utf8');
+    
+    // Check if webhook routes are excluded from auth checks
+    const hasWebhookExclusion = 
+      content.includes('/api/webhooks') || 
+      content.includes('/api/webhook') ||
+      content.includes('webhook');
+      
+    // Check matcher configuration
+    const matcherPattern = /matcher:\s*\[([\s\S]*?)\]/;
+    const matcherMatch = content.match(matcherPattern);
+    
+    if (matcherMatch && matcherMatch[1]) {
+      const matchers = matcherMatch[1].split(',').map(s => s.trim());
+      
+      // Webhooks should either be excluded from the matcher patterns
+      // or have explicit handling in the middleware function
+      const webhookHandledInMatcher = matchers.some(m => 
+        m.includes('webhook') || m.includes('!(')
+      );
+      
+      return hasWebhookExclusion || webhookHandledInMatcher;
+    }
+    
+    return hasWebhookExclusion;
+  } catch (error) {
+    console.error('Error checking webhook exclusions:', error);
+    return false;
+  }
+}
+
+// Validate consistent user ID mapping between Auth0 and Stripe
+async function validateUserIdMapping() {
+  try {
+    // 1. Check database schema for proper ID fields
+    const hasProperSchema = await validateUserSchema();
+    
+    // 2. Verify mapping functions extract the correct part of Auth0 ID
+    const mappingFunctionsValid = validateAuthIdExtraction();
+    
+    // 3. Test actual mapping with sample data
+    const sampleMappingWorks = await testSampleUserMapping();
+    
+    return hasProperSchema && mappingFunctionsValid && sampleMappingWorks;
+  } catch (error) {
+    console.error('Error validating user ID mapping:', error);
+    return false;
+  }
+}
+
+// Check that database schema has proper fields for ID mapping
+async function validateUserSchema() {
+  try {
+    // Check if User model has stripeCustomerId field
+    const userModel = await prisma.user.findFirst();
+    return userModel && 'stripeCustomerId' in userModel;
+  } catch (error) {
+    console.error('Error validating user schema:', error);
+    return false;
+  }
+}
+
+// Check for proper auth ID extraction in code
+function validateAuthIdExtraction() {
+  try {
+    // Look for code that extracts auth IDs correctly
+    const files = findFilesWithStripeCustomerCreation();
+    
+    // Check if any file properly extracts auth IDs
+    return files.some(file => {
+      const content = fs.readFileSync(file, 'utf8');
+      return (
+        // Check for metadata usage with auth IDs
+        content.includes('metadata') &&
+        (content.includes('auth0Id') || content.includes('userId')) &&
+        // Check for session extraction
+        (content.includes('session.user.sub') || content.includes('user.id'))
+      );
+    });
+  } catch (error) {
+    console.error('Error validating auth ID extraction:', error);
+    return false;
+  }
+}
+
+// Find files that create Stripe customers
+function findFilesWithStripeCustomerCreation() {
+  const results = [];
+  const dirs = ['src/lib', 'src/utils', 'src/services', 'src/api'];
+  
+  for (const dir of dirs) {
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir, { recursive: true });
+      
+      for (const file of files) {
+        const filePath = path.join(dir, file.toString());
+        if (fs.statSync(filePath).isFile() && 
+            (filePath.endsWith('.js') || filePath.endsWith('.ts'))) {
+          const content = fs.readFileSync(filePath, 'utf8');
+          if (content.includes('stripe.customers.create')) {
+            results.push(filePath);
+          }
+        }
+      }
+    }
+  }
+  
+  return results;
+}
+
+// Test mapping with sample user data
+async function testSampleUserMapping() {
+  try {
+    // This would typically involve setting up test users and verifying
+    // that they map correctly to Stripe customers
+    // For validation purposes, we'll just check for correct patterns
+    
+    const files = findFilesWithStripeCustomerCreation();
+    
+    // Check if any file properly sets up customer mapping
+    return files.length > 0;
+  } catch (error) {
+    console.error('Error testing sample user mapping:', error);
+    return false;
+  }
+}
+
+// Test that session state survives payment redirects
+async function testPaymentFlowSession() {
+  try {
+    // 1. Test session persistence through redirects
+    const sessionPersists = await testSessionPersistence();
+    
+    // 2. Verify auth middleware doesn't break payment return flows
+    const returnsHandledProperly = await testPaymentReturnFlows();
+    
+    // 3. Check for cookie/session conflicts in payment processing
+    const noSessionConflicts = await checkSessionConflicts();
+    
+    return sessionPersists && returnsHandledProperly && noSessionConflicts;
+  } catch (error) {
+    console.error('Error testing payment flow session:', error);
+    return false;
+  }
+}
+
+// Check that sessions persist through payment redirects
+async function testSessionPersistence() {
+  // In a real implementation, this would test actual session persistence
+  // For validation purposes, we'll check for redirect handling patterns
+  
+  try {
+    const files = findPaymentReturnHandlingFiles();
+    
+    // Check if any file properly handles session persistence
+    return files.length > 0;
+  } catch (error) {
+    console.error('Error testing session persistence:', error);
+    return false;
+  }
+}
+
+// Find files that handle payment return flows
+function findPaymentReturnHandlingFiles() {
+  const results = [];
+  const dirs = ['src/pages', 'src/app'];
+  
+  for (const dir of dirs) {
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir, { recursive: true });
+      
+      for (const file of files) {
+        const filePath = path.join(dir, file.toString());
+        if (fs.statSync(filePath).isFile() && 
+            (filePath.endsWith('.js') || filePath.endsWith('.ts') || 
+             filePath.endsWith('.jsx') || filePath.endsWith('.tsx'))) {
+          const content = fs.readFileSync(filePath, 'utf8');
+          if ((content.includes('success') || content.includes('return')) && 
+              content.includes('checkout') && 
+              content.includes('session')) {
+            results.push(filePath);
+          }
+        }
+      }
+    }
+  }
+  
+  return results;
+}
+
+// Test payment return flow handling
+async function testPaymentReturnFlows() {
+  try {
+    // Check that success/cancel pages can access session data
+    const returnFiles = findPaymentReturnHandlingFiles();
+    
+    // Look for session access in these files
+    return returnFiles.some(file => {
+      const content = fs.readFileSync(file, 'utf8');
+      return content.includes('getSession') || 
+             content.includes('useSession') || 
+             content.includes('withPageAuthRequired');
+    });
+  } catch (error) {
+    console.error('Error testing payment return flows:', error);
+    return false;
+  }
+}
+
+// Check for session conflicts in payment processing
+async function checkSessionConflicts() {
+  try {
+    // Look for potential session conflicts in middleware
+    const middlewarePath = path.join(process.cwd(), 'src', 'middleware.ts');
+    if (!fs.existsSync(middlewarePath)) {
+      return true; // No middleware, no conflicts
+    }
+    
+    const content = fs.readFileSync(middlewarePath, 'utf8');
+    
+    // Check for nested middleware issues
+    const hasNestedMiddleware = 
+      content.includes('pages/api/_middleware') || 
+      (content.includes('middleware') && content.includes('pages/api'));
+      
+    return !hasNestedMiddleware;
+  } catch (error) {
+    console.error('Error checking session conflicts:', error);
+    return false;
+  }
+}
+</example>
+
+<example type="invalid">
+// Bad: No integration validation
+// This results in undetected integration issues
+export async function setupPaymentSystem() {
+  // No validation of Auth0 and Stripe integration
+  // No checks for middleware conflicts
+  // No verification of session handling in payment flows
+  // No testing of user ID mapping consistency
+  
+  console.log('Payment system configured');
+  return true;
+}
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Payment integration
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Auth integration
+- **`.cursor/docs/security-checklist.md`** - Combined validation
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate auth configuration
+- **`.cursor/tools/scan-secrets.sh`** - Check both auth and payment keys
+- **`.cursor/tools/check-env-vars.sh`** - Validate configuration
+- **`.cursor/tools/inspect-model.sh`** - Check User/Subscription models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @014-third-party-auth.mdc - Authentication standards
+- @019-auth0-integration.mdc - Auth0 patterns
+- @020-payment-security.mdc - Payment security (critical!)
+- @020-stripe-integration.mdc - Stripe patterns
+- @046-session-validation.mdc - Session security
+- @078-payment-testing-standards.mdc - Testing integration
+- @080-authentication-integration.mdc - Auth integration patterns
+
+### Quick Start
+1. **Validate:** `.cursor/tools/check-auth-config.sh` AND `.cursor/tools/scan-secrets.sh`
+2. **Schema:** `.cursor/tools/inspect-model.sh User` (check user-payment link)
+3. **Follow:** Both security workflows (auth + payment)

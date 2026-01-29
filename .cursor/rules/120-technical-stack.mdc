@@ -1,0 +1,679 @@
+---
+description: Use when providing guidance on technology-specific implementations, framework usage, and architecture decisions FOR Python (FastAPI), React, PostgreSQL, Elasticsearch, pytest, and Docker stack AFTER stack has been selected
+globs: "**/*.{py,js,jsx,ts,tsx,sql,json,yml,yaml}"
+alwaysApply: false
+---
+
+# Cursor Technical Stack Guidelines
+
+**Stack**: Python (FastAPI) + React + PostgreSQL (SQLAlchemy) + Elasticsearch + pytest + Docker  
+**Purpose**: Implementation guidance for code generation, patterns, and best practices  
+**Use When**: AFTER tech stack has been selected (see @900-tech-stack-selection.mdc for selection)  
+**Last Updated**: November 20, 2025
+
+---
+
+These guidelines are designed to help Cursor provide tailored code suggestions, completions, and recommendations for our project's technical stack: Python (FastAPI), React, PostgreSQL (SQLAlchemy), Elasticsearch, pytest, and Docker. The rules ensure consistency, security, and performance while adapting to the project's context.
+
+## 1. Backend (Python)
+
+### Language & Framework Detection
+
+#### Python Recognition:
+
+- Suggest type hints for function parameters and return types (e.g., `def func(x: int) -> str:`)
+- Recommend f-strings for string formatting (e.g., `f"Hello {name}"`)
+- Suggest list comprehensions or generator expressions for concise code (e.g., `[x**2 for x in range(10)]`)
+- Ensure PEP 8 compliance: 4-space indentation, 79-character line length, snake_case for variables
+- **Recommend async/await** for I/O-bound operations (database, API calls)
+- **Use type annotations** from `typing` module (List, Dict, Optional, Union)
+
+#### Framework Standardization:
+
+- Detect FastAPI as the preferred framework
+- Suggest dependency injection for database sessions (e.g., `Depends(get_db)`)
+- Recommend Pydantic models for validation (e.g., `UserCreate` schema)
+- Encourage async endpoints for I/O-bound operations (e.g., `@router.get("/users", response_model=List[UserResponse]) async def get_users()`)
+- Alert if other frameworks (e.g., Django, Flask) are used, with optional migration guidance (e.g., "FastAPI provides built-in async support")
+- **Recommend proper error handling** with `HTTPException` and appropriate status codes
+- **Suggest OpenAPI documentation** with descriptions, examples, and tags
+- **Use APIRouter** for modular route organization
+
+#### Dependency Management:
+
+- Recommend Poetry for dependency management
+- Suggest initializing Poetry if not detected (e.g., `poetry init`)
+- Recommend grouping dependencies (e.g., `poetry add pytest --group test`)
+- Generate complete pyproject.toml snippets, including [tool.poetry] and [build-system] sections
+- **Suggest dependency groups**: main, dev, test, docs
+- **Pin major versions** to prevent breaking changes
+
+## 2. Frontend (HTML/JS)
+
+### Frontend Technology Patterns
+
+#### Framework Recognition:
+
+- Detect React as the preferred framework
+- Suggest functional components with hooks (e.g., `const MyComponent = () => { useState(); }`)
+- Recommend memoization to prevent re-renders (e.g., `React.memo`, `useMemo`, `useCallback`)
+- Propose React Context or state management libraries for global state
+- Alert if other frameworks (e.g., Vue, Angular) are detected, with rationale (e.g., "React aligns with project's component-based architecture")
+- **Suggest React Query** (@tanstack/react-query) for server state management
+- **Recommend custom hooks** for reusable logic extraction
+- **Use TypeScript** for type safety in React components
+- **Implement error boundaries** for graceful error handling
+
+#### Build System Integration:
+
+- Recommend Vite for modern React projects (faster than Webpack)
+- Suggest optimizations like tree shaking and code splitting
+- Generate Vite configuration snippets
+- **Recommend environment variable patterns** (import.meta.env.VITE\_\*)
+- **Suggest build-time optimizations** (minification, compression)
+
+#### Styling Approach:
+
+- Detect Tailwind CSS as the styling approach
+- Suggest utility-first patterns (e.g., `className="flex justify-center items-center"`)
+- Recommend responsive design utilities (e.g., `sm:text-lg md:text-xl`)
+- Generate tailwind.config.js snippets (e.g., custom colors: `theme: { extend: { colors: { primary: '#1a73e8' } } }`)
+- **Recommend design system patterns** (consistent spacing, colors, typography)
+- **Suggest dark mode support** with Tailwind's dark: variant
+
+## 3. Databases (SQL)
+
+### Database Implementation Guidelines
+
+#### PostgreSQL Focus:
+
+- Recognize PostgreSQL as the preferred database
+- Suggest indexes for frequently queried fields (e.g., `CREATE INDEX idx_users_email ON users(email)`)
+- Recommend JSONB for semi-structured data (e.g., `Column(JSONB)`)
+- Propose connection pooling with pgbouncer or SQLAlchemy's pool_size
+- **Recommend proper transaction handling** with `begin()`, `commit()`, `rollback()`
+- **Suggest UUID primary keys** for distributed systems
+- **Use timestamp with timezone** (`DateTime(timezone=True)`) for all timestamps
+- **Implement soft deletes** with `deleted_at` column where appropriate
+
+#### ORM Recognition:
+
+- Detect SQLAlchemy as the ORM
+- Suggest relationship definitions (e.g., `posts = relationship("Post", back_populates="author")`)
+- Recommend bulk operations for efficiency (e.g., `db.bulk_save_objects(objects)`)
+- Generate optimized queries (e.g., `db.query(User).options(joinedload(User.posts)).all()`)
+- **Use `lazy="selectinload"`** to prevent N+1 queries
+- **Recommend proper session management** with context managers
+- **Suggest query result caching** with Redis for expensive queries
+- **Implement database connection pooling** for production
+
+#### Migration Management:
+
+- Recognize Alembic as the migration tool
+- Suggest testing migrations with rollback (e.g., `alembic downgrade base`)
+- Generate migrations with indexes (e.g., `op.create_index('ix_users_email', 'users', ['email'], unique=True)`)
+- **Recommend migration naming conventions** (timestamp + descriptive name)
+- **Suggest data migrations** separate from schema migrations
+- **Test migrations** on staging before production
+- **Document breaking changes** in migration comments
+
+## 4. Search (Elasticsearch)
+
+### Elasticsearch Integration
+
+#### Client Detection:
+
+- Identify elasticsearch-py as the client library.
+- Recommend retry-on-conflict for concurrent updates (e.g., retry_on_conflict=3).
+- Suggest connection pooling with maxsize=10 in client config.
+
+#### Query Construction:
+
+- Recommend filters over queries for non-scoring searches (e.g., "filter": {"term": {"status": "active"}}).
+- Suggest caching for frequent queries (e.g., "request_cache": true).
+- Flag inefficient patterns like leading wildcards (e.g., \*search).
+
+#### Index Management:
+
+- Suggest shard/replica settings based on data size (e.g., number_of_shards: 3, number_of_replicas: 1).
+- Generate index mappings with custom analyzers (e.g., "analyzer": "custom_analyzer").
+
+## 5. Testing (Python Tests)
+
+### Testing Framework Implementation
+
+#### Pytest Recognition:
+
+- Identify pytest as the testing framework
+- Suggest fixtures for setup/teardown (e.g., `@pytest.fixture def db_session()`)
+- Recommend parametrized tests (e.g., `@pytest.mark.parametrize("input, expected", [(1, 2), (3, 4)])`)
+- Generate test templates with assertions (e.g., `assert response.status_code == 201`)
+- **Use async test support** with `pytest-asyncio` for async code
+- **Recommend fixture scopes** (function, class, module, session)
+- **Suggest test organization** by feature or domain
+- **Use descriptive test names** that explain what is being tested
+
+#### Test Coverage Enhancement:
+
+- Recommend edge case tests (e.g., empty inputs, invalid data)
+- Suggest coverage reports with pytest-cov (e.g., `pytest --cov=app`)
+- **Aim for 80%+ code coverage** for critical paths
+- **Test error conditions** as thoroughly as success paths
+- **Recommend integration tests** for critical user flows
+- **Suggest performance tests** for bottleneck identification
+
+#### Mock Implementation:
+
+- Suggest pytest-mock for external APIs (e.g., `mocker.patch("requests.get", return_value=MockResponse())`)
+- Recommend isolating database calls (e.g., `mocker.patch("app.db.get_db")`)
+- **Use test database** for integration tests (never production)
+- **Mock external services** (email, payment, etc.)
+- **Recommend test factories** for creating test data
+- **Use UUID-based test data** for uniqueness and isolation
+
+## 6. Deployment & Environment Management
+
+### Containerization Support
+
+#### Docker Recognition:
+
+- Identify Docker as the containerization solution
+- Suggest minimizing layers (e.g., combine RUN commands with &&)
+- Recommend .dockerignore to exclude unnecessary files (e.g., `__pycache__`, `.git`)
+- Generate multi-stage builds (e.g., `FROM python:3.11-slim AS builder` followed by runtime stage)
+- **Use non-root user** for security (`USER appuser`)
+- **Pin specific versions** for reproducibility (e.g., `python:3.11.5-slim`)
+- **Cache dependencies** separately from source code (copy requirements.txt first)
+- **Use health checks** for container orchestration (`HEALTHCHECK`)
+- **Minimize image size** (use slim/alpine variants, multi-stage builds)
+
+#### Environment Configuration:
+
+- Suggest secret management (e.g., `SECRET_KEY=${SECRET_KEY}` from a vault)
+- Recommend .env.example templates for required variables
+- **Never commit secrets** to version control
+- **Use environment-specific configs** (dev, staging, prod)
+- **Validate environment variables** at startup
+- **Document all required env vars** in .env.example
+- **Use strong typing** for env vars with Pydantic Settings
+
+#### CI/CD Integration:
+
+- Identify GitHub Actions as the CI/CD system
+- Suggest parallel jobs for testing/linting (e.g., `jobs: { test: { runs-on: ubuntu-latest, steps: [...] } }`)
+- Generate workflows with caching (e.g., `cache: poetry`)
+- **Recommend automated testing** on pull requests
+- **Suggest deployment previews** for staging environments
+- **Implement automated security scans** (Dependabot, Snyk)
+- **Use matrix builds** for testing multiple Python versions
+
+## General Rules
+
+- **Coding Standards:** Follow project conventions (e.g., PEP 8, existing naming patterns).
+- **Documentation:** Suggest clear comments and docstrings (e.g., """Returns user data as a dict""").
+- **Modularity:** Recommend reusable functions/components (e.g., extract duplicate logic into utilities).
+- **Security:** Enforce least privilege (e.g., minimal permissions in DB roles) and input validation.
+- **Logging:** Suggest appropriate log levels (e.g., logger.info() for key events, logger.debug() for diagnostics).
+
+## Adaptations and Context-Awareness
+
+### Project Size:
+
+- Small projects: Suggest lightweight solutions (e.g., simple functions over classes).
+- Large applications: Recommend scalable patterns (e.g., service layers, microservices).
+
+### Project Phase:
+
+- MVP: Prioritize speed and functionality (e.g., basic CRUD endpoints).
+- Mature: Focus on robustness and maintainability (e.g., comprehensive tests, error handling).
+
+### File Context:
+
+- Models: Emphasize data structure (e.g., SQLAlchemy relationships).
+- Views/Controllers: Focus on request handling (e.g., FastAPI route logic).
+
+### Technical Requirements:
+
+- Performance-critical: Suggest caching (e.g., Redis) or async processing.
+- Security-sensitive: Recommend encryption (e.g., hashing passwords) and sanitization.
+
+### Team Expertise:
+
+- Junior teams: Provide verbose, well-commented code (e.g., inline explanations).
+- Experienced teams: Suggest advanced patterns (e.g., decorators, metaprogramming) with references.
+
+## Implementation Examples
+
+### FastAPI Endpoint Generation
+
+When detecting the need for a new API endpoint:
+
+```python
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List, Optional
+
+from app.dependencies import get_db
+from app.models.user import User
+from app.schemas.user import UserCreate, UserResponse
+
+router = APIRouter(prefix="/users", tags=["users"])
+
+@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    """Create a new user.
+
+    Returns:
+        The created user
+    """
+    # Check if user with this email already exists
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if db_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+
+    # Create new user
+    db_user = User(
+        email=user.email,
+        hashed_password=hash_password(user.password),
+        full_name=user.full_name
+    )
+
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+
+    return db_user
+
+@router.get("/", response_model=List[UserResponse])
+def get_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """Get all users with pagination.
+
+    Args:
+        skip: Number of users to skip
+        limit: Maximum number of users to return
+
+    Returns:
+        List of users
+    """
+    users = db.query(User).offset(skip).limit(limit).all()
+    return users
+
+@router.get("/{user_id}", response_model=UserResponse)
+def get_user(user_id: int, db: Session = Depends(get_db)):
+    """Get a specific user by ID.
+
+    Args:
+        user_id: The ID of the user to retrieve
+
+    Returns:
+        The requested user
+
+    Raises:
+        HTTPException: If user not found
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return user
+```
+
+### React Component with Tailwind
+
+When generating a new React component:
+
+```javascript
+import React, { useState } from "react";
+import { useQuery } from "react-query";
+import { Spinner, Alert } from "../components/ui";
+
+/**
+ * User list component that fetches and displays users
+ */
+const UserList = () => {
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const {
+    data: users,
+    isLoading,
+    isError,
+    error,
+  } = useQuery(["users", searchTerm], () =>
+    fetch(`/api/users?search=${searchTerm}`).then((res) => res.json())
+  );
+
+  const handleSearch = (e) => {
+    setSearchTerm(e.target.value);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return <Alert type="error">Error loading users: {error.message}</Alert>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold text-gray-800">Users</h2>
+        <input
+          type="text"
+          placeholder="Search users..."
+          value={searchTerm}
+          onChange={handleSearch}
+          className="px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+
+      {users.length === 0 ? (
+        <p className="text-gray-500 text-center py-8">No users found</p>
+      ) : (
+        <div className="bg-white shadow overflow-hidden rounded-md">
+          <ul className="divide-y divide-gray-200">
+            {users.map((user) => (
+              <li key={user.id} className="px-6 py-4 hover:bg-gray-50">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                      <span className="text-blue-800 font-medium">
+                        {user.full_name.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="ml-4">
+                    <h3 className="text-lg font-medium text-gray-900">
+                      {user.full_name}
+                    </h3>
+                    <p className="text-gray-500">{user.email}</p>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default UserList;
+```
+
+### SQLAlchemy Model with Alembic Migration
+
+When suggesting a new database model:
+
+```python
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
+from app.database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    full_name = Column(String)
+    is_active = Column(Boolean, default=True)
+    is_superuser = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    posts = relationship("Post", back_populates="author")
+
+    def __repr__(self):
+        return f"User(id={self.id}, email={self.email}, full_name={self.full_name})"
+```
+
+Alembic Migration:
+
+```python
+"""create users table
+
+Revision ID: a1b2c3d4e5f6
+Revises:
+Create Date: 2023-01-01 12:00:00.000000
+
+"""
+from alembic import op
+import sqlalchemy as sa
+
+revision = 'a1b2c3d4e5f6'
+down_revision = None
+branch_labels = None
+depends_on = None
+
+def upgrade():
+    op.create_table(
+        'users',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('email', sa.String(), nullable=False),
+        sa.Column('hashed_password', sa.String(), nullable=False),
+        sa.Column('full_name', sa.String(), nullable=True),
+        sa.Column('is_active', sa.Boolean(), server_default='true', nullable=False),
+        sa.Column('is_superuser', sa.Boolean(), server_default='false', nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
+    op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
+
+def downgrade():
+    op.drop_index(op.f('ix_users_id'), table_name='users')
+    op.drop_index(op.f('ix_users_email'), table_name='users')
+    op.drop_table('users')
+```
+
+---
+
+## See Also
+
+### Related Rules
+
+**Tech Stack Selection** (Use BEFORE This Rule):
+
+- @900-tech-stack-selection.mdc - SELECT tech stack before using this implementation guide
+- @000-project-startup-guide.mdc - Complete project startup sequence (Phase 1: Stack selection)
+
+**Implementation Standards** (Use WITH This Rule):
+
+- @100-coding-patterns.mdc - General coding patterns (language-agnostic)
+- @105-typescript-linter-standards.mdc - TypeScript linting for React/Next.js frontend
+- @012-api-security.mdc - API security best practices for FastAPI
+- @060-api-standards.mdc - API design standards
+- @025-multi-tenancy.mdc - Multi-tenant patterns (if applicable)
+
+**Database & Performance**:
+
+- @208-database-operations.mdc - Database operations, migrations, backups
+- @082-database-performance-budgets.mdc - Database performance optimization
+- @064-caching-strategies.mdc - Caching patterns (Redis with PostgreSQL)
+
+**Testing & Quality**:
+
+- @300-testing-standards.mdc - General testing standards
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @370-api-testing-database.mdc - API testing with database integration
+- @375-api-test-first-time-right.mdc - API testing schema-first approach
+
+**Deployment & Operations**:
+
+- @200-deployment-infrastructure.mdc - Deployment infrastructure setup
+- @203-production-deployment-safety.mdc - Production deployment safety
+- @224-secrets-management.mdc - Environment variables and secrets
+
+### Tools & Documentation
+
+**Project Setup**:
+
+- **`.cursor/tools/inspect-model.sh`** - Inspect Prisma/SQLAlchemy models before implementation
+  ```bash
+  ./.cursor/tools/inspect-model.sh User
+  # Shows: Schema, relationships, indexes
+  ```
+
+**Code Quality**:
+
+- **`.cursor/tools/check-linter.sh`** - Validate Python (PEP 8) and TypeScript code
+  ```bash
+  ./.cursor/tools/check-linter.sh
+  # Runs: flake8, mypy, eslint
+  ```
+
+**Testing**:
+
+- **`.cursor/tools/run-tests.sh`** - Run pytest test suite
+  ```bash
+  ./.cursor/tools/run-tests.sh
+  # Runs: pytest --cov=app tests/
+  ```
+
+**Database**:
+
+- **`.cursor/tools/check-migrations.sh`** - Validate database migrations
+  ```bash
+  ./.cursor/tools/check-migrations.sh
+  # Checks: Alembic migrations, schema consistency
+  ```
+
+### Comprehensive Guides
+
+**Essential for This Stack**:
+
+- **`guides/FastAPI-Complete-Guide.md`** - Comprehensive FastAPI patterns and best practices
+- **`guides/React-Best-Practices-Guide.md`** - React component patterns and hooks
+- **`guides/Database-Operations-Complete-Guide.md`** - PostgreSQL + SQLAlchemy operations
+- **`guides/Testing-Complete-Guide.md`** - Pytest patterns and fixtures
+
+**Performance & Optimization**:
+
+- **`guides/Frontend-Performance-Complete-Guide.md`** - React performance optimization
+- **`guides/Caching-Complete-Guide.md`** - Redis caching with PostgreSQL
+
+**DevOps & Deployment**:
+
+- **`guides/Docker-Complete-Guide.md`** - Docker multi-stage builds and optimization
+- **`guides/Deployment-Workflow-Complete-Guide.md`** - CI/CD with GitHub Actions
+
+### Quick Start - Using This Stack
+
+```bash
+# 1. Ensure stack is selected (use Rule 900 if starting new project)
+# You should have already decided: Python + FastAPI + React + PostgreSQL
+
+# 2. Set up Python backend
+mkdir -p app/{api,models,schemas,tests}
+poetry init
+poetry add fastapi uvicorn sqlalchemy psycopg2-binary alembic pydantic
+poetry add pytest pytest-cov pytest-asyncio httpx --group test
+
+# 3. Set up React frontend
+npx create-react-app frontend --template typescript
+cd frontend && npm install tailwindcss @tanstack/react-query axios
+
+# 4. Set up PostgreSQL database
+# Use Neon, Supabase, or local PostgreSQL
+docker-compose up -d postgres  # or use managed service
+
+# 5. Generate code using this rule's patterns
+# AI will use templates from this rule for:
+# - FastAPI endpoints (@router.post, @router.get)
+# - SQLAlchemy models (Column, relationship)
+# - React components (hooks, Tailwind CSS)
+# - Pytest tests (fixtures, parametrize)
+# - Docker configurations (multi-stage builds)
+
+# 6. Run quality checks
+./.cursor/tools/check-linter.sh
+./.cursor/tools/run-tests.sh
+```
+
+### When to Use This Rule
+
+**✅ Use This Rule When**:
+
+- Stack has been selected (Python + FastAPI + React + PostgreSQL)
+- During active development
+- Generating code for this specific stack
+- Need implementation patterns and templates
+- Writing tests for this stack
+- Creating Docker configurations
+
+**❌ Do NOT Use This Rule When**:
+
+- Selecting which tech stack to use (use @900-tech-stack-selection.mdc)
+- Starting a completely new project (use @000-project-startup-guide.mdc)
+- Using a different stack (Next.js, Django, MongoDB, etc.)
+- Need general coding patterns (use @100-coding-patterns.mdc)
+
+### Stack-Specific Best Practices
+
+#### FastAPI Best Practices
+
+1. **Always use async/await** for I/O operations (database, external APIs)
+2. **Use Pydantic models** for request/response validation
+3. **Implement dependency injection** with `Depends()` for database sessions
+4. **Add OpenAPI documentation** with descriptions, examples, tags
+5. **Use status codes** from `fastapi.status` module
+6. **Implement proper error handling** with `HTTPException`
+
+#### React Best Practices
+
+1. **Use functional components** with hooks (no class components)
+2. **Implement proper memoization** with `React.memo`, `useMemo`, `useCallback`
+3. **Use React Query** (@tanstack/react-query) for server state
+4. **Apply Tailwind CSS** utility classes (avoid custom CSS)
+5. **Extract reusable logic** into custom hooks
+6. **Implement proper error boundaries**
+
+#### PostgreSQL + SQLAlchemy Best Practices
+
+1. **Use relationships** for foreign keys (`relationship()`, `back_populates`)
+2. **Add indexes** for frequently queried fields
+3. **Use JSONB** for flexible/semi-structured data
+4. **Implement migrations** with Alembic (never modify database directly)
+5. **Use connection pooling** for production
+6. **Optimize queries** with `joinedload()`, `selectinload()`
+
+#### Pytest Best Practices
+
+1. **Use fixtures** for setup/teardown (avoid global state)
+2. **Parametrize tests** for multiple scenarios (`@pytest.mark.parametrize`)
+3. **Mock external dependencies** with `pytest-mock`
+4. **Test database operations** with test database (use fixtures)
+5. **Measure coverage** with `pytest-cov` (aim for 80%+)
+6. **Isolate tests** (each test should be independent)
+
+#### Docker Best Practices
+
+1. **Use multi-stage builds** to minimize image size
+2. **Combine RUN commands** to reduce layers
+3. **Use .dockerignore** to exclude unnecessary files
+4. **Pin versions** for reproducible builds
+5. **Use non-root user** for security
+6. **Cache dependencies** separately from source code
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important)  
+**Applies To**: Python (FastAPI) + React + PostgreSQL + Elasticsearch + pytest + Docker stack  
+**Last Updated**: November 20, 2025
+
+This Markdown document includes all the requested changes, with specific guidelines, URLs to relevant resources (e.g., FastAPI, React, etc.), and complete code snippets. It's designed to help Cursor provide precise, context-aware recommendations tailored to the project's technical stack. Let me know if you need further adjustments!

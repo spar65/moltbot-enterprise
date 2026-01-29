@@ -1,0 +1,568 @@
+___
+description: USE advanced client storage when BUILDING offline-first apps or handling large datasets to ENSURE proper data persistence, offline functionality, and storage management
+globs: "**/*.{ts,tsx,js,jsx}"
+___
+
+# Client Storage Standards
+
+## Context
+- Modern web applications require sophisticated client-side storage beyond localStorage
+- Offline-first applications need robust local data persistence
+- Large datasets require structured storage with indexing capabilities
+- Progressive Web Apps (PWAs) require cache management for offline functionality
+- Storage APIs have different capabilities, limits, and use cases
+- Proper storage management prevents quota errors and data loss
+
+## Requirements
+
+### Storage API Selection
+
+- **REQUIRED**: Choose appropriate storage API based on data size and structure
+- **REQUIRED**: Understand storage quota limits for each API
+- localStorage/sessionStorage: Small data (<10MB), simple key-value
+- IndexedDB: Large structured data (>10MB), complex queries
+- Cache API: Network requests, offline functionality
+- Service Worker: Background sync, offline-first patterns
+
+### LocalStorage & SessionStorage
+
+- **REQUIRED**: Use only for small, non-critical data (<10MB total)
+- **REQUIRED**: Handle quota exceeded errors gracefully
+- Synchronous API - blocks main thread
+- String-only storage - serialize objects
+- LocalStorage persists across sessions
+- SessionStorage cleared when tab closes
+
+```typescript
+// GOOD: Proper localStorage usage with error handling
+function useLocalStorage<T>(key: string, initialValue: T) {
+  const [storedValue, setStoredValue] = useState<T>(() => {
+    try {
+      const item = window.localStorage.getItem(key);
+      return item ? JSON.parse(item) : initialValue;
+    } catch (error) {
+      console.error(`Error loading ${key} from localStorage:`, error);
+      return initialValue;
+    }
+  });
+
+  const setValue = useCallback((value: T | ((val: T) => T)) => {
+    try {
+      const valueToStore = value instanceof Function ? value(storedValue) : value;
+      setStoredValue(valueToStore);
+      
+      // Check if we're exceeding quota
+      const serialized = JSON.stringify(valueToStore);
+      if (serialized.length > 5 * 1024 * 1024) { // 5MB warning
+        console.warn(`${key} is approaching localStorage limits (${serialized.length} bytes)`);
+      }
+      
+      window.localStorage.setItem(key, serialized);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+        console.error('localStorage quota exceeded. Clearing old data...');
+        // Implement cleanup strategy
+        clearOldEntries();
+      } else {
+        console.error(`Error saving ${key} to localStorage:`, error);
+      }
+    }
+  }, [key, storedValue]);
+
+  return [storedValue, setValue] as const;
+}
+
+// BAD: Storing large data in localStorage
+function BadStorageExample() {
+  // Don't store large arrays or objects in localStorage
+  localStorage.setItem('large-dataset', JSON.stringify(hugeArray)); // ❌ Will hit quota
+  
+  // Don't assume storage will succeed
+  localStorage.setItem('data', value); // ❌ No error handling
+}
+```
+
+### IndexedDB - Structured Storage
+
+- **REQUIRED**: Use IndexedDB for large structured datasets (>10MB)
+- **REQUIRED**: Implement proper schema versioning
+- **REQUIRED**: Handle database upgrade events
+- Asynchronous API - non-blocking
+- Supports indexes and complex queries
+- Can store large amounts of data (GBs)
+- Transactional operations
+
+```typescript
+// GOOD: IndexedDB wrapper with proper schema management
+class TaskDatabase {
+  private db: IDBDatabase | null = null;
+  private readonly DB_NAME = 'TasksDB';
+  private readonly DB_VERSION = 2;
+  
+  async init(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        this.db = request.result;
+        resolve();
+      };
+      
+      // Handle schema upgrades
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        const oldVersion = event.oldVersion;
+        
+        // Version 1: Create initial store
+        if (oldVersion < 1) {
+          const taskStore = db.createObjectStore('tasks', { keyPath: 'id' });
+          taskStore.createIndex('status', 'status', { unique: false });
+          taskStore.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+        
+        // Version 2: Add new index
+        if (oldVersion < 2) {
+          const transaction = (event.target as IDBOpenDBRequest).transaction!;
+          const taskStore = transaction.objectStore('tasks');
+          taskStore.createIndex('priority', 'priority', { unique: false });
+        }
+      };
+    });
+  }
+  
+  async addTask(task: Task): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['tasks'], 'readwrite');
+      const store = transaction.objectStore('tasks');
+      const request = store.add(task);
+      
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+  
+  async getTasksByStatus(status: string): Promise<Task[]> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['tasks'], 'readonly');
+      const store = transaction.objectStore('tasks');
+      const index = store.index('status');
+      const request = index.getAll(status);
+      
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+  
+  async clearOldTasks(daysOld: number): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    const cutoffDate = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['tasks'], 'readwrite');
+      const store = transaction.objectStore('tasks');
+      const index = store.index('createdAt');
+      const request = index.openCursor(IDBKeyRange.upperBound(cutoffDate));
+      
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        } else {
+          resolve();
+        }
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+}
+
+// Usage
+const db = new TaskDatabase();
+await db.init();
+await db.addTask({ id: '1', status: 'active', priority: 'high', createdAt: Date.now() });
+const activeTasks = await db.getTasksByStatus('active');
+```
+
+### Cache API - Network Request Caching
+
+- **REQUIRED**: Use Cache API for offline functionality
+- **REQUIRED**: Implement cache versioning and cleanup
+- **REQUIRED**: Handle cache size limits
+- Designed for HTTP requests/responses
+- Enables offline-first patterns
+- Controlled by Service Worker
+- Cache invalidation strategies
+
+```typescript
+// GOOD: Cache API with versioning and cleanup
+const CACHE_VERSION = 'v1';
+const CACHE_NAME = `app-cache-${CACHE_VERSION}`;
+
+// Cache resources during Service Worker install
+self.addEventListener('install', (event: ExtendableEvent) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll([
+        '/',
+        '/styles/main.css',
+        '/scripts/app.js',
+        '/images/logo.png',
+      ]);
+    })
+  );
+});
+
+// Clean up old caches during Service Worker activation
+self.addEventListener('activate', (event: ExtendableEvent) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
+      );
+    })
+  );
+});
+
+// Serve from cache, fall back to network
+self.addEventListener('fetch', (event: FetchEvent) => {
+  event.respondWith(
+    caches.match(event.request).then((response) => {
+      if (response) {
+        return response; // Cache hit
+      }
+      
+      // Clone the request
+      const fetchRequest = event.request.clone();
+      
+      return fetch(fetchRequest).then((response) => {
+        // Check if valid response
+        if (!response || response.status !== 200 || response.type !== 'basic') {
+          return response;
+        }
+        
+        // Clone the response
+        const responseToCache = response.clone();
+        
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseToCache);
+        });
+        
+        return response;
+      });
+    })
+  );
+});
+```
+
+### Storage Quota Management
+
+- **REQUIRED**: Check available storage quota before large operations
+- **REQUIRED**: Implement cleanup strategies for quota exceeded errors
+- **REQUIRED**: Monitor storage usage in production
+- Request persistent storage for critical data
+- Implement LRU (Least Recently Used) cleanup
+- Warn users when approaching quota limits
+
+```typescript
+// GOOD: Storage quota management
+class StorageManager {
+  async checkQuota(): Promise<{ usage: number; quota: number; percentage: number }> {
+    if ('storage' in navigator && 'estimate' in navigator.storage) {
+      const estimate = await navigator.storage.estimate();
+      const usage = estimate.usage || 0;
+      const quota = estimate.quota || 0;
+      const percentage = (usage / quota) * 100;
+      
+      return { usage, quota, percentage };
+    }
+    
+    return { usage: 0, quota: 0, percentage: 0 };
+  }
+  
+  async requestPersistentStorage(): Promise<boolean> {
+    if ('storage' in navigator && 'persist' in navigator.storage) {
+      const isPersisted = await navigator.storage.persist();
+      console.log(`Persistent storage: ${isPersisted ? 'granted' : 'denied'}`);
+      return isPersisted;
+    }
+    return false;
+  }
+  
+  async warnIfLowStorage(threshold: number = 80): Promise<void> {
+    const { usage, quota, percentage } = await this.checkQuota();
+    
+    if (percentage > threshold) {
+      console.warn(
+        `Storage usage at ${percentage.toFixed(1)}% (${this.formatBytes(usage)} of ${this.formatBytes(quota)})`
+      );
+      
+      // Trigger cleanup
+      await this.cleanupOldData();
+    }
+  }
+  
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  }
+  
+  private async cleanupOldData(): Promise<void> {
+    // Implement cleanup strategy (LRU, oldest first, etc.)
+    console.log('Cleaning up old storage data...');
+    // Implementation depends on your data structure
+  }
+}
+
+// Usage
+const storageManager = new StorageManager();
+await storageManager.warnIfLowStorage(80);
+await storageManager.requestPersistentStorage();
+```
+
+### Storage Security
+
+- **REQUIRED**: Never store sensitive data in client storage without encryption
+- **REQUIRED**: Sanitize data before storing to prevent XSS
+- **REQUIRED**: Implement proper access control for storage operations
+- Be aware of XSS vulnerabilities with stored data
+- Don't store authentication tokens in localStorage (use httpOnly cookies)
+- Validate data retrieved from storage before use
+
+```typescript
+// GOOD: Secure storage practices
+class SecureStorage {
+  private readonly ENCRYPTION_KEY = 'your-encryption-key'; // Should be derived securely
+  
+  async setSecure(key: string, value: any): Promise<void> {
+    try {
+      // Sanitize the value
+      const sanitized = this.sanitize(value);
+      
+      // Encrypt sensitive data
+      const encrypted = await this.encrypt(sanitized);
+      
+      // Store with timestamp
+      const data = {
+        value: encrypted,
+        timestamp: Date.now(),
+      };
+      
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (error) {
+      console.error('Secure storage failed:', error);
+      throw error;
+    }
+  }
+  
+  async getSecure<T>(key: string): Promise<T | null> {
+    try {
+      const stored = localStorage.getItem(key);
+      if (!stored) return null;
+      
+      const data = JSON.parse(stored);
+      
+      // Check if data is expired (e.g., 24 hours)
+      if (Date.now() - data.timestamp > 24 * 60 * 60 * 1000) {
+        localStorage.removeItem(key);
+        return null;
+      }
+      
+      // Decrypt and validate
+      const decrypted = await this.decrypt(data.value);
+      return this.validate(decrypted) as T;
+    } catch (error) {
+      console.error('Secure retrieval failed:', error);
+      return null;
+    }
+  }
+  
+  private sanitize(value: any): any {
+    // Implement sanitization logic
+    // Remove potential XSS vectors
+    return value;
+  }
+  
+  private async encrypt(value: any): Promise<string> {
+    // Implement encryption (Web Crypto API)
+    return JSON.stringify(value); // Placeholder
+  }
+  
+  private async decrypt(encrypted: string): Promise<any> {
+    // Implement decryption
+    return JSON.parse(encrypted); // Placeholder
+  }
+  
+  private validate(value: any): any {
+    // Validate structure and types
+    return value;
+  }
+}
+
+// BAD: Insecure storage practices
+function BadSecurityExample() {
+  // ❌ Don't store sensitive tokens in localStorage
+  localStorage.setItem('auth_token', 'Bearer xyz123');
+  
+  // ❌ Don't store unsanitized user input
+  localStorage.setItem('user_note', userInput); // XSS risk
+  
+  // ❌ Don't store credit card info
+  localStorage.setItem('cc_number', '1234-5678-9012-3456');
+}
+```
+
+### Storage Migration & Schema Evolution
+
+- **REQUIRED**: Implement versioning for stored data structures
+- **REQUIRED**: Handle data migration when schema changes
+- **REQUIRED**: Provide fallback for invalid/old data formats
+- Test migration paths thoroughly
+- Don't break existing stored data
+- Clean up obsolete data
+
+```typescript
+// GOOD: Storage migration handling
+interface StorageSchema {
+  version: number;
+  data: any;
+}
+
+class MigratableStorage {
+  private readonly CURRENT_VERSION = 3;
+  
+  getData<T>(key: string): T | null {
+    const stored = localStorage.getItem(key);
+    if (!stored) return null;
+    
+    try {
+      const schema: StorageSchema = JSON.parse(stored);
+      
+      // Migrate if needed
+      if (schema.version < this.CURRENT_VERSION) {
+        const migrated = this.migrate(schema);
+        this.setData(key, migrated);
+        return migrated as T;
+      }
+      
+      return schema.data as T;
+    } catch (error) {
+      console.error('Failed to parse stored data:', error);
+      return null;
+    }
+  }
+  
+  setData(key: string, data: any): void {
+    const schema: StorageSchema = {
+      version: this.CURRENT_VERSION,
+      data,
+    };
+    localStorage.setItem(key, JSON.stringify(schema));
+  }
+  
+  private migrate(schema: StorageSchema): any {
+    let data = schema.data;
+    
+    // Migrate from v1 to v2
+    if (schema.version < 2) {
+      data = this.migrateV1toV2(data);
+    }
+    
+    // Migrate from v2 to v3
+    if (schema.version < 3) {
+      data = this.migrateV2toV3(data);
+    }
+    
+    return data;
+  }
+  
+  private migrateV1toV2(data: any): any {
+    // Example: Rename field
+    return {
+      ...data,
+      userId: data.user_id, // v2 uses camelCase
+    };
+  }
+  
+  private migrateV2toV3(data: any): any {
+    // Example: Add new field with default
+    return {
+      ...data,
+      preferences: data.preferences || {},
+    };
+  }
+}
+```
+
+## See Also
+
+### Related Rules
+- @045-browser-state-management.mdc - Browser history and basic storage
+- @046-session-validation.mdc - Session security and validation
+- @071-state-management.mdc - General state management patterns
+- @012-api-security.mdc - API security standards
+- @010-security-compliance.mdc - Security and compliance standards
+- @067-runtime-optimization.mdc - Runtime performance optimization
+- @002-rule-application.mdc - Source of Truth Hierarchy
+
+### Tools & Documentation
+- **`.cursor/docs/ai-workflows.md#offline-first-patterns`** - Offline-first development patterns
+- **Browser DevTools** - Application > Storage, Cache Storage, IndexedDB tabs
+- **Chrome DevTools** - Clear storage, storage quota inspection
+
+### Comprehensive Guides
+- **`guides/Offline-First-Architecture-Guide.md`** (To be created) - Complete offline-first patterns
+- **`guides/PWA-Complete-Guide.md`** (To be created) - Progressive Web App implementation
+
+### Quick Start - Client Storage
+
+```typescript
+// 1. Choose appropriate storage API
+// Small data (<10MB): localStorage/sessionStorage
+// Large structured data: IndexedDB
+// Network caching: Cache API
+
+// 2. Implement error handling
+try {
+  localStorage.setItem('key', JSON.stringify(data));
+} catch (error) {
+  if (error.name === 'QuotaExceededError') {
+    await cleanupOldData();
+  }
+}
+
+// 3. Check quota before large operations
+const { usage, quota, percentage } = await navigator.storage.estimate();
+
+// 4. Implement versioning for schema evolution
+const schema = { version: 1, data: yourData };
+
+// 5. Use IndexedDB for large datasets
+const db = await openDB('MyDB', 1, {
+  upgrade(db) {
+    db.createObjectStore('items', { keyPath: 'id' });
+  },
+});
+```
+
+### Common Scenarios
+
+| Scenario | Storage API | Rule Reference |
+|----------|-------------|----------------|
+| **Small Settings** | localStorage | This rule |
+| **Large Datasets** | IndexedDB | This rule |
+| **Offline Assets** | Cache API | This rule |
+| **Session Data** | sessionStorage | @045-browser-state-management.mdc |
+| **Authentication** | httpOnly Cookies | @046-session-validation.mdc |
+| **Cross-Tab Sync** | localStorage + events | @045-browser-state-management.mdc |

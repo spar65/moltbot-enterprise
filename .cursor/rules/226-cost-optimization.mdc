@@ -1,0 +1,810 @@
+---
+description: Implement comprehensive cost optimization strategies when designing cloud infrastructure to ensure efficient resource utilization and budget control
+globs: "**/*.{ts,tsx,js,jsx,yaml,yml}"
+priority: P2
+---
+
+# Cost Optimization Standards
+
+## Context
+Apply comprehensive cost optimization standards when designing and operating cloud infrastructure to ensure efficient resource utilization, minimize waste, and maintain budget control without sacrificing performance or reliability.
+
+## Requirements
+
+### 1. Resource Right-Sizing
+
+#### 1.1 Compute Optimization
+```typescript
+// Analyze compute resource utilization
+interface ComputeUtilization {
+  instance: {
+    type: string;
+    vcpu: number;
+    memory: number;  // GB
+    cost: number;    // USD per hour
+  };
+  
+  utilization: {
+    cpu: {
+      avg: number;       // Percentage (0-100)
+      p95: number;
+      p99: number;
+    };
+    
+    memory: {
+      avg: number;
+      p95: number;
+      p99: number;
+    };
+  };
+  
+  recommendation: {
+    rightSized: string;
+    savings: number;    // USD per month
+    reason: string;
+  };
+}
+
+// Calculate right-sizing recommendations
+async function analyzeComputeUtilization(): Promise<ComputeUtilization[]> {
+  const instances = await getRunningInstances();
+  const recommendations: ComputeUtilization[] = [];
+  
+  for (const instance of instances) {
+    const metrics = await getInstanceMetrics(instance.id, 30);  // 30 days
+    
+    // Underutilized: < 40% CPU and < 60% memory
+    if (metrics.cpu.p95 < 40 && metrics.memory.p95 < 60) {
+      const smallerInstance = findSmallerInstance(instance.type);
+      
+      recommendations.push({
+        instance,
+        utilization: metrics,
+        recommendation: {
+          rightSized: smallerInstance.type,
+          savings: (instance.cost - smallerInstance.cost) * 730,  // Hours/month
+          reason: 'Consistently underutilized'
+        }
+      });
+    }
+    
+    // Overutilized: > 80% CPU or > 90% memory at p95
+    if (metrics.cpu.p95 > 80 || metrics.memory.p95 > 90) {
+      const largerInstance = findLargerInstance(instance.type);
+      
+      recommendations.push({
+        instance,
+        utilization: metrics,
+        recommendation: {
+          rightSized: largerInstance.type,
+          savings: -(largerInstance.cost - instance.cost) * 730,
+          reason: 'At risk of performance issues'
+        }
+      });
+    }
+  }
+  
+  return recommendations;
+}
+```
+
+#### 1.2 Serverless Optimization
+```typescript
+// Optimize serverless function costs
+interface ServerlessOptimization {
+  function: {
+    name: string;
+    memory: number;      // MB
+    timeout: number;     // Seconds
+    avgDuration: number; // Milliseconds
+  };
+  
+  costs: {
+    compute: number;     // USD per month
+    requests: number;    // USD per month
+    total: number;
+  };
+  
+  optimization: {
+    recommendedMemory: number;
+    expectedSavings: number;
+    reason: string;
+  };
+}
+
+// Analyze serverless costs
+async function optimizeServerlessFunctions(): Promise<ServerlessOptimization[]> {
+  const functions = await getServerlessFunctions();
+  const optimizations: ServerlessOptimization[] = [];
+  
+  for (const fn of functions) {
+    const metrics = await getFunctionMetrics(fn.name, 30);
+    
+    // Memory optimization: avg memory usage < 60% of allocated
+    if (metrics.avgMemoryUsed < fn.memory * 0.6) {
+      const recommendedMemory = Math.ceil(metrics.avgMemoryUsed * 1.2);  // 20% buffer
+      const costReduction = calculateCostDifference(fn.memory, recommendedMemory);
+      
+      optimizations.push({
+        function: fn,
+        costs: metrics.costs,
+        optimization: {
+          recommendedMemory,
+          expectedSavings: costReduction,
+          reason: `Memory over-provisioned: ${
+            (fn.memory - metrics.avgMemoryUsed).toFixed(0)
+          }MB unused`
+        }
+      });
+    }
+    
+    // Timeout optimization: avg duration << configured timeout
+    if (metrics.avgDuration < fn.timeout * 1000 * 0.3) {
+      optimizations.push({
+        function: fn,
+        costs: metrics.costs,
+        optimization: {
+          recommendedMemory: fn.memory,
+          expectedSavings: 0,  // Timeout doesn't affect cost directly
+          reason: `Timeout over-provisioned: avg ${
+            metrics.avgDuration
+          }ms vs ${fn.timeout * 1000}ms limit`
+        }
+      });
+    }
+  }
+  
+  return optimizations;
+}
+```
+
+### 2. Cost-Aware Architecture
+
+#### 2.1 Caching Strategy
+```typescript
+// Implement caching to reduce compute/database costs
+interface CachingCostImpact {
+  // Before caching
+  before: {
+    databaseCalls: number;     // Per day
+    computeTime: number;       // Milliseconds per day
+    cost: number;              // USD per day
+  };
+  
+  // After caching
+  after: {
+    cacheHitRate: number;      // Percentage (0-100)
+    databaseCalls: number;
+    computeTime: number;
+    cacheCost: number;         // USD per day
+    totalCost: number;
+  };
+  
+  savings: number;             // USD per day
+}
+
+// Calculate caching ROI
+async function calculateCachingROI(
+  endpoint: string
+): Promise<CachingCostImpact> {
+  const currentMetrics = await getEndpointMetrics(endpoint);
+  
+  // Estimate cache hit rate based on request patterns
+  const estimatedHitRate = estimateCacheHitRate(currentMetrics.requestPattern);
+  
+  // Calculate cost reduction
+  const databaseCallReduction = 
+    currentMetrics.databaseCalls * (estimatedHitRate / 100);
+  const computeReduction = 
+    currentMetrics.computeTime * (estimatedHitRate / 100);
+  
+  const databaseSavings = 
+    databaseCallReduction * COST_PER_DB_CALL;
+  const computeSavings = 
+    computeReduction * COST_PER_COMPUTE_MS;
+  const cacheCost = 
+    estimateCacheCost(currentMetrics.dataSize, estimatedHitRate);
+  
+  return {
+    before: {
+      databaseCalls: currentMetrics.databaseCalls,
+      computeTime: currentMetrics.computeTime,
+      cost: databaseSavings + computeSavings
+    },
+    after: {
+      cacheHitRate: estimatedHitRate,
+      databaseCalls: currentMetrics.databaseCalls - databaseCallReduction,
+      computeTime: currentMetrics.computeTime - computeReduction,
+      cacheCost,
+      totalCost: (databaseSavings + computeSavings - cacheCost)
+    },
+    savings: databaseSavings + computeSavings - cacheCost
+  };
+}
+```
+
+#### 2.2 Data Transfer Optimization
+```typescript
+// Minimize data transfer costs
+interface DataTransferOptimization {
+  // Current data transfer
+  current: {
+    egress: number;          // GB per month
+    crossRegion: number;     // GB per month
+    cost: number;            // USD per month
+  };
+  
+  // Optimization opportunities
+  optimizations: {
+    compression: {
+      enabled: boolean;
+      savings: number;       // GB and USD per month
+    };
+    
+    cdnUsage: {
+      enabled: boolean;
+      savings: number;
+    };
+    
+    regionLocality: {
+      violations: string[];  // Services in wrong regions
+      savings: number;
+    };
+  };
+}
+
+// Analyze data transfer costs
+async function optimizeDataTransfer(): Promise<DataTransferOptimization> {
+  const current = await getDataTransferMetrics();
+  
+  return {
+    current,
+    optimizations: {
+      // Compression: typically 70% reduction for JSON/HTML
+      compression: {
+        enabled: await isCompressionEnabled(),
+        savings: current.egress * 0.7 * DATA_TRANSFER_COST_PER_GB
+      },
+      
+      // CDN: move static assets to CDN (cheaper egress)
+      cdnUsage: {
+        enabled: await isCDNEnabled(),
+        savings: estimateCDNSavings(current.egress)
+      },
+      
+      // Region locality: keep data in same region as compute
+      regionLocality: {
+        violations: await findRegionViolations(),
+        savings: current.crossRegion * CROSS_REGION_TRANSFER_COST
+      }
+    }
+  };
+}
+```
+
+### 3. Cost Monitoring & Alerts
+
+#### 3.1 Budget Tracking
+```typescript
+// Track costs against budget
+interface CostBudget {
+  period: 'daily' | 'weekly' | 'monthly';
+  budget: number;          // USD
+  actual: number;
+  forecast: number;
+  variance: number;        // Percentage
+  
+  breakdown: {
+    compute: number;
+    database: number;
+    storage: number;
+    network: number;
+    other: number;
+  };
+  
+  alerts: {
+    warning: number;       // Percentage of budget (e.g., 80%)
+    critical: number;      // Percentage of budget (e.g., 100%)
+  };
+}
+
+// Monitor budget and send alerts
+async function monitorBudget(): Promise<void> {
+  const budget = await getCurrentBudget();
+  const actual = await getActualCosts();
+  const forecast = forecastMonthEndCost(actual);
+  
+  // Calculate variance
+  const variance = ((forecast - budget.budget) / budget.budget) * 100;
+  
+  // Alert if forecast exceeds warning threshold
+  if (variance > budget.alerts.warning) {
+    await sendAlert({
+      severity: variance > budget.alerts.critical ? 'critical' : 'warning',
+      message: `Cost forecast ${variance.toFixed(1)}% ${
+        variance > 0 ? 'over' : 'under'
+      } budget`,
+      metric: 'cost-variance',
+      value: variance,
+      forecast: forecast,
+      budget: budget.budget
+    });
+  }
+  
+  // Identify cost drivers
+  const costDrivers = identifyCostDrivers(actual.breakdown);
+  if (costDrivers.length > 0) {
+    console.log('💰 Top cost drivers:', costDrivers);
+  }
+}
+```
+
+#### 3.2 Anomaly Detection
+```typescript
+// Detect unusual cost patterns
+interface CostAnomaly {
+  timestamp: Date;
+  service: string;
+  baseline: number;        // USD per day
+  actual: number;
+  deviation: number;       // Percentage
+  possibleCauses: string[];
+}
+
+// Analyze cost trends for anomalies
+async function detectCostAnomalies(): Promise<CostAnomaly[]> {
+  const currentCosts = await getCurrentCosts();
+  const baseline = await getBaselineCosts(30);  // 30-day baseline
+  const anomalies: CostAnomaly[] = [];
+  
+  for (const [service, cost] of Object.entries(currentCosts)) {
+    const baselineCost = baseline[service] || 0;
+    const deviation = ((cost - baselineCost) / baselineCost) * 100;
+    
+    // Flag if cost increased > 50% from baseline
+    if (deviation > 50) {
+      anomalies.push({
+        timestamp: new Date(),
+        service,
+        baseline: baselineCost,
+        actual: cost,
+        deviation,
+        possibleCauses: await diagnoseCostIncrease(service, deviation)
+      });
+    }
+  }
+  
+  // Send alerts for significant anomalies
+  for (const anomaly of anomalies) {
+    await sendAlert({
+      severity: 'warning',
+      message: `${anomaly.service} cost increased ${
+        anomaly.deviation.toFixed(1)
+      }%`,
+      metric: 'cost-anomaly',
+      service: anomaly.service,
+      possibleCauses: anomaly.possibleCauses
+    });
+  }
+  
+  return anomalies;
+}
+
+// Diagnose cost increases
+async function diagnoseCostIncrease(
+  service: string,
+  deviation: number
+): Promise<string[]> {
+  const causes: string[] = [];
+  
+  // Check for traffic spikes
+  const traffic = await getTrafficMetrics(service);
+  if (traffic.increase > 40) {
+    causes.push(`Traffic increased ${traffic.increase.toFixed(1)}%`);
+  }
+  
+  // Check for configuration changes
+  const configChanges = await getRecentConfigChanges(service);
+  if (configChanges.length > 0) {
+    causes.push(`Recent configuration changes detected`);
+  }
+  
+  // Check for resource scaling
+  const scaling = await getScalingEvents(service);
+  if (scaling.length > 0) {
+    causes.push(`${scaling.length} scaling events occurred`);
+  }
+  
+  return causes;
+}
+```
+
+### 4. Reserved Capacity & Savings Plans
+
+#### 4.1 Commitment Analysis
+```typescript
+// Analyze opportunities for reserved capacity
+interface CommitmentOpportunity {
+  service: string;
+  current: {
+    onDemandCost: number;      // USD per month
+    usage: number;             // Hours per month
+  };
+  
+  commitment: {
+    type: 'reserved' | 'savings-plan';
+    term: '1-year' | '3-year';
+    commitmentCost: number;
+    savings: number;           // USD per month
+    savingsPercentage: number;
+  };
+  
+  recommendation: 'commit' | 'stay-on-demand' | 'analyze-further';
+}
+
+// Calculate commitment opportunities
+async function analyzeCommitments(): Promise<CommitmentOpportunity[]> {
+  const services = await getBaselineServices(90);  // 90 days baseline
+  const opportunities: CommitmentOpportunity[] = [];
+  
+  for (const service of services) {
+    // Only consider commitments for stable usage
+    if (service.usageStability > 0.8) {  // 80% consistent usage
+      const oneYearSavings = calculateReservedSavings(service, '1-year');
+      const threeYearSavings = calculateReservedSavings(service, '3-year');
+      
+      const bestOption = threeYearSavings.savings > oneYearSavings.savings * 2
+        ? threeYearSavings
+        : oneYearSavings;
+      
+      if (bestOption.savingsPercentage > 20) {
+        opportunities.push({
+          service: service.name,
+          current: {
+            onDemandCost: service.monthlyCost,
+            usage: service.monthlyHours
+          },
+          commitment: bestOption,
+          recommendation: 'commit'
+        });
+      }
+    }
+  }
+  
+  return opportunities;
+}
+```
+
+### 5. Storage Optimization
+
+#### 5.1 Storage Lifecycle Policies
+```typescript
+// Implement storage lifecycle management
+interface StorageLifecyclePolicy {
+  name: string;
+  
+  rules: {
+    // Hot storage: frequently accessed
+    hot: {
+      maxAge: 30;          // Days
+      storageClass: 'standard';
+      cost: number;        // USD per GB per month
+    };
+    
+    // Warm storage: occasionally accessed
+    warm: {
+      minAge: 30;
+      maxAge: 90;
+      storageClass: 'infrequent-access';
+      cost: number;
+    };
+    
+    // Cold storage: rarely accessed
+    cold: {
+      minAge: 90;
+      maxAge: 365;
+      storageClass: 'glacier';
+      cost: number;
+    };
+    
+    // Archive: compliance/backup only
+    archive: {
+      minAge: 365;
+      storageClass: 'deep-archive';
+      cost: number;
+    };
+  };
+  
+  estimatedSavings: number;  // USD per month
+}
+
+// Calculate storage lifecycle savings
+async function calculateStorageSavings(
+  policy: StorageLifecyclePolicy
+): Promise<number> {
+  const currentStorage = await getStorageMetrics();
+  let savings = 0;
+  
+  // Calculate savings per tier
+  for (const [tier, rule] of Object.entries(policy.rules)) {
+    const eligibleData = currentStorage.filter(
+      obj => obj.age >= rule.minAge && obj.age < (rule.maxAge || Infinity)
+    );
+    
+    const currentCost = eligibleData.reduce(
+      (sum, obj) => sum + (obj.size * currentStorage.standardCost), 0
+    );
+    
+    const newCost = eligibleData.reduce(
+      (sum, obj) => sum + (obj.size * rule.cost), 0
+    );
+    
+    savings += currentCost - newCost;
+  }
+  
+  return savings;
+}
+```
+
+#### 5.2 Data Compression & Deduplication
+```typescript
+// Optimize storage with compression
+interface StorageOptimization {
+  current: {
+    size: number;            // GB
+    cost: number;            // USD per month
+  };
+  
+  optimized: {
+    compression: {
+      enabled: boolean;
+      ratio: number;         // Compression ratio (e.g., 3:1)
+      savings: number;       // USD per month
+    };
+    
+    deduplication: {
+      enabled: boolean;
+      duplicateData: number; // GB
+      savings: number;
+    };
+  };
+  
+  totalSavings: number;
+}
+
+// Analyze storage optimization opportunities
+async function analyzeStorageOptimization(): Promise<StorageOptimization> {
+  const current = await getStorageMetrics();
+  
+  // Estimate compression savings
+  const compressionRatio = await estimateCompressionRatio(current.dataTypes);
+  const compressionSavings = 
+    current.size * (1 - 1/compressionRatio) * STORAGE_COST_PER_GB;
+  
+  // Estimate deduplication savings
+  const duplicateData = await estimateDuplicateData();
+  const deduplicationSavings = duplicateData * STORAGE_COST_PER_GB;
+  
+  return {
+    current: {
+      size: current.size,
+      cost: current.size * STORAGE_COST_PER_GB
+    },
+    optimized: {
+      compression: {
+        enabled: await isCompressionEnabled(),
+        ratio: compressionRatio,
+        savings: compressionSavings
+      },
+      deduplication: {
+        enabled: await isDeduplicationEnabled(),
+        duplicateData,
+        savings: deduplicationSavings
+      }
+    },
+    totalSavings: compressionSavings + deduplicationSavings
+  };
+}
+```
+
+### 6. Cost Allocation & Chargeback
+
+#### 6.1 Cost Tagging Strategy
+```typescript
+// Tag resources for cost allocation
+interface CostAllocationTag {
+  // Required tags
+  organization: string;
+  project: string;
+  environment: 'production' | 'staging' | 'development';
+  
+  // Optional tags
+  team?: string;
+  costCenter?: string;
+  owner?: string;
+}
+
+// Enforce cost allocation tagging
+async function validateResourceTags(
+  resource: Resource
+): Promise<TagValidation> {
+  const requiredTags: (keyof CostAllocationTag)[] = [
+    'organization',
+    'project',
+    'environment'
+  ];
+  
+  const missingTags = requiredTags.filter(
+    tag => !resource.tags[tag]
+  );
+  
+  if (missingTags.length > 0) {
+    throw new Error(
+      `Resource ${resource.id} missing required tags: ${
+        missingTags.join(', ')
+      }`
+    );
+  }
+  
+  return {
+    valid: true,
+    tags: resource.tags
+  };
+}
+```
+
+#### 6.2 Cost Reporting
+```typescript
+// Generate cost allocation reports
+interface CostAllocationReport {
+  period: string;
+  totalCost: number;
+  
+  byOrganization: Record<string, number>;
+  byProject: Record<string, number>;
+  byEnvironment: Record<string, number>;
+  byTeam: Record<string, number>;
+  
+  untaggedCosts: number;
+}
+
+// Generate monthly cost report
+async function generateCostReport(
+  month: string
+): Promise<CostAllocationReport> {
+  const costs = await getCostsForPeriod(month);
+  
+  return {
+    period: month,
+    totalCost: costs.total,
+    byOrganization: groupBy(costs.items, 'organization'),
+    byProject: groupBy(costs.items, 'project'),
+    byEnvironment: groupBy(costs.items, 'environment'),
+    byTeam: groupBy(costs.items, 'team'),
+    untaggedCosts: costs.items
+      .filter(item => !item.tags.organization)
+      .reduce((sum, item) => sum + item.cost, 0)
+  };
+}
+```
+
+## Tools & Documentation
+
+### Related Tools
+- `.cursor/tools/analyze-costs.sh` - Analyze current infrastructure costs
+- `.cursor/tools/find-savings.sh` - Identify cost optimization opportunities
+- `.cursor/tools/forecast-costs.sh` - Project future costs
+
+### Related Guides
+- `guides/Cost-Optimization-Complete-Guide.md` - Comprehensive cost guide
+- `guides/Cloud-Cost-Management-Playbook.md` - Cost management strategies
+
+### Related Rules
+- @225-infrastructure-monitoring.mdc - Infrastructure monitoring
+- @212-backup-recovery-standards.mdc - Backup cost optimization
+- @064-caching-strategies.mdc - Caching for cost reduction
+
+## Examples
+
+<example>
+**Good: Automated cost optimization**
+
+```typescript
+// Weekly cost optimization scan
+async function optimizeCosts() {
+  const rightSizing = await analyzeComputeUtilization();
+  const serverless = await optimizeServerlessFunctions();
+  const storage = await analyzeStorageOptimization();
+  
+  const totalSavings = 
+    sum(rightSizing.map(r => r.recommendation.savings)) +
+    sum(serverless.map(s => s.optimization.expectedSavings)) +
+    storage.totalSavings;
+  
+  console.log(`💰 Potential savings: $${totalSavings}/month`);
+  
+  // Auto-apply low-risk optimizations
+  await applyOptimizations(rightSizing, serverless, storage);
+}
+```
+
+Why: Continuous optimization, automated implementation, quantified savings
+</example>
+
+<example>
+**Good: Budget monitoring with alerts**
+
+```typescript
+// Daily budget check
+async function checkBudget() {
+  const forecast = await forecastMonthEndCost();
+  const budget = await getMonthlyBudget();
+  
+  if (forecast > budget * 0.8) {
+    await sendAlert({
+      message: `Forecast: $${forecast} (${
+        ((forecast/budget - 1) * 100).toFixed(1)
+      }% over budget)`,
+      possibleActions: await suggestCostReductions()
+    });
+  }
+}
+```
+
+Why: Proactive budget management, prevents overspending surprises
+</example>
+
+<example type="invalid">
+**Bad: No cost monitoring**
+
+```typescript
+// "We'll review the bill at month end"
+// No tracking, no alerts, no optimization
+```
+
+Why: Surprise bills, no opportunity to optimize, runaway costs
+</example>
+
+<example type="invalid">
+**Bad: Over-provisioned resources**
+
+```typescript
+// "Better safe than sorry"
+const instance = 'x-large';  // Actual usage: 10%
+const memory = 16384;        // Actual usage: 2GB
+```
+
+Why: Wasting 90% of resources, 10x higher costs than necessary
+</example>
+
+## Quick Start
+
+1. **Enable cost monitoring**
+   ```bash
+   ./.cursor/tools/analyze-costs.sh
+   ```
+
+2. **Set up budget alerts**
+   - Define monthly budget
+   - Configure alert thresholds
+   - Identify cost owners
+
+3. **Implement cost tagging**
+   - Tag all resources
+   - Enforce tagging policy
+   - Generate allocation reports
+
+4. **Schedule optimization reviews**
+   - Weekly: automated scans
+   - Monthly: manual review
+   - Quarterly: commitment analysis
+
+## Success Metrics
+
+### Key Performance Indicators
+- Cost per user: trending down
+- Cost per transaction: trending down
+- Budget variance: < 10%
+- Untagged costs: < 5%
+- Savings opportunities identified: > $1000/month
+- Savings opportunities implemented: > 80%

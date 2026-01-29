@@ -1,0 +1,285 @@
+---
+description: Use when making changes that might introduce technical debt, during cleanup operations, or when refactoring code to ensure long-term maintainability
+globs: "**/*.ts, **/*.tsx, **/*.js, **/*.jsx"
+---
+
+# Technical Debt Prevention and Code Maintenance
+
+## Context
+- Technical debt accumulates when shortcuts are taken for expediency
+- Cleanup operations can create more problems if not carefully planned
+- Refactoring should improve rather than degrade code quality
+- Maintaining architectural consistency is critical for enterprise solutions
+
+## Requirements
+
+### Code Cleanup Operations
+- Create a written plan before starting any cleanup operation
+- Document what will be removed and what will replace it
+- Ensure all consumers of removed code are identified and updated
+- Test thoroughly after cleanup to ensure nothing is broken
+- Prefer small, incremental cleanups over massive changes
+
+### Temporary Solutions
+- Clearly mark temporary solutions with TODO comments
+- Include the reason for the temporary solution and its intended lifetime
+- Create a tracked issue for replacing the temporary solution
+- Set a deadline for when the temporary solution should be replaced
+- Temporary solutions must still follow security and multi-tenancy rules
+
+### Refactoring Guidelines
+- Refactoring should maintain or improve the existing architecture
+- Make behavioral changes separate from structural changes
+- Ensure tests are in place before refactoring
+- Refactoring shouldn't affect the external API
+- Document architectural decisions made during refactoring
+
+### Technical Debt Review
+- Regularly audit codebase for technical debt indicators
+- Prioritize technical debt based on risk and impact
+- Schedule dedicated time for technical debt reduction
+- Measure before and after metrics for technical debt reduction
+- Document lessons learned to prevent similar debt in the future
+
+## Implementation Guidelines
+
+### Code Cleanup Approach
+```typescript
+/**
+ * CLEANUP PLAN:
+ * 1. Replacing direct MindStudio calls with AgentService
+ * 2. Steps:
+ *    a. Create AgentService interface and implementation
+ *    b. Update all consumers to use new service
+ *    c. Remove old direct calls
+ * 3. Testing: Full regression test across all affected routes
+ * 4. Timeline: Complete by 2023-04-15
+ * 5. Rollback plan: Git revert to pre-cleanup state
+ */
+
+// Good: Phased cleanup with clear comments
+// Phase 1: Create new implementation alongside old
+export class AgentService implements IAgentService {
+  async testAgent(orgId: string, config: any, input: any): Promise<any> {
+    // New implementation
+  }
+}
+
+// Phase 2: Update consumers with compatibility
+async function handleRequest(req: Request) {
+  // Use new service while maintaining compatibility
+  const result = await agentService.testAgent(
+    req.orgId,
+    req.body.config,
+    req.body.input
+  );
+  return formatLegacyResponse(result); // Maintain output format
+}
+
+// Phase 3: Remove compatibility layer after all consumers updated
+async function handleRequest(req: Request) {
+  return await agentService.testAgent(
+    req.orgId,
+    req.body.config,
+    req.body.input
+  );
+}
+
+// Bad: Abrupt removal without replacement
+// DON'T DO THIS:
+// Removed: function testMindStudio() { ... }
+// Consumers will break immediately
+```
+
+### Temporary Solutions
+```typescript
+// Good: Properly documented temporary solution
+/**
+ * TODO(issue-123): Temporary mock implementation
+ * This is a temporary solution until we implement the proper database service.
+ * It should be replaced by 2023-05-01 with a proper implementation that uses
+ * the database and respects organization boundaries.
+ */
+export function getTemporaryMockData(orgId: string): any {
+  // Temporary implementation that still respects org boundaries
+  return {
+    data: [],
+    pagination: {
+      page: 1,
+      limit: 10,
+      totalPages: 0,
+      totalItems: 0
+    }
+  };
+}
+
+// Bad: Undocumented temporary solution
+// Missing documentation on why it's temporary and when it will be fixed
+export function getMockData(): any {
+  return []; // No organization context
+}
+```
+
+### Refactoring Approach
+```typescript
+// Good: Incremental refactoring with tests
+// Step 1: Extract function without changing behavior
+function validateInput(input: any): boolean {
+  // Extracted from larger function
+  return input && typeof input === 'object' && 'query' in input;
+}
+
+// Step 2: Add tests for the extracted function
+test('validateInput should return true for valid input', () => {
+  expect(validateInput({ query: 'test' })).toBe(true);
+});
+
+// Step 3: Enhance the extracted function
+function validateInput(input: any, orgId: string): boolean {
+  // Basic validation
+  if (!input || typeof input !== 'object' || !('query' in input)) {
+    return false;
+  }
+  
+  // New validation
+  return typeof input.query === 'string' && input.query.length > 0;
+}
+
+// Bad: Massive refactoring with multiple behavior changes
+// DON'T DO THIS:
+// Complete rewrite with multiple behavioral changes at once
+// No tests, no documentation, hard to review
+```
+
+### Technical Debt Documentation
+```typescript
+/**
+ * @debt performance "This function has O(n²) complexity and should be optimized"
+ * @issue ISSUE-456
+ * @impact medium "Affects performance for large datasets only"
+ */
+function slowOperation(items: any[]): any[] {
+  // Suboptimal implementation that needs improvement
+  // ...
+}
+
+/**
+ * @debt security "API keys are stored in plain text"
+ * @issue ISSUE-789
+ * @impact high "Critical security concern"
+ * @deadline 2023-06-01
+ */
+function storeApiKey(key: string): void {
+  // Temporary implementation with security concerns
+  // ...
+}
+```
+
+## Decision Framework for Technical Changes
+
+When making a technical change, follow this decision framework:
+
+1. **Impact Assessment**
+   - Who uses this code?
+   - What could break?
+   - What are the security implications?
+
+2. **Solution Options**
+   - What's the quick solution?
+   - What's the proper architectural solution?
+   - What's the right balance for current needs?
+
+3. **Implementation Approach**
+   - Can it be done incrementally?
+   - How will you test it?
+   - What's the rollback plan?
+
+4. **Documentation Requirements**
+   - What needs to be documented?
+   - Are interfaces changing?
+   - What TODOs or issues need to be created?
+
+## Anti-Patterns to Avoid
+
+1. **Shotgun Surgery**: Making many small changes across the codebase without a clear plan
+2. **Big Bang Rewrites**: Complete rewrites without incremental steps
+3. **Invisible Technical Debt**: Undocumented shortcuts or temporary solutions
+4. **Copy-Paste Programming**: Duplicating code rather than creating proper abstractions
+5. **Architecture by Coincidence**: Changes that happen to work but violate architectural principles
+6. **Premature Optimization**: Over-engineering solutions before understanding requirements
+
+## Technical Debt Categories
+
+1. **Architectural Debt**
+   - Violations of architectural patterns
+   - Misalignment with established structures
+   - Shortcuts around proper layering
+
+2. **Implementation Debt**
+   - Non-standard coding practices
+   - Duplicated code
+   - Complex methods needing refactoring
+
+3. **Documentation Debt**
+   - Missing or outdated documentation
+   - Undocumented assumptions
+   - Unclear interfaces
+
+4. **Test Debt**
+   - Missing or incomplete tests
+   - Brittle tests
+   - Slow or unreliable tests
+
+5. **Dependency Debt**
+   - Outdated dependencies
+   - Too many dependencies
+   - Conflicting dependencies
+
+## Integration with Other Rules
+
+- Supports [060-api-standards.mdc](mdc:060-api-standards.mdc) for maintaining API consistency
+- Complements [100-coding-patterns.mdc](mdc:100-coding-patterns.mdc) for code quality
+- Works with [116-testing-environments.mdc](mdc:116-testing-environments.mdc) for proper test implementations
+- Supports [025-multi-tenancy.mdc](mdc:025-multi-tenancy.mdc) for maintaining org isolation
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - AI-assisted development workflows
+- **`003-cursor-system-overview.mdc`** ⭐ - System overview (READ THIS FIRST)
+
+### Complete Guides
+- **`guides/Code-Review-Complete-Guide.md`** ⭐ - Catches tech debt in review
+- **`guides/Git-Workflow-Complete-Guide.md`** ⭐ - Clean Git history prevents confusion
+
+### Related Rules
+- @101-code-review-standards.mdc - Review for tech debt
+- @802-git-workflow-standards.mdc - Clean commits prevent confusion
+- @100-coding-patterns.mdc - Coding standards
+- @116-testing-environments.mdc - Proper test setup
+- @300-testing-standards.mdc - Prevents test debt
+
+### Quick Start
+1. **Question shortcuts:** Is this the right solution or just convenient?
+2. **Document debt:** If taking shortcuts, document why and create issue
+3. **Refactor incrementally:** Small improvements over time
+4. **Review for debt:** Catch technical debt in code review
+
+## Measurement and Metrics
+
+Track these metrics to gauge technical debt:
+
+1. **Code Quality Metrics**
+   - Cyclomatic complexity
+   - Code duplication
+   - Test coverage
+
+2. **Process Metrics**
+   - Number of bugs per feature
+   - Time to implement changes
+   - Number of regressions
+
+3. **Technical Debt Indicators**
+   - Number of TODOs
+   - Age of TODOs
+   - Dependencies more than 3 versions behind 

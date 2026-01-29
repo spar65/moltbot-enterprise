@@ -1,0 +1,152 @@
+___
+description: PREVENT catastrophic Vercel production failures when TRIGGER deploying to production to OUTCOME avoid database/service outages
+globs: "src/**/*.{ts,tsx,js,jsx}"
+___
+
+# Critical Vercel Production Gotchas Prevention
+
+## Context
+- Vercel has specific runtime behaviors that differ from local/test environments
+- NEXT_PHASE environment variable is set during production RUNTIME, not just builds
+- Database skip logic can cause complete service failure in production
+- These issues ONLY manifest in production, making them extremely dangerous
+
+## Requirements
+
+### NEVER Use NEXT_PHASE for Database/Service Skipping
+- **FORBIDDEN**: `process.env.NEXT_PHASE === 'phase-production-build'` for skipping database connections
+- **FORBIDDEN**: Any logic that skips critical services based on NEXT_PHASE
+- **REASON**: Vercel sets NEXT_PHASE=phase-production-build during PRODUCTION RUNTIME
+- **IMPACT**: Complete database/service failure in production while working in dev/test
+
+<example>
+// ❌ FORBIDDEN - Will break production database!
+const shouldSkipDatabase = process.env.NEXT_PHASE === 'phase-production-build';
+
+if (shouldSkipDatabase) {
+  return () => Promise.resolve([]); // Returns mock in production!
+}
+</example>
+
+<example>
+// ✅ SAFE - Only skip during actual CI builds without database
+const shouldSkipDatabase = process.env.SKIP_AUTH0_CHECK === 'true' || 
+                           (process.env.CI === 'true' && !process.env.DATABASE_URL);
+
+// ✅ SAFE - Skip only when explicitly requested
+const shouldSkipDatabase = process.env.SKIP_AUTH0_CHECK === 'true';
+</example>
+
+### Database Connection Safety
+- **REQUIRED**: Always provide fallback database URLs for Vercel prefixed variables
+- **REQUIRED**: Handle PRODUCTION_POSTGRES_URL_DATABASE_URL prefix
+- **REQUIRED**: Test database skip logic in production-like environment
+
+<example>
+// ✅ SAFE - Handle all Vercel database URL variations
+let databaseUrl = process.env.DATABASE_URL || 
+                  process.env.PRODUCTION_POSTGRES_URL_DATABASE_URL ||
+                  process.env.POSTGRES_URL;
+
+// ✅ SAFE - Proper error handling
+if (!databaseUrl) {
+  throw new Error("No database URL available in environment");
+}
+</example>
+
+### AI Service Configuration Safety
+- **REQUIRED**: Verify max_tokens are within service limits (Claude: 32,000)
+- **REQUIRED**: Set appropriate timeouts for production AI calls (5+ minutes)
+- **FORBIDDEN**: max_tokens values above service limits (will cause silent failures)
+
+<example>
+// ❌ BAD - Will fail in production
+const claudeRequest = createClaudeRequest(messages, {
+  max_tokens: 100000, // Exceeds Claude limit!
+  timeout: 30000      // Too short for large requests
+});
+
+// ✅ GOOD - Within limits and appropriate timeouts
+const claudeRequest = createClaudeRequest(messages, {
+  max_tokens: 32000,  // At Claude limit
+  timeout: 300000     // 5 minutes for large requests
+});
+</example>
+
+### Environment Variable Safety
+- **REQUIRED**: Never use client-side variables for sensitive data
+- **FORBIDDEN**: NEXT_PUBLIC_* variables for secrets, API keys, or database URLs
+- **REQUIRED**: Validate all required environment variables before deployment
+
+<example type="invalid">
+// ❌ FORBIDDEN - Exposes secret to client
+const NEXT_PUBLIC_DATABASE_URL = process.env.DATABASE_URL;
+const NEXT_PUBLIC_API_SECRET = process.env.API_SECRET;
+</example>
+
+<example>
+// ✅ SAFE - Server-side only for sensitive data
+const DATABASE_URL = process.env.DATABASE_URL;
+const API_SECRET = process.env.API_SECRET;
+
+// ✅ SAFE - Only non-sensitive data in public variables
+const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL;
+</example>
+
+## Pre-Deployment Validation
+
+### Required Checks Before Production Deploy
+1. **Database Skip Logic Audit**: `grep -r "NEXT_PHASE.*phase-production-build" src/`
+2. **Environment Variable Validation**: Verify all required vars are set
+3. **Service Limit Validation**: Check AI token limits, timeout values
+4. **Production Test**: Deploy to staging with production-like config first
+
+### Mandatory Safety Script
+- **REQUIRED**: Run pre-deployment safety check before production deploy
+- **LOCATION**: `scripts/pre-deployment-safety-check.sh`
+- **TRIGGER**: Must pass before any production deployment
+
+## Implementation Checklist
+
+- [ ] Audit all database connection logic for NEXT_PHASE usage
+- [ ] Implement safe database skip logic using CI and SKIP_AUTH0_CHECK
+- [ ] Add fallback database URLs for Vercel prefixed variables  
+- [ ] Verify AI service token limits and timeouts
+- [ ] Create pre-deployment safety check script
+- [ ] Test skip logic in production-like staging environment
+- [ ] Document rollback procedures for failed deployments
+- [ ] Set up monitoring for database connection failures
+
+## See Also
+
+### Related Rules
+- @200-deployment-infrastructure.mdc - Deployment infrastructure standards
+- @201-vercel-deployment-standards.mdc - Vercel deployment best practices
+- @203-production-deployment-safety.mdc - Production safety standards
+- @204-vercel-build-environment-variables.mdc - Build env var safety (CRITICAL!)
+- @202-rollback-procedures.mdc - Emergency rollback procedures
+- @224-secrets-management.mdc - Secrets and environment variable management
+- @221-application-monitoring.mdc - Application monitoring and alerting
+- @208-database-operations.mdc - Database operations and safety
+
+### Tools & Documentation
+- **`.cursor/tools/check-env-vars.sh`** - Validate environment variable security
+  ```bash
+  ./.cursor/tools/check-env-vars.sh
+  # Validates: No NEXT_PUBLIC_ secrets, required vars set, proper isolation
+  ```
+- **`.cursor/tools/check-infrastructure.sh`** - Verify infrastructure health
+- **`.cursor/tools/check-backups.sh`** - Verify backup health before deployment
+
+### Comprehensive Guides
+- **`guides/Incident-Response-Complete-Guide.md`** - Emergency response procedures
+- **`guides/Database-Operations-Complete-Guide.md`** - Database safety and operations
+- **`guides/Secrets-Management-Complete-Guide.md`** - Environment variable management
+- **`guides/Monitoring-Complete-Guide.md`** - Production monitoring
+
+### Quick Start
+1. **Audit:** `grep -r "NEXT_PHASE.*phase-production-build" src/`
+2. **Validate:** `.cursor/tools/check-env-vars.sh`
+3. **Deploy:** Follow `guides/Incident-Response-Complete-Guide.md#deployment-procedures`
+4. **Monitor:** Use @221-application-monitoring.mdc patterns
+5. **Rollback Ready:** Have @202-rollback-procedures.mdc ready if needed

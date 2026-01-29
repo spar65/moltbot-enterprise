@@ -1,0 +1,532 @@
+---
+description: Optimize network requests when building features to improve loading speed and reduce latency
+globs: "app/**/*.{ts,tsx,js,jsx}"
+---
+
+# Network Optimization
+
+## Context
+Network performance is critical for user experience. Optimizing resource loading, compression, and request strategies can reduce load times by 50%+ and improve Core Web Vitals. This rule establishes patterns for HTTP/2, resource hints, compression, and request optimization.
+
+**Network Optimization Areas:**
+- Resource hints (preconnect, prefetch, preload)
+- HTTP/2 and HTTP/3
+- Compression (Gzip, Brotli)
+- Request batching and deduplication
+- Connection management
+
+## Requirements
+
+### Resource Hints
+
+**Preconnect - Early DNS/TLS for Critical Origins:**
+```typescript
+// app/layout.tsx
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html>
+      <head>
+        {/* Preconnect to API domain */}
+        <link rel="preconnect" href="https://api.example.com" />
+        
+        {/* Preconnect to CDN with crossorigin */}
+        <link rel="preconnect" href="https://cdn.example.com" crossOrigin="anonymous" />
+        
+        {/* DNS prefetch for less critical origins */}
+        <link rel="dns-prefetch" href="https://analytics.example.com" />
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
+```
+
+**Preload - Critical Resources:**
+```typescript
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html>
+      <head>
+        {/* Preload critical font */}
+        <link
+          rel="preload"
+          href="/fonts/inter.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        
+        {/* Preload critical CSS */}
+        <link
+          rel="preload"
+          href="/styles/critical.css"
+          as="style"
+        />
+        
+        {/* Preload hero image */}
+        <link
+          rel="preload"
+          href="/images/hero.webp"
+          as="image"
+        />
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
+```
+
+**Prefetch - Likely Next Navigation:**
+```typescript
+// components/ProductCard.tsx
+import Link from 'next/link';
+
+export function ProductCard({ product }: { product: Product }) {
+  return (
+    <Link
+      href={`/products/${product.id}`}
+      prefetch={true} // Next.js prefetches on hover
+    >
+      <ProductPreview product={product} />
+    </Link>
+  );
+}
+```
+
+<example>
+// ✅ GOOD: Strategic resource hints
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html>
+      <head>
+        {/* Critical: API domain for data fetching */}
+        <link rel="preconnect" href={process.env.NEXT_PUBLIC_API_URL} />
+        
+        {/* Important: CDN for images */}
+        <link rel="preconnect" href="https://cdn.example.com" />
+        
+        {/* Lower priority: Analytics */}
+        <link rel="dns-prefetch" href="https://analytics.example.com" />
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
+</example>
+
+<example type="invalid">
+// ❌ BAD: Too many preconnects (limit to 3-4)
+<head>
+  <link rel="preconnect" href="https://api1.example.com" />
+  <link rel="preconnect" href="https://api2.example.com" />
+  <link rel="preconnect" href="https://api3.example.com" />
+  <link rel="preconnect" href="https://api4.example.com" />
+  <link rel="preconnect" href="https://api5.example.com" />
+  {/* Too many connections! Diminishing returns */}
+</head>
+</example>
+
+### HTTP/2 and HTTP/3
+
+**Next.js/Vercel Automatic HTTP/2:**
+- HTTP/2 enabled by default on Vercel
+- No configuration needed
+- Multiplexing - multiple requests over single connection
+- Header compression
+- Server push (with careful use)
+
+**Optimize for HTTP/2:**
+```typescript
+// No need for domain sharding or sprite sheets
+// HTTP/2 handles many small requests efficiently
+
+// ✅ GOOD: Many small requests OK with HTTP/2
+export function Dashboard() {
+  return (
+    <>
+      <UserStats /> {/* Fetches /api/stats/user */}
+      <TeamStats /> {/* Fetches /api/stats/team */}
+      <OrgStats /> {/* Fetches /api/stats/org */}
+      {/* All requests multiplexed over single connection */}
+    </>
+  );
+}
+```
+
+### Compression
+
+**Automatic Compression on Vercel:**
+- Brotli compression for static assets
+- Gzip fallback for older browsers
+- No configuration needed
+
+**API Response Compression:**
+```typescript
+// app/api/large-data/route.ts
+import { NextResponse } from 'next/server';
+
+export async function GET() {
+  const largeData = await fetchLargeDataset();
+  
+  // Next.js automatically compresses response
+  // if Content-Length > threshold
+  return NextResponse.json(largeData);
+}
+```
+
+**Manual Compression (if needed):**
+```typescript
+import { gzip } from 'zlib';
+import { promisify } from 'util';
+
+const gzipAsync = promisify(gzip);
+
+export async function GET() {
+  const data = JSON.stringify(largeData);
+  const compressed = await gzipAsync(data);
+  
+  return new Response(compressed, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Encoding': 'gzip',
+    },
+  });
+}
+```
+
+### Request Optimization
+
+**Request Batching:**
+```typescript
+// lib/api-batch.ts
+class APIBatcher {
+  private queue: Array<{ id: string; resolve: Function }> = [];
+  private timeout: NodeJS.Timeout | null = null;
+  
+  async fetch(id: string): Promise<any> {
+    return new Promise((resolve) => {
+      this.queue.push({ id, resolve });
+      
+      if (!this.timeout) {
+        this.timeout = setTimeout(() => this.flush(), 10);
+      }
+    });
+  }
+  
+  private async flush() {
+    const batch = this.queue.splice(0);
+    this.timeout = null;
+    
+    if (batch.length === 0) return;
+    
+    // Batch request
+    const ids = batch.map(item => item.id);
+    const results = await fetch('/api/batch', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }).then(res => res.json());
+    
+    // Resolve individual promises
+    batch.forEach(({ id, resolve }, index) => {
+      resolve(results[index]);
+    });
+  }
+}
+
+export const apiBatcher = new APIBatcher();
+```
+
+**Request Deduplication:**
+```typescript
+// lib/request-cache.ts
+const requestCache = new Map<string, Promise<any>>();
+
+export async function cachedFetch<T>(url: string): Promise<T> {
+  // Check if request is in flight
+  if (requestCache.has(url)) {
+    return requestCache.get(url)!;
+  }
+  
+  // Start new request
+  const promise = fetch(url)
+    .then(res => res.json())
+    .finally(() => {
+      // Clear cache after request completes
+      requestCache.delete(url);
+    });
+  
+  requestCache.set(url, promise);
+  return promise;
+}
+```
+
+**React Query for Deduplication:**
+```typescript
+// app/providers.tsx
+'use client';
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5000, // 5 seconds
+      cacheTime: 10 * 60 * 1000, // 10 minutes
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+    </QueryClientProvider>
+  );
+}
+
+// Usage - automatic deduplication
+import { useQuery } from '@tanstack/react-query';
+
+export function UserProfile() {
+  const { data } = useQuery({
+    queryKey: ['user-profile'],
+    queryFn: () => fetch('/api/user').then(res => res.json()),
+  });
+  
+  return <Profile data={data} />;
+}
+```
+
+### Connection Pooling
+
+**Prisma Connection Pooling:**
+```typescript
+// lib/db.ts
+import { PrismaClient } from '@prisma/client';
+
+const globalForPrisma = global as unknown as { prisma: PrismaClient };
+
+export const prisma =
+  globalForPrisma.prisma ||
+  new PrismaClient({
+    log: ['error'],
+    // Connection pooling configured in DATABASE_URL
+    // postgresql://user:pass@host/db?connection_limit=10&pool_timeout=30
+  });
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+```
+
+**External API Connection Pooling:**
+```typescript
+// lib/http-client.ts
+import { Agent } from 'https';
+
+const httpsAgent = new Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+  maxSockets: 50,
+  maxFreeSockets: 10,
+});
+
+export async function apiRequest(url: string, options?: RequestInit) {
+  return fetch(url, {
+    ...options,
+    // @ts-ignore - Node.js specific
+    agent: httpsAgent,
+  });
+}
+```
+
+### Parallel Data Fetching
+
+**Parallel Server Component Fetching:**
+```typescript
+// app/dashboard/page.tsx
+export default async function Dashboard() {
+  // Fetch in parallel
+  const [user, stats, notifications] = await Promise.all([
+    fetchUser(),
+    fetchStats(),
+    fetchNotifications(),
+  ]);
+  
+  return (
+    <>
+      <UserHeader user={user} />
+      <StatsPanel stats={stats} />
+      <NotificationsList notifications={notifications} />
+    </>
+  );
+}
+```
+
+**Streaming with Suspense:**
+```typescript
+import { Suspense } from 'react';
+
+export default function Dashboard() {
+  return (
+    <>
+      <UserHeader /> {/* Fast */}
+      
+      {/* Slow components load in parallel */}
+      <Suspense fallback={<StatsSkeleton />}>
+        <StatsPanel />
+      </Suspense>
+      
+      <Suspense fallback={<NotificationsSkeleton />}>
+        <NotificationsList />
+      </Suspense>
+    </>
+  );
+}
+```
+
+### Request Prioritization
+
+**Fetch Priority API:**
+```typescript
+// High priority fetch
+fetch('/api/critical-data', {
+  // @ts-ignore - Experimental API
+  priority: 'high',
+});
+
+// Low priority fetch
+fetch('/api/analytics', {
+  // @ts-ignore
+  priority: 'low',
+});
+```
+
+**Next.js Image Priority:**
+```typescript
+import Image from 'next/image';
+
+export function Hero() {
+  return (
+    <Image
+      src="/hero.jpg"
+      alt="Hero"
+      priority // High priority - loaded immediately
+      width={1200}
+      height={600}
+    />
+  );
+}
+```
+
+## Performance Monitoring
+
+**Network Performance Metrics:**
+```typescript
+// lib/network-metrics.ts
+if (typeof window !== 'undefined') {
+  const observer = new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) {
+      if (entry.entryType === 'navigation') {
+        const nav = entry as PerformanceNavigationTiming;
+        
+        console.log('Network Timing:', {
+          dns: nav.domainLookupEnd - nav.domainLookupStart,
+          tcp: nav.connectEnd - nav.connectStart,
+          ttfb: nav.responseStart - nav.requestStart,
+          download: nav.responseEnd - nav.responseStart,
+        });
+      }
+    }
+  });
+  
+  observer.observe({ entryTypes: ['navigation'] });
+}
+```
+
+## Common Patterns
+
+### Pattern 1: Waterfall Prevention
+```typescript
+// ❌ BAD: Sequential (waterfall)
+const user = await fetchUser();
+const posts = await fetchPosts(user.id);
+
+// ✅ GOOD: Parallel when possible
+const [user, posts] = await Promise.all([
+  fetchUser(),
+  fetchPosts(userId), // If userId known
+]);
+```
+
+### Pattern 2: Critical Path Optimization
+```typescript
+// Load critical resources first
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html>
+      <head>
+        {/* Critical resources */}
+        <link rel="preload" href="/fonts/inter.woff2" as="font" />
+        <link rel="preconnect" href={process.env.NEXT_PUBLIC_API_URL} />
+      </head>
+      <body>
+        {children}
+        {/* Non-critical scripts load after */}
+        <Script src="/analytics.js" strategy="lazyOnload" />
+      </body>
+    </html>
+  );
+}
+```
+
+### Pattern 3: Request Coalescing
+```typescript
+// Batch multiple requests into one
+async function fetchMultiple(ids: string[]) {
+  const response = await fetch('/api/batch', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  });
+  return response.json();
+}
+```
+
+## Tools & Documentation
+
+### Required Tools (USE THESE!)
+- **`.cursor/tools/run-lighthouse.sh`** - Network performance audit
+- **`.cursor/tools/analyze-performance.sh`** - Overall analysis
+
+### Complete Workflow Documentation
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master performance guide
+- **`guides/Core-Web-Vitals-Optimization-Guide.md`** - Core Web Vitals
+- **`.cursor/docs/ai-workflows.md#network-optimization`** - Proven patterns
+
+### Quick Start
+1. **Add:** Preconnect for critical origins
+2. **Enable:** HTTP/2 (automatic on Vercel)
+3. **Batch:** Multiple requests when possible
+4. **Monitor:** Network timing with DevTools
+
+## See Also
+
+### Documentation
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Master guide
+- **`guides/Core-Web-Vitals-Optimization-Guide.md`** - LCP optimization
+
+### Related Rules
+- @062-core-web-vitals.mdc - Core Web Vitals (LCP, TTFB)
+- @064-caching-strategies.mdc - Response caching
+- @060-performance-metrics.mdc - Performance monitoring
+
+### Related Tools
+- **`.cursor/tools/run-lighthouse.sh`** - Lighthouse automation
+
+## Priority
+**P1 (Important)** - Network optimization significantly impacts loading speed and Core Web Vitals.
+
+## References
+- [Resource Hints](https://web.dev/preconnect-and-dns-prefetch/)
+- [HTTP/2](https://web.dev/performance-http2/)
+- [Request Optimization](https://web.dev/optimize-long-tasks/)
+- [Next.js Performance](https://nextjs.org/docs/app/building-your-application/optimizing)

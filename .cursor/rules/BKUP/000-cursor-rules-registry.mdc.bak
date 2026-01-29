@@ -1,0 +1,122 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: Use ALWAYS to access the full registry of Cursor rules available for this project
+globs: **/*
+alwaysApply: true
+---
+
+# AgentMinder Rules Registry
+A comprehensive index of all rules available in this project, organized by domain and purpose.
+
+## How to Use This Registry
+
+This registry helps you find the right rule for your current task:
+
+1. **Browse by category** to find relevant rules
+2. **Click on rule links** to view complete documentation
+3. **Reference rules in conversations** using the `@rule-name` syntax (e.g., `@015-white-labeling.mdc`)
+4. **Apply multiple rules** by referencing them in sequence
+
+## Rule Categories
+
+### Platform Architecture
+| Rule | Purpose | When to Apply |
+| ---- | ------- | ------------- |
+| [016-platform-hierarchy.mdc](mdc:./016-platform-hierarchy.mdc) | Ensure proper platform data hierarchy | When handling platform-level data |
+| [025-multi-tenancy.mdc](mdc:./025-multi-tenancy.mdc) | Implement multi-tenant isolation | When building features across org boundaries |
+| [017-platform-user-features.mdc](mdc:./017-platform-user-features.mdc) | Platform user management | When working with user permissions |
+
+### Security & Compliance
+| Rule | Purpose | When to Apply |
+| ---- | ------- | ------------- |
+| [010-security-compliance.mdc](mdc:./010-security-compliance.mdc) | Core security standards | All security-related implementations |
+| [020-payment-security.mdc](mdc:./020-payment-security.mdc) | Payment processing security | Handling payment information |
+| [046-session-validation.mdc](mdc:./046-session-validation.mdc) | User session security | Auth flows and session handling |
+| [047-security-design-system.mdc](mdc:./047-security-design-system.mdc) | Security UI components | Security-related UI elements |
+
+### UI/UX Standards
+| Rule | Purpose | When to Apply |
+| ---- | ------- | ------------- |
+| [015-white-labeling.mdc](mdc:./015-white-labeling.mdc) | Organization branding | Components with org-specific branding |
+| [030-vibe-coding.mdc](mdc:./030-vibe-coding.mdc) | "Vibe" coding philosophy | Initial UI component structure |
+| [040-ux-stability.mdc](mdc:./040-ux-stability.mdc) | UX stability | Preventing disruptive UX changes |
+| [041-visual-style-guide.mdc](mdc:./041-visual-style-guide.mdc) | Visual design standards | Visual consistency across app |
+| [042-ui-component-architecture.mdc](mdc:./042-ui-component-architecture.mdc) | Component architecture | Building reusable components |
+| [045-ux-enhancements.mdc](mdc:./045-ux-enhancements.mdc) | UX improvements | Adding UX refinements |
+| [050-css-architecture.mdc](mdc:./050-css-architecture.mdc) | CSS organization | Styling components and layouts |
+| [051-white-label-focus.mdc](mdc:./051-white-label-focus.mdc) | White-label priorities | Org-specific priorities |
+
+### Frontend Implementation
+| Rule | Purpose | When to Apply |
+| ---- | ------- | ------------- |
+| [045-browser-history-management.mdc](mdc:./045-browser-history-management.mdc) | Browser history | Navigation and history management |
+| [045-multi-tab-browser-history.mdc](mdc:./045-multi-tab-browser-history.mdc) | Multi-tab coordination | Cross-tab browser behavior |
+| [048-cross-tab-coordination.mdc](mdc:./048-cross-tab-coordination.mdc) | Tab synchronization | Data sharing between tabs |
+| [051-interaction-patterns.mdc](mdc:./051-interaction-patterns.mdc) | User interactions | Standard interaction behaviors |
+| [052-responsive-design.mdc](mdc:./052-responsive-design.mdc) | Responsive layouts | Mobile and varied screen sizes |
+| [053-animation-standards.mdc](mdc:./053-animation-standards.mdc) | Animations | Motion and transitions |
+| [054-accessibility-requirements.mdc](mdc:./054-accessibility-requirements.mdc) | Accessibility | A11y compliance standards |
+| [055-form-validation.mdc](mdc:./055-form-validation.mdc) | Form validation | Input validation patterns |
+
+### Testing Standards
+| Rule | Purpose | When to Apply |
+| ---- | ------- | ------------- |
+| [300-testing-standards.mdc](mdc:./300-testing-standards.mdc) | General testing | All testing scenarios |
+| [300-test-first-mandate.mdc](mdc:./300-test-first-mandate.mdc) | Test-first development | Starting new features |
+| [310-component-visual-testing.mdc](mdc:./310-component-visual-testing.mdc) | Visual testing | UI component tests |
+| [320-test-resilience.mdc](mdc:./320-test-resilience.mdc) | Test reliability | Creating robust tests |
+| [043-test-organization.mdc](mdc:./043-test-organization.mdc) | Test structure | Organizing test files |
+| [044-integration-testing.mdc](mdc:./044-integration-testing.mdc) | Integration tests | Testing component integration |
+
+### Performance & Optimization
+| Rule | Purpose | When to Apply |
+| ---- | ------- | ------------- |
+| [060-performance-metrics.mdc](mdc:./060-performance-metrics.mdc) | Performance KPIs | Measuring performance |
+| [061-code-splitting.mdc](mdc:./061-code-splitting.mdc) | Code splitting | Bundle size optimization |
+| [062-optimization.mdc](mdc:./062-optimization.mdc) | General optimization | Performance improvements |
+
+### Development Practices
+| Rule | Purpose | When to Apply |
+| ---- | ------- | ------------- |
+| [100-coding-patterns.mdc](mdc:./100-coding-patterns.mdc) | Code patterns | General coding standards |
+| [110-integration-dependencies.mdc](mdc:./110-integration-dependencies.mdc) | Dependencies | Using external libraries |
+| [120-technical-stack.mdc](mdc:./120-technical-stack.mdc) | Tech stack | Technology selection |
+| [130-logging-standards.mdc](mdc:./130-logging-standards.mdc) | Logging | Application logging |
+| [130-error-handling.mdc](mdc:./130-error-handling.mdc) | Error handling | Application error flows |
+| [140-troubleshooting-standards.mdc](mdc:./140-troubleshooting-standards.mdc) | Troubleshooting | Debugging and issue resolution |
+
+### DevOps & Infrastructure
+| Rule | Purpose | When to Apply |
+| ---- | ------- | ------------- |
+| [200-deployment-infrastructure.mdc](mdc:./200-deployment-infrastructure.mdc) | Deployment | CI/CD and deployments |
+| [200-shadcn-ui-strictness.mdc](mdc:./200-shadcn-ui-strictness.mdc) | UI library usage | Working with shadcn/ui |
+| [210-operations-incidents.mdc](mdc:./210-operations-incidents.mdc) | Incidents | Handling production issues |
+
+### Workflows & Processes
+| Rule | Purpose | When to Apply |
+| ---- | ------- | ------------- |
+| [800-workflow-guidelines.mdc](mdc:./800-workflow-guidelines.mdc) | Workflows | Development workflows |
+| [900-stack-advisor.mdc](mdc:./900-stack-advisor.mdc) | Stack advice | Technical decisions |
+
+### Rules Management
+| Rule | Purpose | When to Apply |
+| ---- | ------- | ------------- |
+| [000-core-guidelines.mdc](mdc:./000-core-guidelines.mdc) | Core guidelines | All development |
+| [001-cursor-rules.mdc](mdc:./001-cursor-rules.mdc) | Rules format | Creating or updating rules |
+
+## Combined Rule Applications
+
+Some tasks benefit from applying multiple rules together:
+
+**Creating new UI components:**
+- @030-vibe-coding.mdc + @042-ui-component-architecture.mdc + @054-accessibility-requirements.mdc
+
+**Implementing security features:**
+- @010-security-compliance.mdc + @046-session-validation.mdc + @047-security-design-system.mdc
+
+**Working with platform features:**
+- @016-platform-hierarchy.mdc + @025-multi-tenancy.mdc + @017-platform-user-features.mdc

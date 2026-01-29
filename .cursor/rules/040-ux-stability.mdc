@@ -1,0 +1,394 @@
+---
+description: 
+globs: ""
+alwaysApply: false
+---
+___
+description: Use when implementing UI components to ensure a stable, predictable, and robust user experience
+globs: "components/**/*.{tsx,ts,jsx,js}, app/**/*.{tsx,ts,jsx,js}"
+___
+
+# UX Stability Guidelines
+
+## Context
+- AgentMinder requires stable user interfaces that maintain state predictably
+- UI components must handle loading, error, and empty states gracefully
+- Users expect consistent behavior across the application
+- Layout shifts and unexpected changes in UI state should be minimized
+- Component lifespans need to be managed carefully to prevent memory leaks
+
+## Requirements
+
+### State Management Stability
+
+- All components with complex state must have well-defined state transitions
+- Loading states should be properly represented to prevent UI jumps
+- Error states must be handled at appropriate component levels
+- Empty states should be presented with helpful guidance
+- Component unmounting must clean up resources and event listeners
+
+```typescript
+// Good: Stable state management
+function DataTable({ fetchData }) {
+  const [data, setData] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  
+  useEffect(() => {
+    let isMounted = true;
+    
+    const loadData = async () => {
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const result = await fetchData();
+        
+        // Only update state if component is still mounted
+        if (isMounted) {
+          setData(result);
+          setIsLoading(false);
+        }
+      } catch (err) {
+        // Only update state if component is still mounted
+        if (isMounted) {
+          setError(err.message || 'Failed to load data');
+          setIsLoading(false);
+        }
+      }
+    };
+    
+    loadData();
+    
+    // Cleanup function prevents state updates after unmount
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchData]);
+  
+  // Loading state with fixed height to prevent layout shifts
+  if (isLoading) {
+    return (
+      <div className="min-h-[300px] flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+  
+  // Error state with retry option
+  if (error) {
+    return (
+      <div className="min-h-[300px] flex flex-col items-center justify-center">
+        <ErrorMessage message={error} />
+        <Button onClick={() => fetchData()}>Retry</Button>
+      </div>
+    );
+  }
+  
+  // Empty state with guidance
+  if (data.length === 0) {
+    return (
+      <div className="min-h-[300px] flex flex-col items-center justify-center">
+        <EmptyState 
+          title="No data available" 
+          description="Try adjusting your filters or create new items"
+        />
+      </div>
+    );
+  }
+  
+  // Normal state
+  return (
+    <table>
+      {/* Table content */}
+    </table>
+  );
+}
+```
+
+### Layout Stability
+
+- Use minimum height/width for containers that load dynamic content
+- Implement content placeholders that match the expected final layout
+- Avoid abrupt transitions between states that cause layout shifts
+- Maintain consistent spacing and alignment across state changes
+- Use CSS Grid or Flexbox for predictable layouts
+
+```typescript
+// Good: Layout stability with placeholders
+function UserProfile({ userId }) {
+  const { data: user, isLoading, error } = useUser(userId);
+  
+  return (
+    <div className="profile-card min-h-[200px] min-w-[300px]">
+      {isLoading ? (
+        // Placeholder that matches the final layout
+        <div className="flex flex-col space-y-4 p-4">
+          <div className="flex items-center space-x-3">
+            <div className="skeleton-avatar h-12 w-12 rounded-full" />
+            <div className="skeleton-text h-5 w-32" />
+          </div>
+          <div className="skeleton-text h-4 w-full" />
+          <div className="skeleton-text h-4 w-3/4" />
+          <div className="skeleton-text h-4 w-1/2" />
+        </div>
+      ) : error ? (
+        // Error state with the same dimensions
+        <div className="flex items-center justify-center h-full p-4">
+          <ErrorMessage message="Could not load user profile" />
+        </div>
+      ) : (
+        // Actual content with the same layout structure
+        <div className="flex flex-col space-y-4 p-4">
+          <div className="flex items-center space-x-3">
+            <Avatar user={user} className="h-12 w-12" />
+            <h3 className="text-lg font-medium">{user.name}</h3>
+          </div>
+          <p>{user.bio}</p>
+          <UserStats user={user} />
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### Interaction Stability
+
+- Disable buttons during form submission to prevent double submissions
+- Implement debounce for search inputs and other high-frequency updates
+- Add confirmation dialogs for destructive or irreversible actions
+- Maintain scroll position when content changes
+- Provide visual feedback for all user interactions
+
+```typescript
+// Good: Stable interaction handling
+function SearchInput({ onSearch }) {
+  const [query, setQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  
+  // Debounced search function to prevent excessive API calls
+  const debouncedSearch = useCallback(
+    debounce((searchTerm) => {
+      setIsSearching(true);
+      onSearch(searchTerm)
+        .finally(() => setIsSearching(false));
+    }, 300),
+    [onSearch]
+  );
+  
+  const handleChange = (e) => {
+    const newQuery = e.target.value;
+    setQuery(newQuery);
+    debouncedSearch(newQuery);
+  };
+  
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={query}
+        onChange={handleChange}
+        placeholder="Search..."
+        className="w-full px-4 py-2 border rounded-md"
+      />
+      {isSearching && (
+        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+          <Spinner size="sm" />
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### Navigation Stability
+
+- Prevent unexpected page navigations during form submissions
+- Confirm before navigating away from unsaved changes
+- Maintain form values when navigating back to a form
+- Preserve filter and sort states across page navigations
+- Handle browser back/forward navigation gracefully
+
+```typescript
+// Good: Form with navigation protection
+function EditForm({ initialData, onSave }) {
+  const [formData, setFormData] = useState(initialData);
+  const [isDirty, setIsDirty] = useState(false);
+  const router = useRouter();
+  
+  // Update dirty state when form data changes
+  useEffect(() => {
+    const hasChanges = !isEqual(formData, initialData);
+    setIsDirty(hasChanges);
+  }, [formData, initialData]);
+  
+  // Prevent accidental navigation with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        // Standard browser confirmation dialog
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+    
+    // For browser close/refresh
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    // For Next.js routing
+    const handleRouteChange = (url) => {
+      if (isDirty && !confirm('You have unsaved changes. Are you sure you want to leave?')) {
+        router.events.emit('routeChangeError');
+        throw 'Navigation cancelled by user';
+      }
+    };
+    
+    router.events.on('routeChangeStart', handleRouteChange);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      router.events.off('routeChangeStart', handleRouteChange);
+    };
+  }, [isDirty, router]);
+  
+  // Form handlers
+  const handleChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+  };
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    await onSave(formData);
+    setIsDirty(false);
+  };
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* Form fields */}
+      <div className="flex justify-end space-x-2 mt-4">
+        <Button type="button" variant="outline" onClick={() => router.back()}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!isDirty}>
+          Save Changes
+        </Button>
+      </div>
+    </form>
+  );
+}
+```
+
+## Testing UX Stability
+
+UX stability tests should verify:
+
+1. Components render correctly in all states (loading, error, empty, normal)
+2. Layout maintains stability during state transitions
+3. User interactions are handled properly with appropriate feedback
+4. Form state is preserved when expected and cleared when appropriate
+5. Navigation behaves predictably and protects unsaved changes
+
+```typescript
+// Good: Testing UX stability
+describe('DataTable Component', () => {
+  it('renders loading state correctly', () => {
+    const mockFetch = jest.fn().mockReturnValue(new Promise(() => {})); // Never resolves
+    render(<DataTable fetchData={mockFetch} />);
+    
+    expect(screen.getByTestId('loading-spinner')).toBeInTheDocument();
+  });
+  
+  it('renders error state correctly with retry option', async () => {
+    const mockFetch = jest.fn().mockRejectedValue(new Error('Test error'));
+    render(<DataTable fetchData={mockFetch} />);
+    
+    // Should show error message
+    expect(await screen.findByText('Test error')).toBeInTheDocument();
+    
+    // Should have retry button
+    const retryButton = screen.getByRole('button', { name: /retry/i });
+    expect(retryButton).toBeInTheDocument();
+    
+    // Clicking retry should call fetchData again
+    fireEvent.click(retryButton);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+  
+  it('renders empty state with guidance when no data', async () => {
+    const mockFetch = jest.fn().mockResolvedValue([]);
+    render(<DataTable fetchData={mockFetch} />);
+    
+    expect(await screen.findByText('No data available')).toBeInTheDocument();
+    expect(screen.getByText('Try adjusting your filters or create new items')).toBeInTheDocument();
+  });
+  
+  it('maintains layout stability during state transitions', async () => {
+    // Test that container heights remain consistent
+    const mockFetch = jest.fn()
+      .mockResolvedValueOnce([]) // Empty state first
+      .mockResolvedValueOnce([{ id: 1, name: 'Test' }]); // Then with data
+    
+    const { container, rerender } = render(<DataTable fetchData={mockFetch} />);
+    
+    // Get initial height in empty state
+    await screen.findByText('No data available');
+    const initialHeight = container.firstChild.getBoundingClientRect().height;
+    
+    // Trigger refetch with data
+    rerender(<DataTable fetchData={mockFetch} />);
+    
+    // Check height after data loads
+    await screen.findByText('Test');
+    const finalHeight = container.firstChild.getBoundingClientRect().height;
+    
+    // Heights should be the same or very similar
+    expect(Math.abs(finalHeight - initialHeight)).toBeLessThanOrEqual(5);
+  });
+});
+```
+
+## Best Practices
+
+1. **Defensive Rendering**: Always check for null/undefined values before accessing properties
+2. **Container Sizing**: Set explicit min-height/min-width for containers to prevent layout shifts
+3. **Animation Timing**: Use consistent animation durations (150-300ms) for transitions
+4. **Resource Cleanup**: Always clean up event listeners, timers, and subscriptions
+5. **Loading Indicators**: Show loading indicators for operations taking more than 300ms
+6. **Clear Feedback**: Provide clear feedback for all user actions (success, error, in-progress)
+7. **Progressive Loading**: Use skeleton loaders that match the final content layout
+
+## Common Pitfalls
+
+1. Not handling component unmounting during async operations
+2. Layout shifts caused by dynamic content without placeholders
+3. Missing loading, error, or empty states
+4. Allowing double form submissions
+5. Losing user input during navigation or state changes
+6. Not accounting for network failures or slow connections 
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - UX development patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Comprehensive Guides
+- **`guides/Component-Library-Guide.md`** - Component stability patterns
+- **`guides/development/Build-Multi-Step-Wizards-Complete-Guide.md`** - Multi-step UX stability
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @030-visual-design-system.mdc - Visual design consistency
+- @042-ui-component-architecture.mdc - Component architecture
+- @045-ux-enhancements.mdc - UX improvements (enhance, don't break!)
+- @045-browser-state-management.mdc - Browser state stability
+- @003-do-no-harm.mdc - Stability principle
+
+### Quick Start
+1. **Test:** Ensure UX changes don't break existing flows
+2. **Backwards Compatible:** Maintain existing behavior
+3. **Document:** Changes that affect user workflows

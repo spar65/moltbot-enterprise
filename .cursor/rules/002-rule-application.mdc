@@ -1,0 +1,276 @@
+---
+description: REQUIRED - Use when implementing any feature to ensure consistent application of rules across the codebase
+globs: "**/*"
+---
+
+# Rule Application Framework
+
+## Context
+- Cursor rules provide guidance for maintaining code quality and consistency
+- Inconsistent rule application leads to technical debt and maintenance issues
+- A systematic approach to rule application ensures better code quality
+- Different rules have different priority levels that should be respected
+
+## Requirements
+
+### Source of Truth Hierarchy
+
+When building features (especially API tests), follow this priority order for technical information:
+
+#### 1. Prisma Schema (`prisma/schema.prisma`) - **ALWAYS FIRST**
+- **Authority**: Single source of truth for data models
+- **Always Current**: Type-checked at runtime
+- **When to Use**: BEFORE writing ANY code that interacts with database
+
+```bash
+# Always inspect schema first
+cat prisma/schema.prisma | grep -A 20 "model YourModel"
+```
+
+**Example:**
+```prisma
+model HealthCheckApiKey {
+  label String  // ✅ Field is "label"
+  // NOT "name" despite what design docs say
+}
+```
+
+#### 2. Generated Prisma Types (`node_modules/.prisma/client`) - **USE IN CODE**
+- **Authority**: Auto-generated from schema
+- **Always Current**: Regenerated with `npx prisma generate`
+- **When to Use**: In all TypeScript files that interact with database
+
+```typescript
+// ✅ CORRECT: Import generated types
+import { HealthCheckApiKey } from '@prisma/client';
+
+const apiKey: HealthCheckApiKey = await prisma.healthCheckApiKey.create({
+  data: {
+    label: 'Test Key',  // TypeScript catches if you use 'name'
+  },
+});
+```
+
+#### 3. Design Documents (`docs/DESIGN-*.md`) - **CONCEPTS ONLY**
+- **Authority**: Good for high-level architecture, NOT field names
+- **Often Stale**: May be 1-2 weeks behind schema changes
+- **When to Use**: Understanding feature purpose, NOT implementation details
+
+```markdown
+# ⚠️ WARNING: Design docs can be outdated!
+# If design doc says "name" but schema has "label", SCHEMA WINS
+# Update design doc to match schema, don't assume schema is wrong
+```
+
+#### 4. Code Comments - **VERIFY FIRST**
+- **Authority**: Can be outdated
+- **When to Use**: After verifying against schema
+
+```typescript
+// ⚠️ Comment says "name field"
+// ✅ Always verify against schema first
+cat prisma/schema.prisma | grep -A 5 "model HealthCheckApiKey"
+```
+
+### When Schema and Design Conflict
+
+**RULE**: Schema ALWAYS wins. Design docs are documentation, schema is implementation.
+
+```typescript
+// Design doc (docs/DESIGN-03.md) says:
+// "API keys have a 'name' field for identification"
+
+// Schema (prisma/schema.prisma) says:
+model HealthCheckApiKey {
+  label String  // Actual field name
+}
+
+// ✅ CORRECT: Use schema field name
+const apiKey = await prisma.healthCheckApiKey.create({
+  data: { label: 'Production Key' },
+});
+
+// ❌ WRONG: Use design doc field name
+const apiKey = await prisma.healthCheckApiKey.create({
+  data: { name: 'Production Key' }, // Runtime error!
+});
+
+// ✅ THEN: Update design doc to match schema
+// File: docs/DESIGN-03.md
+// Change: "name field" → "label field"
+```
+
+### Pre-Implementation Schema Verification
+
+Before writing ANY code that touches the database:
+
+```bash
+# Step 1: Inspect schema for your models (USE TOOL!)
+./.cursor/tools/inspect-model.sh YourModel
+
+# OR manually:
+cat prisma/schema.prisma | sed -n '/model YourModel/,/^}/p'
+
+# Step 2: Note ALL field names (case-sensitive!)
+
+# Step 3: Generate fresh types
+npx prisma generate
+
+# Step 4: Import generated types in your code
+import { YourModel } from '@prisma/client';
+
+# Step 5: Let TypeScript catch field name errors at compile-time
+```
+
+**Why This Matters**: Prevents 40+ hours debugging field mismatches (name vs label, metadata vs detailsJson, eventType vs action)
+
+**See Also:**
+- **Tool:** `.cursor/tools/inspect-model.sh` - Automated schema inspection
+- **Workflow:** `.cursor/docs/ai-workflows.md#schema-first-development` - Complete pattern
+- **Rule 375:** API Test First Time Right (implements this hierarchy)
+- **Rule 376:** Database Test Isolation (implements this hierarchy)
+
+### Priority System
+- **P0 Rules**: Must be followed for all code changes
+  - No exceptions allowed without explicit team approval
+  - Violations block merges
+  
+- **P1 Rules**: Should be followed for most code changes
+  - Temporary exceptions allowed with TODO comments
+  - Apply within 2 weeks of initial implementation
+  
+- **P2 Rules**: Good practices to follow when possible
+  - Apply when time allows
+  - Should be considered for mature/stable features
+
+### Rule Application Process
+
+#### 1. Pre-Implementation Planning
+- Review all P0 rules relevant to the feature domain
+- Identify which P1 and P2 rules should apply
+- Document selected rules in implementation plan
+
+#### 2. Development Checkpoints
+- After initial implementation, verify all P0 rules
+- Before finalizing, check applicable P1 rules
+- During refinement, apply relevant P2 rules
+
+#### 3. Code Review Focus
+- Pull requests should list applied rules
+- Reviewers should verify P0 rule compliance
+- Consider P1 rules when suggesting improvements
+
+### Rule Annotations
+
+Annotate code with rule references:
+
+```typescript
+/**
+ * @rule 105 "Using proper TypeScript interfaces"
+ * @rule 130 "Following logging standards"
+ */
+function exampleFunction(): void {
+  // Implementation follows rules 105 and 130
+}
+```
+
+For temporary exceptions:
+
+```typescript
+/**
+ * @rule-exception 054 "Accessibility requirements"
+ * @reason "Temporary implementation for prototype"
+ * @deadline 2023-06-30
+ */
+```
+
+### Verification Checklist
+
+Before considering a feature complete, verify these items:
+
+1. **All P0 rules applied**: No exceptions without documentation
+2. **Relevant P1 rules considered**: Applied or documented exceptions
+3. **Rule annotations added**: Code includes rule references
+
+**Quick Rule Discovery:**
+- **Complete Index:** `.cursor/rules/000-cursor-rules-registry2.mdc`
+- **Rules Guide:** `.cursor/docs/rules-guide.md` - How to use the rule system
+- **System Overview:** `.cursor/rules/003-cursor-system-overview.mdc` - READ THIS FIRST
+
+**Available Resources:**
+- **Documentation:** `.cursor/docs/` - Rules guide, tools guide, AI workflows
+- **Automation:** `.cursor/tools/` - Schema inspection, validation scripts
+- **Workflows:** `.cursor/docs/ai-workflows.md` - Proven patterns (95%+ success rate)
+
+## Implementation Examples
+
+### Good: Feature Implementation with Rule Application
+
+```typescript
+// File: feature-planning.md
+/**
+ * # Feature Plan: User Authentication
+ * 
+ * ## Applicable Rules
+ * 
+ * ### P0 (Required)
+ * - 010: Security Compliance
+ * - 014: Third-party Auth
+ * - 046: Session Validation
+ * 
+ * ### P1 (Important)
+ * - 047: Security Design System
+ * - 131: Error Handling
+ * 
+ * ### P2 (Nice to Have)
+ * - 045: UX Enhancements
+ */
+```
+
+```typescript
+// File: auth-service.ts
+/**
+ * Authentication Service
+ * @rule 010 "Following security compliance standards"
+ * @rule 014 "Implementing third-party auth securely"
+ * @rule 046 "Ensuring proper session validation"
+ */
+export class AuthService {
+  // Implementation follows security rules
+}
+```
+
+### Bad: Implementation Without Rule Consideration
+
+```typescript
+// No rule planning or documentation
+// Inconsistent implementation that may violate rules
+export class AuthService {
+  // Ad-hoc implementation without rule guidance
+}
+```
+
+## Integration with Other Rules
+
+- Supports [000-core-guidelines.mdc](mdc:000-core-guidelines.mdc) as a meta-rule
+- Enhances [001-cursor-rules.mdc](mdc:001-cursor-rules.mdc) with application guidance
+- Provides framework for applying [150-technical-debt-prevention.mdc](mdc:150-technical-debt-prevention.mdc)
+
+## Tools for Rule Application
+
+### VSCode Snippets
+Create snippets for rule annotations:
+
+```json
+"Rule Reference": {
+  "prefix": "rule",
+  "body": ["@rule ${1:rule-number} \"${2:rule-description}\""],
+  "description": "Add a rule reference"
+}
+```
+
+### Pre-commit Hooks
+Add pre-commit checks to verify P0 rule compliance.
+
+### Automated Documentation
+Generate documentation of applied rules per file/module. 

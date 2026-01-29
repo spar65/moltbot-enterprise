@@ -1,0 +1,515 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Authentication Provider Migration
+
+## Context
+- When upgrading to a new version of an authentication provider
+- When migrating from one authentication provider to another
+- When restructuring authentication architecture
+- When implementing parallel authentication systems during migration
+
+## Core Requirements
+
+### 1. Migration Assessment and Planning
+
+Before beginning any authentication migration:
+
+```markdown
+## Authentication Migration Plan
+
+### Current Implementation
+- **Provider**: [Current Auth Provider Name and Version]
+- **Implementation Pattern**: [Server-side, Client-side, Hybrid]
+- **Key Dependencies**: [List of packages and versions]
+- **Auth Flow**: [Describe current auth flow]
+
+### Target Implementation
+- **Provider**: [Target Auth Provider Name and Version]
+- **Implementation Pattern**: [Server-side, Client-side, Hybrid]
+- **Key Dependencies**: [List of packages and versions]
+- **Auth Flow**: [Describe target auth flow]
+
+### Breaking Changes
+- [List all breaking changes between versions/providers]
+
+### Migration Strategy
+- [ ] Phase 1: [Description with timeline]
+- [ ] Phase 2: [Description with timeline]
+- [ ] Phase 3: [Description with timeline]
+
+### Rollback Plan
+- [Detailed steps to rollback if issues occur]
+
+### Testing Strategy
+- [Approach to testing during migration]
+```
+
+### 2. Version Compatibility Layer
+
+Implement a compatibility layer to handle differences between versions:
+
+```typescript
+// src/lib/auth/compatibility.ts
+import { LegacyAuthUser, NewAuthUser } from './types';
+
+/**
+ * Convert legacy auth user format to new format
+ */
+export function convertLegacyUser(legacyUser: LegacyAuthUser): NewAuthUser {
+  return {
+    id: legacyUser.sub || legacyUser.user_id,
+    email: legacyUser.email,
+    name: legacyUser.name,
+    picture: legacyUser.picture || legacyUser.avatar,
+    email_verified: legacyUser.email_verified || false
+  };
+}
+
+/**
+ * Detect which auth version/provider is being used
+ */
+export function detectAuthVersion(user: any): 'legacy' | 'new' {
+  // Implementation specific to your auth providers
+  if (user && user.sub && user.updated_at) {
+    return 'legacy';
+  }
+  return 'new';
+}
+
+/**
+ * Handle both legacy and new token formats
+ */
+export function extractUserFromToken(token: string): NewAuthUser {
+  // Implementation depends on token formats
+  const decoded = decodeToken(token);
+  
+  if (detectAuthVersion(decoded) === 'legacy') {
+    return convertLegacyUser(decoded as LegacyAuthUser);
+  }
+  
+  return decoded as NewAuthUser;
+}
+```
+
+### 3. Parallel Authentication Systems
+
+During migration, you may need to support both systems:
+
+```typescript
+// src/lib/auth/index.ts
+import { LegacyAuth } from './legacy-auth';
+import { NewAuth } from './new-auth';
+import { AuthUser, AuthClient } from './types';
+
+/**
+ * Factory function to get the appropriate auth client
+ */
+export function getAuthClient(options: { forceVersion?: 'legacy' | 'new' }): AuthClient {
+  // Check for feature flag or configuration
+  const useNewAuth = options.forceVersion === 'new' || 
+    process.env.NEXT_PUBLIC_USE_NEW_AUTH === 'true';
+    
+  if (useNewAuth) {
+    return new NewAuth({
+      // New auth config
+    });
+  }
+  
+  return new LegacyAuth({
+    // Legacy auth config
+  });
+}
+
+/**
+ * Authentication hook that works with both systems
+ */
+export function useAuth() {
+  // Implementation that works with both systems
+  // and provides a consistent interface
+}
+```
+
+### 4. Database Synchronization
+
+During migration, ensure user data stays synchronized:
+
+```typescript
+// src/lib/auth/db-sync.ts
+import { upsertUser } from '../database';
+import { convertLegacyUser } from './compatibility';
+import { LegacyAuthUser, NewAuthUser } from './types';
+
+/**
+ * Sync user from any auth provider to database
+ */
+export async function syncUserToDatabase(
+  user: LegacyAuthUser | NewAuthUser
+): Promise<void> {
+  try {
+    // Normalize user data regardless of source
+    const normalizedUser = 'sub' in user 
+      ? convertLegacyUser(user as LegacyAuthUser) 
+      : user as NewAuthUser;
+    
+    // Upsert to database
+    await upsertUser({
+      id: normalizedUser.id,
+      email: normalizedUser.email,
+      name: normalizedUser.name,
+      profile_picture: normalizedUser.picture,
+      email_verified: normalizedUser.email_verified
+    });
+  } catch (error) {
+    console.error('Failed to sync user to database:', error);
+    // Handle error based on your error handling strategy
+  }
+}
+```
+
+### 5. Feature Flag System
+
+Implement feature flags to control migration rollout:
+
+```typescript
+// src/lib/feature-flags.ts
+interface FeatureFlags {
+  useNewAuth: boolean;
+  useNewAuthApi: boolean;
+  useNewAuthUI: boolean;
+}
+
+// Get feature flags from environment, cookie, or database
+export function getFeatureFlags(context?: any): FeatureFlags {
+  // Implementation depends on where you store feature flags
+  return {
+    useNewAuth: process.env.NEXT_PUBLIC_USE_NEW_AUTH === 'true',
+    useNewAuthApi: process.env.NEXT_PUBLIC_USE_NEW_AUTH_API === 'true',
+    useNewAuthUI: process.env.NEXT_PUBLIC_USE_NEW_AUTH_UI === 'true'
+  };
+}
+
+// Check if a specific feature flag is enabled
+export function isFeatureEnabled(
+  feature: keyof FeatureFlags,
+  context?: any
+): boolean {
+  return getFeatureFlags(context)[feature];
+}
+```
+
+### 6. Session Migration Strategy
+
+Implement a strategy for migrating active sessions:
+
+```typescript
+// src/lib/auth/session-migration.ts
+import { cookies } from 'next/headers';
+import { getFeatureFlags } from '../feature-flags';
+import { LegacyAuth } from './legacy-auth';
+import { NewAuth } from './new-auth';
+
+/**
+ * Migrates a user's session from legacy to new auth system
+ */
+export async function migrateSession(req: any, res: any): Promise<boolean> {
+  const flags = getFeatureFlags();
+  
+  // Only attempt migration if new auth is enabled
+  if (!flags.useNewAuth) {
+    return false;
+  }
+  
+  try {
+    // Get legacy session
+    const legacyAuth = new LegacyAuth();
+    const legacySession = await legacyAuth.getSession(req, res);
+    
+    if (!legacySession?.user) {
+      return false;
+    }
+    
+    // Create session in new auth system
+    const newAuth = new NewAuth();
+    await newAuth.createSession(legacySession.user);
+    
+    // Optionally clear old session
+    // await legacyAuth.clearSession(req, res);
+    
+    return true;
+  } catch (error) {
+    console.error('Session migration failed:', error);
+    return false;
+  }
+}
+```
+
+### 7. Documentation Requirements
+
+Maintain comprehensive documentation during migration:
+
+```markdown
+## Authentication Implementation
+
+### Current Status
+- **Version**: [Auth Provider and Version]
+- **Implementation Date**: [Date]
+- **Migration Status**: [Complete/In Progress/Planned]
+
+### Important Notes
+- [Key information about the current implementation]
+
+### Integration Points
+- **API Routes**: [List of affected API routes]
+- **Middleware**: [Description of middleware integration]
+- **Database**: [Description of database integration]
+
+### Known Issues
+- [List any known issues with workarounds]
+
+### Migration Timeline
+- **Phase 1**: [Status and completion date]
+- **Phase 2**: [Status and completion date]
+- **Phase 3**: [Status and completion date]
+```
+
+### 8. Testing Strategy
+
+Implement comprehensive testing during migration:
+
+```typescript
+// tests/auth-migration.test.ts
+import { render, screen, waitFor } from '@testing-library/react';
+import { mockLegacyAuth, mockNewAuth } from '../mocks/auth';
+import { AuthProvider } from '../src/lib/auth';
+import { TestComponent } from './helpers';
+
+describe('Auth Migration', () => {
+  // Test with legacy auth
+  test('works with legacy auth', async () => {
+    // Mock legacy auth
+    mockLegacyAuth();
+    
+    render(
+      <AuthProvider>
+        <TestComponent />
+      </AuthProvider>
+    );
+    
+    await waitFor(() => {
+      expect(screen.getByText('Logged in as')).toBeInTheDocument();
+    });
+  });
+  
+  // Test with new auth
+  test('works with new auth', async () => {
+    // Mock new auth
+    mockNewAuth();
+    
+    render(
+      <AuthProvider>
+        <TestComponent />
+      </AuthProvider>
+    );
+    
+    await waitFor(() => {
+      expect(screen.getByText('Logged in as')).toBeInTheDocument();
+    });
+  });
+  
+  // Test migration scenario
+  test('session migrates correctly', async () => {
+    // Mock migration scenario
+    mockLegacyAuth();
+    mockNewAuth();
+    
+    // Test migration logic
+    // ...
+  });
+});
+```
+
+## Examples
+
+<example>
+// Good implementation of auth migration with compatibility layer
+
+// src/lib/auth/index.ts
+import { useEffect, useState } from 'react';
+import { Auth0Provider } from '@auth0/auth0-react'; // New version
+import { useAuth0 as useLegacyAuth0 } from '@auth0/auth0-spa-js'; // Legacy version
+import { getFeatureFlags } from '../feature-flags';
+
+export function AuthProvider({ children }) {
+  const flags = getFeatureFlags();
+  
+  // Use new Auth0 provider if enabled
+  if (flags.useNewAuth) {
+    return (
+      <Auth0Provider
+        domain={process.env.NEXT_PUBLIC_AUTH0_DOMAIN}
+        clientId={process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID}
+        authorizationParams={{
+          redirect_uri: typeof window !== 'undefined' ? window.location.origin : '',
+        }}
+      >
+        {children}
+      </Auth0Provider>
+    );
+  }
+  
+  // Fall back to legacy Auth0 provider
+  return (
+    <LegacyAuthProvider>
+      {children}
+    </LegacyAuthProvider>
+  );
+}
+
+// Hook that works with both auth systems
+export function useAuth() {
+  const flags = getFeatureFlags();
+  const newAuth = useNewAuth0();
+  const legacyAuth = useLegacyAuth0();
+  
+  // Return appropriate auth based on feature flag
+  return flags.useNewAuth ? newAuth : legacyAuth;
+}
+
+// Compatibility layer for legacy session
+export function withAuth(getServerSidePropsFunc) {
+  return async (context) => {
+    const flags = getFeatureFlags(context);
+    
+    // Use appropriate auth session check based on flag
+    if (flags.useNewAuth) {
+      // New auth session check
+      const session = await getNewAuthSession(context.req, context.res);
+      
+      if (!session) {
+        return {
+          redirect: {
+            destination: '/api/auth/login',
+            permanent: false,
+          },
+        };
+      }
+      
+      // Pass session to page props
+      const pageProps = getServerSidePropsFunc
+        ? await getServerSidePropsFunc(context, session)
+        : { props: {} };
+        
+      return {
+        ...pageProps,
+        props: {
+          ...pageProps.props,
+          session,
+        },
+      };
+    } else {
+      // Legacy auth session check
+      // Similar implementation but with legacy auth
+    }
+  };
+}
+</example>
+
+<example type="invalid">
+// Poor implementation with mixed patterns and no compatibility layer
+
+// Directly importing from both auth libraries without abstraction
+import { useAuth0 } from '@auth0/auth0-react'; // New version
+import { getSession } from '@auth0/nextjs-auth0'; // Old version
+
+// Mixing API route implementations
+export default async function handler(req, res) {
+  // Using legacy auth in some parts
+  const session = await getSession(req, res);
+  
+  // But new auth in others
+  if (!session) {
+    return res.redirect('/api/auth/login');
+  }
+  
+  // No compatibility layer for user data
+  const userData = session.user;
+  
+  // Using version-specific details without abstraction
+  return res.json({
+    user: {
+      id: userData.sub, // Legacy format
+      email: userData.email,
+      name: userData.name
+    }
+  });
+}
+
+// No feature flags to control rollout
+function ProfilePage() {
+  // Directly using new auth hook
+  const { user } = useAuth0();
+  
+  // But mixing with legacy pattern expectations
+  return (
+    <div>
+      <h1>Profile</h1>
+      <p>User ID: {user?.sub || 'Not logged in'}</p>
+    </div>
+  );
+}
+</example>
+
+## Key Principles
+
+1. **Compatibility Layer**: Always implement a compatibility layer between auth versions
+2. **Phased Migration**: Use feature flags to gradually roll out changes
+3. **Comprehensive Testing**: Test both auth systems thoroughly during migration
+4. **Documentation**: Maintain detailed documentation of migration status and approach
+5. **Rollback Plan**: Always have a clear rollback strategy
+6. **Data Consistency**: Ensure user data remains consistent across systems
+7. **Clean Boundaries**: Avoid mixing patterns from different versions
+8. **Parallel Support**: Design systems to temporarily support both authentication methods
+9. **User Experience**: Minimize user-visible changes during migration
+10. **Monitoring**: Implement monitoring to detect auth-related issues quickly
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Migration patterns
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Validation checklist
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate new auth configuration
+- **`.cursor/tools/check-env-vars.sh`** - Ensure proper env var migration
+- **`.cursor/tools/scan-secrets.sh`** - Detect any exposed secrets during migration
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @011-env-var-security.mdc - **CRITICAL:** Environment variable security during migration
+- @014-third-party-auth.mdc - Authentication implementation standards
+- @018-clerk-authentication-standards.mdc - Clerk standards (if migrating to/from)
+- @019-auth0-integration.mdc - Auth0 standards (if migrating to/from)
+- @046-session-validation.mdc - Session security (critical during migration)
+- @072-auth-security.mdc - **CRITICAL:** Next.js authentication patterns
+- @120-auth-architecture-patterns.mdc - **CRITICAL:** Auth architecture patterns
+- @210-auth-upgrade-protocols.mdc - Auth upgrade protocols
+- @310-security-headers.mdc - Security headers for auth endpoints
+- @330-auth0-testing-standards.mdc - Testing during migration
+- @374-authentication-architecture-standards.mdc - **CRITICAL:** Auth architecture
+- @400-auth-testing-patterns.mdc - **CRITICAL:** Auth testing patterns
+
+### Quick Start
+1. **Plan:** Review target auth provider standards
+2. **Validate:** `.cursor/tools/check-auth-config.sh` (both old and new)
+3. **Test:** See @400-auth-testing-patterns.mdc (comprehensive testing!)
+4. **Deploy:** `.cursor/docs/security-checklist.md#authentication-authorization`
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH0_MIGRATION_GUIDE.md`** - Auth0 migration guide
+- **`guides/AUTH_PROVIDER_MIGRATION_GUIDE.md`** - General auth provider migration
+- **`guides/auth0/05-Version-Compatibility-Guide.md`** - SDK version compatibility

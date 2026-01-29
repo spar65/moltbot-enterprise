@@ -1,0 +1,408 @@
+---
+description: USE this documentation structure when STARTING NEW PROJECTS to ENSURE comprehensive, AI-ready specifications
+globs: ["docs/**/*.md"]
+---
+
+# Project Documentation Structure
+
+## Context
+
+When starting any new project, comprehensive upfront documentation:
+
+- Enables faster, more confident development
+- Provides clear specifications for AI-assisted coding
+- Supports team collaboration and handoffs
+- Serves as living documentation throughout the project
+- Facilitates stakeholder buy-in and communication
+
+This rule defines the proven 15-document structure used successfully in the NCLB Survey Application.
+
+## Requirements
+
+### Document Set (Generate in Order)
+
+Create these 15 documents for every new project:
+
+**Foundation (00-04):**
+
+1. `00-UserStories-MASTER.md` - 25-30 user stories organized by epics
+2. `01-project-overview.md` - Executive summary and project charter
+3. `02-tech-stack-architecture.md` - Technology decisions with rationale
+4. `03-database-schema.md` - Complete database design
+5. `04-user-stories-requirements.md` - Detailed technical requirements
+
+**Technical Specs (05-09):** 6. `05-ui-ux-design-specs.md` - Design system with code examples 7. `06-component-library-guide.md` - Component catalog 8. `07-data-structure.md` - Core content/data schema 9. `08-api-endpoints-specification.md` - Complete API documentation 10. `09-security-privacy-considerations.md` - Security measures
+
+**Quality & Operations (10-14):** 11. `10-testing-strategy.md` - Testing approach with examples 12. `11-deployment-configuration.md` - Deployment guide 13. `12-development-workflow.md` - Git workflow and standards 14. `13-pwa-implementation.md` - PWA features (optional) 15. `14-implementation-roadmap.md` - Phased development plan
+
+### Document Quality Standards
+
+Each document must:
+
+- Be 150+ lines minimum (most 300-600 lines)
+- Contain specific, actionable information (no placeholders)
+- Include code examples where applicable
+- Cross-reference other documents appropriately
+- Be comprehensive enough to implement from
+
+### Validation Requirements
+
+After generating all documents, validate:
+
+- ✅ All user stories have corresponding API endpoints and database support
+- ✅ All API endpoints reference database tables from schema
+- ✅ All UI components have accessibility specifications
+- ✅ Every feature has security considerations
+- ✅ Every user story has test scenarios
+- ✅ Terminology is consistent across all documents
+- ✅ No circular dependencies in roadmap
+
+### AI-Assisted Generation Process
+
+**Setup:**
+
+1. Create `docs/_context.md` with project basics (problem, users, features, tech preferences)
+2. Prepare 5-8 hours for complete generation
+3. Use sequential generation (don't skip ahead)
+
+**Generation:**
+
+1. Use prompts from `Project-Requirements-Generation-Complete-Guide.md`
+2. Review each document for 15-20 minutes before proceeding
+3. Refine with follow-up prompts if output is generic
+4. Save immediately and track in version control
+5. Cross-reference against previous documents
+
+**Validation:**
+
+1. Run 4 refinement prompts after all documents generated
+2. Fix all critical inconsistencies before development
+3. Update documents as requirements evolve
+
+## Examples
+
+<example type="good">
+**Starting E-Commerce Project:**
+
+```markdown
+# Preparation
+
+docs/\_context.md created with:
+
+- Problem: Small businesses need affordable e-commerce
+- Users: Business owners, store managers, customers, admins
+- Features: Product management, order processing, inventory AI, customer portal
+- Tech: Next.js, PostgreSQL, Vercel
+
+# Generation (Day 1-2)
+
+✅ 00-UserStories-MASTER.md - 32 stories across 6 epics
+✅ 01-project-overview.md - 387 lines, stakeholder-ready
+✅ 02-tech-stack-architecture.md - 245 lines, all decisions justified
+✅ 03-database-schema.md - 12 models, complete relationships
+✅ 04-user-stories-requirements.md - 489 lines, full technical specs
+
+# Validation
+
+✅ All 32 user stories have API endpoints
+✅ All endpoints use database tables
+✅ Design system matches tech stack
+✅ Timeline realistic for scope
+✅ Security comprehensive
+```
+
+</example>
+
+<example type="invalid">
+**Skipping Documents:**
+
+```markdown
+# Incomplete Generation
+
+❌ Skipped 03-database-schema.md ("we'll figure it out later")
+❌ Skipped 09-security-privacy.md ("add security at end")
+❌ Generated only high-level requirements in 04
+
+# Result
+
+❌ API endpoints reference non-existent tables
+❌ Security measures added as afterthought
+❌ Major refactoring needed 3 weeks into development
+❌ 40+ hours wasted on rework
+```
+
+</example>
+
+<example type="good">
+**Validation Catches Issues:**
+
+```markdown
+# After Generation
+
+Ran Refinement Prompt 1: Cross-Reference Check
+
+Found:
+
+- User Story US-12 mentions "payment processing"
+- No payment endpoints in API doc
+- No payment tables in database schema
+- No payment security in security doc
+
+# Fix Applied
+
+✅ Added 4 payment endpoints to 08-api-endpoints
+✅ Added payment, transaction tables to 03-database-schema
+✅ Added PCI compliance section to 09-security
+✅ Added payment test scenarios to 10-testing-strategy
+✅ Updated roadmap with payment integration phase
+
+# Result
+
+Complete payment implementation spec before starting development
+```
+
+</example>
+
+## File Organization
+
+```
+project-root/
+├── docs/
+│   ├── _context.md                        # Project context (create first)
+│   ├── 00-UserStories-MASTER.md          # Foundation
+│   ├── 01-project-overview.md
+│   ├── 02-tech-stack-architecture.md
+│   ├── 03-database-schema.md
+│   ├── 04-user-stories-requirements.md
+│   ├── 05-ui-ux-design-specs.md          # Technical specs
+│   ├── 06-component-library-guide.md
+│   ├── 07-data-structure.md
+│   ├── 08-api-endpoints-specification.md
+│   ├── 09-security-privacy-considerations.md
+│   ├── 10-testing-strategy.md            # Quality & ops
+│   ├── 11-deployment-configuration.md
+│   ├── 12-development-workflow.md
+│   ├── 13-pwa-implementation.md          # Optional
+│   └── 14-implementation-roadmap.md
+├── notes/
+│   ├── questions-to-resolve.md           # Track open questions
+│   ├── refinements-needed.md             # Track refinements
+│   └── decisions-log.md                  # Track key decisions
+└── guides/
+    └── Project-Requirements-Generation-Complete-Guide.md
+```
+
+## Success Metrics
+
+Documentation is complete when:
+
+- ✅ Developer can start building immediately from specs
+- ✅ All user journeys are covered from onboarding to completion
+- ✅ Every API endpoint has request/response examples
+- ✅ Database schema supports all features
+- ✅ Security considerations are comprehensive
+- ✅ Testing strategy has concrete examples
+- ✅ Deployment is step-by-step reproducible
+- ✅ No ambiguous requirements remain
+- ✅ Technical decisions are justified
+- ✅ Implementation roadmap has clear phases with success criteria
+
+## Common Pitfalls
+
+### ❌ Accepting Generic AI Responses
+
+```
+Bad: "Use an appropriate database"
+Good: "PostgreSQL 15.x via Neon serverless, chosen for JSONB support,
+      Prisma ORM compatibility, and free tier limits fitting our MVP"
+```
+
+### ❌ Skipping Validation Phase
+
+Without running the 4 refinement prompts:
+
+- Inconsistencies remain undetected
+- Missing features discovered during development
+- Architecture conflicts emerge
+- 20-40 hours wasted on rework
+
+### ❌ Treating Docs as Static
+
+Update documentation when:
+
+- Requirements change
+- Technical decisions change
+- Features added/removed
+- Architecture evolves
+
+## Related Rules
+
+- `002-rule-application.mdc` - How to apply rules based on priority
+- `801-implementation-plan.mdc` - Feature implementation planning
+- `105-typescript-linter-standards.mdc` - Code standards for implementation
+
+## Related Guides
+
+- `guides/Project-Requirements-Generation-Complete-Guide.md` - Complete step-by-step guide
+- `guides/Developer-Onboarding-Guide.md` - How to use docs during development
+
+## See Also
+
+### Related Rules
+
+**Project Startup** (Use This Rule During Phase 2):
+
+- @000-project-startup-guide.mdc - Master project startup guide (this is Phase 2)
+- @900-tech-stack-selection.mdc - Tech stack selection (Phase 1, complete before this)
+- @802-ai-documentation-generation.mdc - AI-assisted documentation generation (use with this rule)
+- @800-workflow-guidelines.mdc - Workflow setup (Phase 3, after this)
+- @801-implementation-plan.mdc - Implementation planning (Phase 4, after this)
+
+**Implementation Rules** (Apply After Documentation):
+
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @105-typescript-linter-standards.mdc - TypeScript code standards
+- @100-coding-patterns.mdc - General coding patterns
+- @012-api-security.mdc - API security standards
+
+**Testing** (Documented in Phase 2, Implemented Later):
+
+- @300-testing-standards.mdc - General testing standards
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @376-database-test-isolation.mdc - Database testing patterns
+
+### Tools & Documentation
+
+**Documentation Tools**:
+
+- **AI Assistants (Claude, GPT-4)** - Use for generating comprehensive documents
+  - See @802-ai-documentation-generation.mdc for prompts
+- **`.cursor/tools/inspect-model.sh`** - Inspect Prisma models during database schema design
+  ```bash
+  ./.cursor/tools/inspect-model.sh ModelName
+  # Use during doc 03-database-schema.md creation
+  ```
+
+**Documentation Resources**:
+
+- **`.cursor/docs/ai-workflows.md#documentation-generation`** - AI-assisted patterns
+- **`.cursor/docs/rules-guide.md`** - How to use the 152-rule system
+
+### Comprehensive Guides
+
+**Essential Documentation Guides**:
+
+- **`guides/Project-Requirements-Generation-Complete-Guide.md`** ⭐ **ESSENTIAL - USE THIS** - Complete step-by-step documentation generation process with prompts, validation strategies, and proven patterns from NCLB project
+- **`guides/Developer-Onboarding-Guide.md`** - How developers use generated docs
+
+**Related Implementation Guides** (Use After Documentation):
+
+- **`guides/API-Database-Testing-Complete-Guide.md`** - Testing patterns for documented APIs
+- **`guides/Multi-Tenant-Architecture-Complete-Guide.md`** - Multi-tenant patterns if applicable
+- **`guides/Frontend-Performance-Complete-Guide.md`** - Performance optimization patterns
+
+### Quick Start - Documentation Generation
+
+```bash
+# 1. Create context document (30 minutes)
+# File: docs/_context.md
+# Include: Problem, users, features, tech preferences, constraints
+
+# 2. Generate Foundation documents (2-3 hours)
+# Use prompts from Project-Requirements-Generation-Complete-Guide.md
+# - 00-UserStories-MASTER.md (25-30 stories)
+# - 01-project-overview.md (executive summary)
+# - 02-tech-stack-architecture.md (from Phase 1 decision)
+# - 03-database-schema.md (Prisma schema)
+# - 04-user-stories-requirements.md (detailed requirements)
+
+# 3. Generate Technical Specs (2-3 hours)
+# - 05-ui-ux-design-specs.md (design system)
+# - 06-component-library-guide.md (component catalog)
+# - 07-data-structure.md (data schema)
+# - 08-api-endpoints-specification.md (API docs)
+# - 09-security-privacy-considerations.md (security measures)
+
+# 4. Generate Quality & Operations (1-2 hours)
+# - 10-testing-strategy.md (testing approach)
+# - 11-deployment-configuration.md (deployment guide)
+# - 12-development-workflow.md (Git workflow)
+# - 13-pwa-implementation.md (PWA - optional)
+# - 14-implementation-roadmap.md (phased plan)
+
+# 5. Run validation prompts (1 hour)
+# - Cross-reference check
+# - Implementation order validation
+# - Completeness check
+# - Developer handoff evaluation
+
+# 6. Fix critical issues and proceed to Phase 3
+```
+
+### Document Quality Validation
+
+| Check                | Passing Criteria                  | Rule      |
+| -------------------- | --------------------------------- | --------- |
+| **Length**           | 150+ lines minimum (most 300-600) | This rule |
+| **Completeness**     | All sections included             | This rule |
+| **Specificity**      | No placeholders or TODOs          | @802      |
+| **Examples**         | Code examples included            | @802      |
+| **Cross-references** | Aligns with other docs            | @802      |
+| **Actionable**       | Developer can implement from      | This rule |
+
+### Success Metrics
+
+**Documentation is complete when**:
+
+- ✅ All 15 documents generated (4,000-6,000 total lines)
+- ✅ Developer can start building immediately
+- ✅ All user stories have API endpoints + database support
+- ✅ All technical decisions justified
+- ✅ Security comprehensive
+- ✅ Testing strategy clear
+- ✅ No ambiguous requirements
+
+**Time Investment vs Return**:
+
+- Documentation: 5-8 hours
+- Time Saved: 55-105 hours
+- ROI: 7-13x
+
+---
+
+**Integration**: This rule is **Phase 2** of the Project Startup Sequence (@000-project-startup-guide.mdc)
+
+**Next Phase**: After completing documentation, proceed to Phase 3 (@800-workflow-guidelines.mdc) for workflow setup
+
+## Implementation Notes
+
+**Time Investment:**
+
+- Documentation: 5-8 hours
+- Time Saved: 55-105 hours (requirements clarification, refactoring, debugging, deployment issues)
+- ROI: 7-13x return on investment
+
+**Proven Success:**
+NCLB Survey Application used this exact structure:
+
+- 40 user stories → 15 documentation files
+- 308 automated tests with 100% pass rate
+- Deployed to production in 6 weeks
+- Zero major architecture changes needed
+- Seamless developer onboarding
+
+**When to Use:**
+
+- ✅ All new projects (web apps, mobile apps, APIs, desktop)
+- ✅ Major feature additions requiring 20+ hours development
+- ✅ Projects requiring stakeholder buy-in
+- ✅ Projects using AI-assisted development
+- ✅ Projects requiring team collaboration
+
+**When to Skip:**
+
+- ❌ Spike/prototype projects (< 20 hours)
+- ❌ Quick experiments
+- ❌ Throwaway code
+- ❌ Scripts and utilities

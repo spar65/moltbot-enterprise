@@ -1,0 +1,391 @@
+---
+description: Use when designing, implementing, or modifying API endpoints or database interactions to ensure consistent organization-scoped data handling across the application
+globs: "app/api/**/*.ts, services/**/*.ts, lib/db/**/*.ts"
+alwaysApply: false
+---
+___
+description: Apply API standards when implementing API endpoints to ensure consistency, security, and maintainability
+globs: "src/pages/api/**/*.{ts,tsx}, src/app/api/**/*.{ts,tsx}"
+___
+
+# API Standards
+
+## Context
+
+API endpoints should follow consistent patterns for implementing data access, error handling, validation, and performance optimization. These standards ensure that APIs are secure, maintainable, and performant.
+
+## Requirements
+
+### API Architecture
+
+- APIs MUST follow RESTful or GraphQL design principles consistently
+- Endpoint naming MUST use kebab-case for paths
+- Resource naming MUST use plural nouns (e.g., /users not /user)
+- API versioning SHOULD be implemented for breaking changes
+- Documentation MUST be provided for all endpoints
+- Authentication requirements MUST be clearly defined
+
+### Database Operations
+
+- All database operations MUST use repository pattern, never direct database access
+- APIs with database operations MUST include proper transaction management
+- Queries MUST include tenant isolation filters for multi-tenant data
+- N+1 query problems MUST be avoided by using proper eager loading
+- Pagination MUST be implemented for endpoints returning large datasets
+- API endpoints SHOULD optimize database queries based on requested fields
+
+### Request Validation
+
+- All API requests MUST be validated before processing
+- Validation errors MUST return appropriate HTTP status codes (400)
+- Complex validation SHOULD use schema validation libraries
+- Validation rules SHOULD be reusable across endpoints
+- Validation error messages MUST be clear and helpful
+- Input sanitization MUST be applied to prevent injection attacks
+
+### Authentication and Authorization
+
+- All non-public endpoints MUST require authentication
+- Authorization checks MUST be performed before data access
+- Role-based access control SHOULD be implemented
+- JWT tokens SHOULD include minimal required claims
+- Token validation MUST include signature and expiration checks
+- Cross-tenant access MUST be explicitly authorized
+
+### Error Handling
+
+- All errors MUST be properly caught and handled
+- Error responses MUST use appropriate HTTP status codes
+- Error responses MUST include helpful error messages
+- Error details MUST NOT expose sensitive information
+- Unexpected exceptions MUST be logged with context
+- Critical errors SHOULD trigger monitoring alerts
+
+### Performance
+
+- Long-running operations SHOULD be implemented asynchronously
+- Response caching SHOULD be implemented for frequently accessed data
+- Large response payloads SHOULD be paginated
+- API rate limiting SHOULD be implemented
+- Response compression SHOULD be enabled
+- API performance metrics MUST be collected and monitored
+
+## Examples
+
+<example>
+// API with proper database operations via repository pattern
+// pages/api/users/index.ts
+import { NextApiRequest, NextApiResponse } from 'next';
+import { UserRepository } from '../../../repositories/UserRepository';
+import { validateUserRequest } from '../../../validators/user';
+import { withAuth } from '../../../middleware/auth';
+
+export default withAuth(async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  const { organizationId } = req.auth;
+  
+  // Initialize repository
+  const userRepository = new UserRepository();
+  
+  // GET request to fetch users
+  if (req.method === 'GET') {
+    try {
+      // Parse pagination parameters
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+      const offset = (page - 1) * limit;
+      
+      // Fetch users with pagination (repository enforces tenant isolation)
+      const users = await userRepository.findAll(
+        organizationId,
+        { offset, limit }
+      );
+      
+      // Return paginated response
+      return res.status(200).json({
+        data: users,
+        pagination: {
+          page,
+          limit,
+          total: await userRepository.count(organizationId)
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      return res.status(500).json({ error: 'Failed to fetch users' });
+    }
+  }
+  
+  // POST request to create a user
+  if (req.method === 'POST') {
+    try {
+      // Validate request body
+      const validation = validateUserRequest(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: 'Invalid user data',
+          details: validation.errors
+        });
+      }
+      
+      // Create user (repository adds organizationId and handles DB transaction)
+      const user = await userRepository.create({
+        ...req.body,
+        organizationId
+      });
+      
+      return res.status(201).json(user);
+    } catch (error) {
+      console.error('Error creating user:', error);
+      
+      // Handle specific errors
+      if (error.code === 'P2002') {
+        return res.status(409).json({ error: 'User with this email already exists' });
+      }
+      
+      return res.status(500).json({ error: 'Failed to create user' });
+    }
+  }
+  
+  // Method not allowed
+  return res.status(405).json({ error: `Method ${req.method} not allowed` });
+});
+</example>
+
+<example>
+// Repository with efficient database queries
+// repositories/UserRepository.ts
+import { PrismaClient, User } from '@prisma/client';
+import { DatabaseError } from '../errors/DatabaseError';
+
+export class UserRepository {
+  private prisma: PrismaClient;
+  
+  constructor() {
+    this.prisma = new PrismaClient();
+  }
+  
+  async findAll(
+    organizationId: string,
+    options: { offset?: number; limit?: number } = {}
+  ): Promise<User[]> {
+    try {
+      return await this.prisma.user.findMany({
+        where: { organizationId },
+        skip: options.offset,
+        take: options.limit,
+        orderBy: { createdAt: 'desc' },
+        // Efficient loading of related data to avoid N+1 queries
+        include: {
+          profile: true,
+          role: {
+            select: {
+              name: true,
+              permissions: true
+            }
+          }
+        }
+      });
+    } catch (error) {
+      throw new DatabaseError('Failed to find users', error);
+    }
+  }
+  
+  async count(organizationId: string): Promise<number> {
+    try {
+      return await this.prisma.user.count({
+        where: { organizationId }
+      });
+    } catch (error) {
+      throw new DatabaseError('Failed to count users', error);
+    }
+  }
+  
+  async create(data: CreateUserData): Promise<User> {
+    try {
+      // Use transaction to ensure all related data is created atomically
+      return await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            name: data.name,
+            email: data.email,
+            organizationId: data.organizationId,
+            profile: {
+              create: {
+                bio: data.bio || '',
+                avatarUrl: data.avatarUrl,
+                organizationId: data.organizationId // Important for tenant isolation
+              }
+            },
+            role: {
+              connect: {
+                id: data.roleId
+              }
+            }
+          },
+          include: {
+            profile: true,
+            role: true
+          }
+        });
+        
+        // Additional setup in the same transaction
+        await tx.userSettings.create({
+          data: {
+            userId: user.id,
+            organizationId: data.organizationId,
+            theme: 'light',
+            notifications: true
+          }
+        });
+        
+        return user;
+      });
+    } catch (error) {
+      throw new DatabaseError('Failed to create user', error);
+    }
+  }
+}
+</example>
+
+<example>
+// GraphQL API with efficient database access
+// src/graphql/resolvers/user.ts
+import { UserRepository } from '../../repositories/UserRepository';
+
+export const userResolvers = {
+  Query: {
+    users: async (_, { page, limit }, context) => {
+      // Ensure authentication and authorization
+      if (!context.user) {
+        throw new Error('Not authenticated');
+      }
+      
+      const { organizationId } = context;
+      const userRepository = new UserRepository();
+      
+      // Calculate pagination
+      const offset = (page - 1) * limit;
+      
+      // Fetch data with tenant isolation
+      const users = await userRepository.findAll(
+        organizationId,
+        { offset, limit }
+      );
+      
+      const total = await userRepository.count(organizationId);
+      
+      return {
+        data: users,
+        pagination: {
+          page,
+          limit,
+          total,
+          hasMore: offset + users.length < total
+        }
+      };
+    }
+  },
+  
+  User: {
+    // Efficient resolution of nested fields
+    projects: async (user, _, context) => {
+      const { organizationId } = context;
+      const projectRepository = new ProjectRepository();
+      
+      // Efficient batch loading to avoid N+1 queries
+      return await projectRepository.findByUserId(
+        user.id,
+        organizationId
+      );
+    }
+  }
+};
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Direct database access in API route
+// pages/api/users.ts
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+export default async function handler(req, res) {
+  if (req.method === 'GET') {
+    // Direct database access without repository pattern
+    const users = await prisma.user.findMany();
+    return res.status(200).json(users);
+  }
+}
+
+// ❌ AVOID: Missing tenant isolation in API
+// pages/api/projects.ts
+export default async function handler(req, res) {
+  if (req.method === 'GET') {
+    // Missing tenant isolation
+    const projects = await prisma.project.findMany();
+    return res.status(200).json(projects);
+  }
+}
+
+// ❌ AVOID: N+1 query problem in API
+// pages/api/teams.ts
+export default async function handler(req, res) {
+  if (req.method === 'GET') {
+    const teams = await prisma.team.findMany({
+      where: { organizationId: req.query.organizationId }
+    });
+    
+    // N+1 query problem - fetching members for each team individually
+    for (const team of teams) {
+      team.members = await prisma.user.findMany({
+        where: { teamId: team.id }
+      });
+    }
+    
+    return res.status(200).json(teams);
+  }
+}
+
+// ❌ AVOID: No pagination for large result sets
+// pages/api/logs.ts
+export default async function handler(req, res) {
+  if (req.method === 'GET') {
+    // Missing pagination for potentially large result set
+    const logs = await prisma.activityLog.findMany({
+      where: { organizationId: req.query.organizationId }
+    });
+    
+    return res.status(200).json(logs);
+  }
+}
+</example>
+
+## Measuring Compliance
+
+- Review API routes for repository pattern usage
+- Check for tenant isolation in all database queries
+- Audit pagination implementation in list endpoints
+- Monitor API performance metrics and response times
+- Review error handling consistency across endpoints
+- Verify authentication and authorization in all non-public endpoints
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/rules-guide.md`** - Understanding the rule system
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Complete API development workflow
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (CRITICAL FOR API WORK!)
+- **`.cursor/tools/inspect-model.sh`** - Inspect schema BEFORE writing API code
+- **`.cursor/tools/check-schema-changes.sh`** - Validate before committing
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (SCHEMA FIRST!)
+- @012-api-security.mdc - API security patterns
+- @025-multi-tenancy.mdc - Organization-scoped data handling
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @105-typescript-linter-standards.mdc - Type safety

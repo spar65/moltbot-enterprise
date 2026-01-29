@@ -1,0 +1,420 @@
+# VibeCoder Testing Strategy Guide
+
+## Testing Philosophy
+
+The VibeCoder testing strategy focuses on confidence, maintainability, and developer experience. We prioritize tests that prevent regressions and document expected behavior.
+
+## Testing Pyramid
+
+### Unit Tests (70%)
+
+- **Component tests**: Test individual components in isolation
+- **Hook tests**: Test custom React hooks
+- **Utility tests**: Test pure functions and utilities
+- **API route tests**: Test API endpoints with mocked dependencies
+
+### Integration Tests (20%)
+
+- **Feature flow tests**: Test complete user workflows
+- **Component integration**: Test component interactions
+- **API integration**: Test API routes with real database connections
+- **Authentication flows**: Test login/logout and protected routes
+
+### End-to-End Tests (10%)
+
+- **Critical path tests**: Test essential user journeys
+- **Cross-browser testing**: Verify functionality across browsers
+- **Performance testing**: Monitor Core Web Vitals
+- **Accessibility testing**: Automated accessibility checks
+
+## Testing Stability Through Dependency Changes
+
+### Focus on Behavior, Not Implementation
+
+- Test what components do, not how they're built
+- Avoid coupling tests to implementation details
+- Focus on user interactions and outputs
+- Use data-testid attributes instead of CSS selectors
+
+### Flexible Assertions
+
+```typescript
+// Instead of expecting exact status:
+expect(res.statusCode).toBe(200);
+
+// Use range assertions that survive implementation changes:
+expect(res.statusCode).toBeGreaterThanOrEqual(200);
+expect(res.statusCode).toBeLessThan(300);
+
+// Instead of exact error message matching:
+expect(error.message).toBe("Authentication failed");
+
+// Use partial matching:
+expect(error.message).toContain("Authentication");
+```
+
+### Abstraction Layers
+
+- Create custom hooks and utilities that wrap third-party dependencies
+- Build test-friendly facades around complex library functionality
+- Use dependency injection to make components testable
+- Document breaking changes in library interfaces
+
+### Mock Factories
+
+```typescript
+// Reusable auth0 mock factory
+const createAuth0Mock = (overrides = {}) => {
+  return {
+    useUser: jest.fn().mockReturnValue({
+      user: { sub: "test-user", name: "Test User" },
+      isLoading: false,
+      error: null,
+      ...overrides.useUser,
+    }),
+    getSession: jest.fn().mockResolvedValue({
+      user: { sub: "test-user", name: "Test User" },
+      ...overrides.getSession,
+    }),
+    withApiAuthRequired: (handler) => handler,
+    ...overrides,
+  };
+};
+
+// Usage in tests
+jest.mock("@auth0/nextjs-auth0", () =>
+  createAuth0Mock({
+    useUser: { isLoading: true },
+  })
+);
+```
+
+## Router Mocking
+
+Complete Next.js router mock that prevents common test failures:
+
+```typescript
+// Complete Next.js router mock
+jest.mock("next/router", () => ({
+  useRouter: () => ({
+    pathname: "/test",
+    route: "/test",
+    query: {},
+    asPath: "/test",
+    push: jest.fn().mockResolvedValue(true),
+    replace: jest.fn().mockResolvedValue(true),
+    reload: jest.fn(),
+    back: jest.fn(),
+    prefetch: jest.fn().mockResolvedValue(undefined),
+    beforePopState: jest.fn(),
+    events: {
+      on: jest.fn(),
+      off: jest.fn(),
+      emit: jest.fn(),
+    },
+    isFallback: false,
+  }),
+}));
+```
+
+## Common Testing Pitfalls
+
+- **Implementation coupling**: Tests that break when implementation details change
+- **Missing async handling**: Not properly using act() or waitFor with state updates
+- **Brittle selectors**: Using implementation details for component selection
+- **Prop serialization errors**: Not accounting for JSON serialization in SSR tests
+- **Time-dependent tests**: Relying on specific timings that can vary
+- **Auth state assumptions**: Expecting specific auth behavior without proper mocking
+
+## Test Setup and Configuration
+
+### Jest Configuration
+
+```javascript
+// jest.config.mjs
+export default {
+  testEnvironment: "jsdom",
+  setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
+  moduleNameMapper: {
+    "^@/(.*)$": "<rootDir>/src/$1",
+  },
+  collectCoverageFrom: [
+    "src/**/*.{js,jsx,ts,tsx}",
+    "!src/**/*.d.ts",
+    "!src/**/*.stories.{js,jsx,ts,tsx}",
+  ],
+  testPathIgnorePatterns: ["<rootDir>/.next/", "<rootDir>/node_modules/"],
+  clearMocks: true,
+  restoreMocks: true,
+};
+```
+
+### Mock Strategy
+
+- **Auth0**: Comprehensive authentication mocks
+- **Next.js Router**: Complete router API mocking
+- **Fetch API**: Global fetch mocking with realistic responses
+- **Database**: Transaction and query mocking
+- **Third-party APIs**: Service-specific mocks
+
+## Component Testing Patterns
+
+### Basic Component Test
+
+```typescript
+import { render, screen } from "@testing-library/react";
+import { Button } from "./Button";
+
+describe("Button", () => {
+  it("renders with correct text", () => {
+    render(<Button>Click me</Button>);
+    expect(
+      screen.getByRole("button", { name: "Click me" })
+    ).toBeInTheDocument();
+  });
+
+  it("calls onClick when clicked", () => {
+    const handleClick = jest.fn();
+    render(<Button onClick={handleClick}>Click me</Button>);
+
+    fireEvent.click(screen.getByRole("button"));
+    expect(handleClick).toHaveBeenCalledTimes(1);
+  });
+});
+```
+
+### Authentication Testing
+
+```typescript
+import { render, screen } from "@testing-library/react";
+import { useUser } from "@auth0/nextjs-auth0";
+import { ProtectedComponent } from "./ProtectedComponent";
+
+jest.mock("@auth0/nextjs-auth0");
+
+describe("ProtectedComponent", () => {
+  it("shows loading state when user is loading", () => {
+    (useUser as jest.Mock).mockReturnValue({
+      user: null,
+      isLoading: true,
+      error: null,
+    });
+
+    render(<ProtectedComponent />);
+    expect(screen.getByText("Loading...")).toBeInTheDocument();
+  });
+
+  it("redirects when user is not authenticated", () => {
+    (useUser as jest.Mock).mockReturnValue({
+      user: null,
+      isLoading: false,
+      error: null,
+    });
+
+    render(<ProtectedComponent />);
+    // Test redirect behavior
+  });
+});
+```
+
+### API Route Testing
+
+```typescript
+import { createMocks } from "node-mocks-http";
+import handler from "../pages/api/user/profile";
+import { getSession } from "@auth0/nextjs-auth0";
+
+jest.mock("@auth0/nextjs-auth0");
+
+describe("/api/user/profile", () => {
+  it("returns user profile for authenticated user", async () => {
+    const { req, res } = createMocks({
+      method: "GET",
+    });
+
+    (getSession as jest.Mock).mockResolvedValue({
+      user: { sub: "user123", name: "Test User" },
+    });
+
+    await handler(req, res);
+
+    expect(res._getStatusCode()).toBe(200);
+    expect(JSON.parse(res._getData())).toEqual({
+      user: expect.objectContaining({
+        id: "user123",
+        name: "Test User",
+      }),
+    });
+  });
+});
+```
+
+## Test Organization
+
+### File Structure
+
+```
+src/
+├── components/
+│   ├── Button/
+│   │   ├── Button.tsx
+│   │   ├── Button.test.tsx
+│   │   └── index.ts
+├── hooks/
+│   ├── useDashboard.ts
+│   └── useDashboard.test.ts
+├── pages/
+│   ├── api/
+│   │   └── user/
+│   │       ├── profile.ts
+│   │       └── profile.test.ts
+└── __tests__/
+    ├── integration/
+    └── e2e/
+```
+
+### Test Naming Conventions
+
+- Test files: `ComponentName.test.tsx`
+- Test suites: Describe component/function name
+- Test cases: Use "should" or imperative statements
+- Setup functions: `setup` prefix for reusable test utilities
+
+## Coverage Standards
+
+### Minimum Coverage Targets
+
+- **Overall**: 80% line coverage
+- **Components**: 85% line coverage
+- **API routes**: 90% line coverage
+- **Utilities**: 95% line coverage
+
+### Coverage Exclusions
+
+- Type definition files (`.d.ts`)
+- Story files (`.stories.tsx`)
+- Configuration files
+- Test utilities and mocks
+
+## Performance Testing
+
+### Core Web Vitals Testing
+
+```typescript
+import { getCLS, getFID, getFCP, getLCP, getTTFB } from "web-vitals";
+
+describe("Performance", () => {
+  it("meets Core Web Vitals thresholds", async () => {
+    // Test implementation for performance metrics
+  });
+});
+```
+
+### Bundle Size Testing
+
+- Monitor bundle size in CI/CD pipeline
+- Alert on significant increases
+- Test tree-shaking effectiveness
+
+## Accessibility Testing
+
+### Automated Testing
+
+```typescript
+import { axe, toHaveNoViolations } from "jest-axe";
+
+expect.extend(toHaveNoViolations);
+
+describe("Accessibility", () => {
+  it("has no accessibility violations", async () => {
+    const { container } = render(<Component />);
+    const results = await axe(container);
+    expect(results).toHaveNoViolations();
+  });
+});
+```
+
+### Manual Testing Checklist
+
+- Keyboard navigation
+- Screen reader compatibility
+- Color contrast verification
+- Focus management
+
+## Continuous Integration
+
+### Pre-commit Hooks
+
+- Run tests for changed files
+- Verify test coverage thresholds
+- Check for test file existence
+
+### CI/CD Pipeline
+
+- Run full test suite on PR
+- Generate coverage reports
+- Block merge on test failures
+- Run E2E tests on staging deployment
+
+## Test Maintenance
+
+### Regular Activities
+
+- Review and update snapshots
+- Remove obsolete tests
+- Refactor test utilities
+- Update mock data
+
+### Test Debt Management
+
+- Identify flaky tests
+- Improve test performance
+- Update test documentation
+- Standardize test patterns
+
+## Issue Documentation Template
+
+Use this template when documenting test failures to facilitate systematic improvements:
+
+```markdown
+## Test Failure Report
+
+### Problem Description
+
+[Clear description of the test failure]
+
+### Error Details
+```
+
+[Error message and stack trace]
+
+```
+
+### Root Cause Analysis
+[Explanation of what caused the failure]
+
+### Solution Implemented
+[Description of how the issue was fixed]
+
+### Prevention Strategy
+[How to prevent this issue in the future]
+
+### Rule/Guide Updates Needed
+[Specific updates needed to rules or guides]
+```
+
+## Evidence Source
+
+This testing strategy incorporates lessons learned from real-world issues documented in our HitList:
+
+- HitList-Problem-TestFailed03.md (14 test failures during Auth0 migration)
+- HitList-Test-Problem-Framework02-Defect.md (React act() warnings)
+- HitList-Test-Profile-Update.md (component test challenges)
+- HitList-Test-Fixes01.md (patterns for fixing brittle tests)
+
+## Success Metrics
+
+- Zero test failures during dependency updates
+- Reduced test maintenance during refactoring
+- Improved test coverage for critical paths
+- Faster feedback cycle for developers

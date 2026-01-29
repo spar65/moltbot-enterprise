@@ -1,0 +1,664 @@
+---
+description: Apply metrics and alerting standards when setting up production monitoring to ensure proactive incident detection and rapid response
+globs: "**/*"
+---
+
+# Metrics & Alerting Standards
+
+## Context
+Metrics and alerts are your early warning system. Good alerts detect issues before users notice them. Bad alerts wake you up for nothing. This rule establishes standards for meaningful metrics, actionable alerts, and sustainable on-call practices.
+
+**Key Principles:**
+- Every alert must be actionable
+- Alert on symptoms, not causes
+- Reduce alert fatigue (< 5 alerts per week)
+- Response time < 15 minutes
+
+## Requirements
+
+### 1. Key Metrics to Track
+
+**The Four Golden Signals (Google SRE):**
+```typescript
+export const goldenSignals = {
+  // 1. Latency - How long requests take
+  latency: {
+    p50: 200,  // ms - median
+    p95: 500,  // ms - 95th percentile  
+    p99: 1000, // ms - 99th percentile
+    threshold: 2000, // Alert if p95 > 2s
+  },
+  
+  // 2. Traffic - How many requests
+  traffic: {
+    rpm: 1000, // requests per minute
+    baseline: 1000,
+    threshold: 0.5, // Alert if < 50% of baseline
+  },
+  
+  // 3. Errors - How many requests fail
+  errors: {
+    rate: 0.1,     // % - current error rate
+    baseline: 0.1, // % - normal error rate
+    threshold: 5.0, // Alert if > 5%
+  },
+  
+  // 4. Saturation - How full is the system
+  saturation: {
+    cpu: 45,        // % - current CPU usage
+    memory: 60,     // % - current memory usage
+    connections: 30, // % - database connections used
+    thresholds: {
+      cpu: 80,        // Alert if > 80%
+      memory: 85,     // Alert if > 85%
+      connections: 80, // Alert if > 80%
+    },
+  },
+};
+```
+
+**USE Method (Infrastructure):**
+```typescript
+// Utilization, Saturation, Errors
+export const useMetrics = {
+  // Utilization - % of resource used
+  utilization: {
+    cpu: 45,      // %
+    memory: 60,   // %
+    disk: 40,     // %
+    network: 20,  // % of bandwidth
+  },
+  
+  // Saturation - How much queued/waiting
+  saturation: {
+    cpuQueue: 0,      // processes waiting
+    ioQueue: 5,       // I/O operations waiting
+    networkQueue: 10, // network packets queued
+  },
+  
+  // Errors - How many operations failed
+  errors: {
+    diskErrors: 0,
+    networkErrors: 2,
+    systemErrors: 0,
+  },
+};
+```
+
+**RED Method (Services):**
+```typescript
+// Rate, Errors, Duration
+export const redMetrics = {
+  // Rate - requests per second
+  rate: {
+    current: 100,
+    baseline: 100,
+  },
+  
+  // Errors - error rate %
+  errors: {
+    rate: 0.1,
+    baseline: 0.1,
+  },
+  
+  // Duration - response time
+  duration: {
+    p50: 200,
+    p95: 500,
+    p99: 1000,
+  },
+};
+```
+
+### 2. Alert Configuration
+
+**Alert Severity Levels:**
+```typescript
+export enum AlertSeverity {
+  // P0: Page immediately, wake up on-call
+  CRITICAL = 'critical',
+  
+  // P1: Alert during business hours, investigate within 1 hour
+  HIGH = 'high',
+  
+  // P2: Alert during business hours, investigate within 4 hours  
+  MEDIUM = 'medium',
+  
+  // P3: Log only, review weekly
+  LOW = 'low',
+}
+
+export const alertPolicies = {
+  // P0 - CRITICAL: Page immediately
+  critical: {
+    errorRate: {
+      threshold: 5.0, // % - More than 5% errors
+      duration: '2m', // For 2 minutes
+      action: 'page', // Wake up on-call
+    },
+    
+    downtime: {
+      threshold: 1, // Any downtime
+      duration: '1m',
+      action: 'page',
+    },
+    
+    p95Latency: {
+      threshold: 5000, // ms - 5 seconds
+      duration: '5m',
+      action: 'page',
+    },
+  },
+  
+  // P1 - HIGH: Alert immediately (business hours)
+  high: {
+    errorRate: {
+      threshold: 2.0, // % - More than 2% errors
+      duration: '5m',
+      action: 'alert',
+    },
+    
+    p95Latency: {
+      threshold: 2000, // ms - 2 seconds
+      duration: '10m',
+      action: 'alert',
+    },
+    
+    saturation: {
+      cpu: 80,      // %
+      memory: 85,   // %
+      duration: '10m',
+      action: 'alert',
+    },
+  },
+  
+  // P2 - MEDIUM: Alert (can wait hours)
+  medium: {
+    errorRate: {
+      threshold: 1.0, // % - More than 1% errors
+      duration: '15m',
+      action: 'notify',
+    },
+    
+    slowQueries: {
+      threshold: 10, // More than 10 slow queries
+      duration: '5m',
+      action: 'notify',
+    },
+  },
+  
+  // P3 - LOW: Log only
+  low: {
+    errorRate: {
+      threshold: 0.5, // % - More than 0.5% errors
+      duration: '30m',
+      action: 'log',
+    },
+  },
+};
+```
+
+**Alert Rules (Sentry Example):**
+```typescript
+// sentry.config.ts
+export const alertRules = [
+  {
+    name: 'Critical Error Rate',
+    conditions: [
+      {
+        id: 'sentry.rules.conditions.event_frequency.EventFrequencyCondition',
+        value: 100, // events
+        interval: '1m',
+      },
+    ],
+    actions: [
+      {
+        id: 'sentry.integrations.slack.notify_action.SlackNotifyServiceAction',
+        channel: '#incidents',
+        tags: 'critical',
+      },
+      {
+        id: 'sentry.integrations.pagerduty.notify_action.PagerDutyNotifyServiceAction',
+        severity: 'critical',
+      },
+    ],
+    actionMatch: 'all',
+    frequency: 5, // Alert every 5 minutes if still firing
+  },
+  
+  {
+    name: 'High Error Rate',
+    conditions: [
+      {
+        id: 'sentry.rules.conditions.event_frequency.EventFrequencyPercentCondition',
+        value: 2.0, // % of requests
+        interval: '5m',
+      },
+    ],
+    actions: [
+      {
+        id: 'sentry.integrations.slack.notify_action.SlackNotifyServiceAction',
+        channel: '#alerts',
+        tags: 'high',
+      },
+    ],
+    frequency: 15,
+  },
+];
+```
+
+### 3. Alert Best Practices
+
+**Every Alert Must Be:**
+```markdown
+## Actionable Alert Checklist
+
+✅ **Actionable** - Clear action to take
+✅ **Relevant** - Actually matters
+✅ **Timely** - Fires at right time
+✅ **Unique** - Not duplicate of other alerts
+✅ **Documented** - Has runbook/playbook
+
+❌ **Non-Actionable** - "FYI" alerts
+❌ **Noisy** - Fires too often
+❌ **Vague** - Unclear what to do
+❌ **Duplicate** - Multiple alerts for same issue
+```
+
+**Alert Template:**
+```markdown
+## Alert: High Error Rate
+
+**Severity:** P1 (High)
+
+**Condition:** Error rate > 2% for 5 minutes
+
+**Impact:**
+- Users experiencing errors
+- Potential data loss
+- Revenue impact: ~$500/hour
+
+**Action Steps:**
+1. Check #incidents channel for existing incident
+2. If new, declare incident
+3. Check recent deployments (likely cause)
+4. Review error logs in Sentry
+5. Consider rollback if recent deployment
+
+**Runbook:** https://wiki.example.com/runbooks/high-error-rate
+
+**On-Call:** @on-call-engineer
+```
+
+**Alert Tuning (Reduce False Positives):**
+```typescript
+// Bad: Fires on single error
+if (errorRate > 0.1) {
+  alert('Error detected!'); // Too sensitive!
+}
+
+// Good: Fires on sustained error rate
+if (errorRate > 2.0 && duration > 5.minutes) {
+  alert('High error rate sustained for 5+ minutes');
+}
+
+// Better: Fires on anomaly detection
+if (errorRate > baseline * 5 && duration > 5.minutes) {
+  alert(`Error rate ${errorRate}% is 5x higher than baseline ${baseline}%`);
+}
+```
+
+### 4. Alert Channels
+
+**Channel Strategy:**
+```yaml
+Critical Alerts (P0):
+  - PagerDuty (page on-call engineer)
+  - Slack #incidents (immediate visibility)
+  - Email (backup notification)
+  - SMS (if PagerDuty fails)
+
+High Alerts (P1):
+  - Slack #alerts (during business hours)
+  - Email (team distribution list)
+  - Dashboard (red indicator)
+
+Medium Alerts (P2):
+  - Slack #monitoring (low-priority channel)
+  - Email (daily digest)
+  - Dashboard (yellow indicator)
+
+Low Alerts (P3):
+  - Dashboard only
+  - Weekly summary email
+```
+
+**Slack Alert Format:**
+```markdown
+🚨 CRITICAL ALERT: High Error Rate
+
+**Service:** API
+**Metric:** Error rate 5.2% (baseline 0.1%)
+**Duration:** 3 minutes
+**Impact:** All users affected
+
+**Graph:** [View in Datadog](https://app.datadoghq.com/...)
+**Logs:** [View in Sentry](https://sentry.io/...)
+
+**Actions:**
+1. Check recent deployments
+2. Review error logs
+3. Consider rollback
+
+**On-Call:** @engineer-name
+**Runbook:** https://wiki.example.com/runbooks/error-rate
+```
+
+### 5. On-Call Management
+
+**On-Call Rotation:**
+```yaml
+Schedule:
+  - Rotation: Weekly (Monday 9am → Monday 9am)
+  - Primary: Engineer A
+  - Secondary: Engineer B (escalation)
+  - Manager: Engineering Manager (escalation)
+
+Coverage:
+  - 24/7 coverage for P0 alerts
+  - Business hours only for P1 alerts
+  - No on-call for P2/P3 (handled during work hours)
+
+Handoff:
+  - Monday 9am: Handoff meeting (15 min)
+  - Review incidents from past week
+  - Discuss any ongoing issues
+  - Update runbooks if needed
+```
+
+**On-Call Expectations:**
+```markdown
+## On-Call Engineer Responsibilities
+
+**Response Times:**
+- P0 (Critical): Acknowledge < 5 min, Respond < 15 min
+- P1 (High): Acknowledge < 30 min, Respond < 1 hour
+- P2 (Medium): Respond within 4 hours
+
+**During On-Call Week:**
+- ✅ Keep laptop and phone nearby
+- ✅ Be available to respond to pages
+- ✅ Escalate if needed (don't struggle alone)
+- ✅ Document all incidents
+- ✅ Update runbooks
+
+**Compensation:**
+- On-call stipend: $X per week
+- Comp time: 2 hours per page outside business hours
+- Incident time: Flexible hours next day
+```
+
+**Escalation Path:**
+```
+P0 Alert Fires
+  ↓
+1. Page Primary On-Call (Engineer A)
+   ├─ Acknowledges < 5 min? → Engineer A handles
+   └─ No acknowledgment? → Escalate
+       ↓
+2. Page Secondary On-Call (Engineer B)
+   ├─ Acknowledges < 5 min? → Engineer B handles  
+   └─ No acknowledgment? → Escalate
+       ↓
+3. Page Engineering Manager
+   └─ Manager coordinates response
+```
+
+### 6. Alert Fatigue Prevention
+
+**Signs of Alert Fatigue:**
+- More than 5 alerts per week per person
+- Low alert acknowledgment rate (< 80%)
+- High false positive rate (> 20%)
+- Alerts being ignored
+- "Alert fatigue" complaints from team
+
+**Solutions:**
+```typescript
+// 1. Increase thresholds (reduce sensitivity)
+// Bad: Too sensitive
+errorRate > 0.5 // Fires too often
+
+// Good: Balanced
+errorRate > 2.0 && duration > 5.minutes
+
+// 2. Use anomaly detection (baseline + stddev)
+errorRate > (baseline + 3 * stddev)
+
+// 3. Aggregate related alerts
+// Instead of: 10 alerts for 10 slow queries
+// Send: 1 alert "10 slow queries in last 5 minutes"
+
+// 4. Add cooldown periods
+if (lastAlert < 30.minutes.ago) {
+  return; // Don't alert again so soon
+}
+
+// 5. Use alert grouping
+// Group similar alerts (e.g., all error rates)
+// Send single notification with details
+```
+
+**Alert Review (Monthly):**
+```markdown
+## Monthly Alert Review
+
+**Metrics to Review:**
+- Total alerts fired: 87
+- False positives: 12 (14%)
+- Average response time: 8 minutes
+- Alerts ignored: 3 (3%)
+
+**Action Items:**
+- ❌ Tune "Memory usage" alert (20 false positives)
+- ❌ Remove "Slow query" alert (no longer relevant)
+- ✅ Add "API timeout" alert (missing coverage)
+- ✅ Update "Error rate" threshold from 1% to 2%
+
+**Next Review:** 2024-03-01
+```
+
+### 7. Metrics Visualization
+
+**Dashboard Organization:**
+```yaml
+Dashboard 1: System Health (Overview)
+  - Uptime status
+  - Error rate trend (24h)
+  - Response time trend (24h)
+  - Active alerts count
+  - Recent deployments
+
+Dashboard 2: Performance Metrics
+  - Response time (p50, p95, p99)
+  - Requests per minute
+  - Database query time
+  - Cache hit rate
+  - External API latency
+
+Dashboard 3: Error Tracking
+  - Error rate by endpoint
+  - Error types (4xx vs 5xx)
+  - Top errors (by count)
+  - Error resolution time
+  - User-impacting errors
+
+Dashboard 4: Infrastructure
+  - CPU usage by service
+  - Memory usage by service
+  - Database connections
+  - Network throughput
+  - Disk I/O
+```
+
+**Color Coding:**
+```yaml
+Status Colors:
+  - 🟢 Green: All good (< threshold)
+  - 🟡 Yellow: Warning (approaching threshold)
+  - 🔴 Red: Alert (exceeds threshold)
+  - ⚫ Gray: No data / Disabled
+
+Thresholds:
+  - Green: 0-70% of limit
+  - Yellow: 70-90% of limit
+  - Red: > 90% of limit
+```
+
+## Metrics Collection
+
+**StatsD/DogStatsD (Recommended):**
+```typescript
+// lib/metrics.ts
+import { StatsD } from 'node-statsd';
+
+const metrics = new StatsD({
+  host: process.env.STATSD_HOST || 'localhost',
+  port: 8125,
+  prefix: 'myapp.',
+  globalTags: {
+    env: process.env.NODE_ENV,
+    region: process.env.VERCEL_REGION,
+  },
+});
+
+// Counter (increment/decrement)
+export function incrementCounter(name: string, tags?: object) {
+  metrics.increment(name, 1, tags);
+}
+
+// Gauge (set value)
+export function setGauge(name: string, value: number, tags?: object) {
+  metrics.gauge(name, value, tags);
+}
+
+// Histogram (distribution of values)
+export function recordHistogram(name: string, value: number, tags?: object) {
+  metrics.histogram(name, value, tags);
+}
+
+// Timing (measure duration)
+export function recordTiming(name: string, duration: number, tags?: object) {
+  metrics.timing(name, duration, tags);
+}
+
+// Usage examples
+incrementCounter('api.requests', { endpoint: '/api/users' });
+setGauge('database.connections', 45);
+recordHistogram('api.response_time', 250, { endpoint: '/api/users' });
+recordTiming('external.stripe.duration', 1500);
+```
+
+**Prometheus (Alternative):**
+```typescript
+// lib/metrics.ts
+import { Counter, Histogram, Gauge, register } from 'prom-client';
+
+// Counter
+export const httpRequestsTotal = new Counter({
+  name: 'http_requests_total',
+  help: 'Total HTTP requests',
+  labelNames: ['method', 'route', 'status'],
+});
+
+// Histogram
+export const httpRequestDuration = new Histogram({
+  name: 'http_request_duration_ms',
+  help: 'HTTP request duration in milliseconds',
+  labelNames: ['method', 'route', 'status'],
+  buckets: [10, 50, 100, 200, 500, 1000, 2000, 5000],
+});
+
+// Gauge
+export const activeConnections = new Gauge({
+  name: 'database_connections_active',
+  help: 'Number of active database connections',
+});
+
+// Metrics endpoint
+export async function getMetrics() {
+  return register.metrics();
+}
+```
+
+## Alert Testing
+
+**Test Alerts Monthly:**
+```bash
+# Trigger test alert
+curl -X POST https://api.example.com/test/trigger-alert \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"severity": "critical", "message": "Test alert"}'
+
+# Verify:
+# 1. Alert fires in monitoring system
+# 2. Notification sent to correct channels
+# 3. On-call engineer receives page
+# 4. Alert appears in dashboard
+# 5. Runbook link works
+```
+
+**Alert Drills (Quarterly):**
+```markdown
+## Alert Drill Procedure
+
+1. **Schedule** (announce 1 week prior)
+2. **Trigger** test alert (P1 severity)
+3. **Measure** response time
+4. **Evaluate** response quality
+5. **Document** lessons learned
+6. **Improve** runbooks and alerts
+
+**Success Criteria:**
+- Alert acknowledged < 30 min
+- Correct runbook followed
+- Issue correctly diagnosed
+- No confusion about ownership
+```
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Alerting workflows
+- **`003-cursor-system-overview.mdc`** ⭐ - System overview
+
+### Complete Guides
+- **`guides/Monitoring-Complete-Guide.md`** ⭐ - Complete monitoring setup
+- **`guides/Incident-Response-Complete-Guide.md`** ⭐ - Responding to alerts
+
+### Related Rules
+- @221-application-monitoring.mdc - What to monitor
+- @223-health-checks.mdc - Health check endpoints
+- @804-hotfix-procedures.mdc - Emergency response
+- @202-rollback-procedures.mdc - Automated rollback triggers
+- @210-operations-incidents.mdc - Incident management
+
+### Tools
+- **`.cursor/tools/check-deployment-health.sh`** - Post-deploy metrics check
+
+### Quick Start
+1. **Define golden signals:** Latency, traffic, errors, saturation
+2. **Set thresholds:** P0 (critical), P1 (high), P2 (medium)
+3. **Configure alerts:** Sentry, Datadog, or Vercel
+4. **Set up on-call:** Weekly rotation with escalation
+5. **Create runbooks:** Document response procedures
+6. **Test alerts:** Monthly testing + quarterly drills
+
+## Priority
+**P0 (Required)** - Metrics and alerting are critical for proactive incident detection and rapid response in production environments.
+
+## References
+- [Google SRE - Monitoring](https://sre.google/sre-book/monitoring-distributed-systems/)
+- [Google SRE - On-Call](https://sre.google/sre-book/being-on-call/)
+- [Datadog Alerting Best Practices](https://docs.datadoghq.com/monitors/guide/best-practices/)
+- [PagerDuty Incident Response](https://response.pagerduty.com/)

@@ -1,0 +1,69 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply subscription health monitoring standards when implementing recurring billing to ensure business metrics visibility
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Subscription Health Monitoring Standards
+
+## Key Performance Indicators
+- Monitor Monthly Recurring Revenue (MRR) and growth
+- Track subscription churn rates (voluntary and involuntary)
+- Implement cohort analysis for subscription retention
+- Measure payment success rates by method/region
+- Create standardized reporting intervals
+
+## Subscription Anomaly Detection
+- Implement alerting for unusual churn patterns
+- Create monitoring for subscription creation failures
+- Apply anomaly detection to payment failure rates
+- Document response procedures for detected anomalies
+- Implement proper logging for investigation
+
+## Revenue Dashboard
+- Create standardized revenue reporting views
+- Implement proper revenue recognition rules
+- Apply consistent metrics definitions
+- Create export capabilities for financial analysis
+- Document dashboard refresh frequency and data sources
+
+## Health Indicators
+- Define key subscription health indicators
+- Implement trend analysis for critical metrics
+- Create benchmark comparisons
+- Apply proper visualization standards
+- Document interpretation guidelines for indicators
+
+## Executive Financial Dashboard
+- Implement real-time MRR and ARR tracking
+- Create cohort revenue analysis views
+- Develop payment method performance metrics
+- Visualize geographic revenue distribution
+- Build executive-level summary reports
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Monitoring patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check Subscription data model
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @020-stripe-integration.mdc - Stripe patterns
+- @021-stripe-subscription-implementation.mdc - Subscription implementation
+- @026-subscription-access-control.mdc - Access patterns
+- @070-subscription-management-standards.mdc - Management patterns
+- @078-payment-testing-standards.mdc - Testing monitoring
+- @210-operations-incidents.mdc - Incident response
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh Subscription`
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Monitor:** Implement health checks per this rule

@@ -1,0 +1,721 @@
+---
+description: Use when implementing payment-related features to ensure security, compliance, and user trust
+globs: "**/*payment*.{tsx,ts,jsx,js}, **/stripe*.{tsx,ts,jsx,js}, **/billing*.{tsx,ts,jsx,js}"
+alwaysApply: false
+---
+___
+description: Apply payment security standards when implementing payment features to ensure secure and compliant payment processing
+globs: "src/{pages,components,lib}/**/*.{js,jsx,ts,tsx}"
+___
+
+# Payment Security Standards
+
+## Context
+- AgentMinder processes payments and handles sensitive financial information
+- Payment Card Industry Data Security Standard (PCI DSS) compliance is required
+- Users expect secure and transparent payment experiences
+- Payment flows must be reliable and error-resistant
+- Multiple payment methods and providers must be supported
+
+## Requirements
+
+### PCI DSS Compliance
+
+- Never store, log, or transmit full credit card numbers
+- Use only PCI-compliant payment processors (Stripe, PayPal, etc.)
+- Implement proper payment tokenization
+- Apply strong encryption for all payment data in transit
+- Restrict access to payment functionality to authorized users
+
+## Stripe API Security
+- Use server-side API calls for all payment operations
+- Store Stripe secret key only in server-side environment variables
+- Expose publishable key only to client-side code
+- Rotate API keys following security incidents
+- Implement proper key access controls in deployment environments
+- Apply rate limiting to payment-related API endpoints
+
+## Webhook Security
+- Validate webhook signatures for all incoming Stripe events
+- Use proper idempotency handling for webhook processing
+- Implement appropriate error handling for webhook verification failures
+- Log webhook processing for audit purposes
+- Secure webhook endpoints from unauthorized access
+- Implement circuit breaker pattern for webhook dependencies
+
+## PCI Compliance
+- Use Stripe Elements or Checkout to avoid handling card data directly
+- Never log or store complete card information
+- Implement proper TLS/SSL for all payment-related endpoints
+- Conduct regular security reviews of payment code
+- Maintain appropriate documentation for compliance audits
+- Apply proper network security for payment processing environments
+
+## Payment Data Handling
+- Minimize payment data retained in application database
+- Use Stripe customer and payment method IDs as references
+- Implement proper access controls for payment-related data
+- Apply data encryption for sensitive payment information
+- Define clear data retention and deletion policies
+- Implement proper audit logging for payment data access
+
+## 3D Secure Authentication
+- Implement proper handling of 3D Secure authentication flows
+- Handle authentication challenges gracefully in the UI
+- Provide clear user guidance during authentication steps
+- Test 3D Secure flows in development environments
+- Monitor authentication success rates in production
+- Apply 3D Secure selectively based on risk assessment
+
+## Fraud Prevention
+- Implement Stripe Radar rules and custom rules
+- Apply risk scoring for high-value transactions
+- Monitor suspicious payment patterns and activity
+- Implement velocity checks for new customers
+- Create review workflows for flagged transactions
+- Apply machine learning models for fraud detection
+
+## Examples
+
+<example>
+// Good: Secure server-side payment processing
+// pages/api/create-payment.ts
+import { NextApiRequest, NextApiResponse } from 'next';
+import Stripe from 'stripe';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from './auth/[...nextauth]';
+
+// Initialize Stripe with server-side secret key
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2023-10-16',
+});
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Authenticate the request
+  const session = await getServerSession(req, res, authOptions);
+  if (!session) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const { amount, currency } = req.body;
+
+    // Create payment intent server-side
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount,
+      currency,
+      metadata: {
+        userId: session.user.id,
+      },
+    });
+
+    // Return only the client secret to the frontend
+    return res.status(200).json({
+      clientSecret: paymentIntent.client_secret,
+    });
+  } catch (error) {
+    console.error('Payment error:', error);
+    return res.status(500).json({ error: 'Failed to create payment' });
+  }
+}
+</example>
+
+<example type="invalid">
+// Bad: Client-side payment processing with exposed secret key
+// components/PaymentForm.js
+import Stripe from 'stripe';
+
+export default function PaymentForm() {
+  async function handleSubmit(e) {
+    e.preventDefault();
+    
+    // ❌ NEVER initialize Stripe with secret key on the client
+    const stripe = new Stripe('sk_test_...'); // Exposed secret key
+    
+    // ❌ Direct API call from client
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: 1000,
+      currency: 'usd',
+    });
+    
+    // Process payment with exposed data
+  }
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* Payment form fields */}
+    </form>
+  );
+}
+</example>
+
+<example>
+// Good: Proper webhook signature verification
+// pages/api/webhooks/stripe.ts
+import { buffer } from 'micro';
+import { NextApiRequest, NextApiResponse } from 'next';
+import Stripe from 'stripe';
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2023-10-16',
+});
+
+const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const buf = await buffer(req);
+  const sig = req.headers['stripe-signature'] as string;
+
+  if (!sig) {
+    return res.status(400).json({ error: 'Missing stripe-signature header' });
+  }
+
+  try {
+    // Verify webhook signature
+    const event = stripe.webhooks.constructEvent(buf, sig, webhookSecret);
+    
+    // Process the event
+    // ...
+    
+    return res.status(200).json({ received: true });
+  } catch (error) {
+    console.error('Webhook error:', error);
+    return res.status(400).json({ error: `Webhook Error: ${error.message}` });
+  }
+}
+</example>
+
+<example type="invalid">
+// Bad: No webhook signature verification
+// pages/api/webhooks.js
+export default async function handler(req, res) {
+  // ❌ No signature verification
+  const event = req.body;
+  
+  // ❌ Trusting the event data without verification
+  if (event.type === 'payment_intent.succeeded') {
+    await updateOrderStatus(event.data.object.metadata.orderId);
+  }
+  
+  return res.status(200).json({ received: true });
+}
+</example>
+
+## Testing Payment Implementations
+
+Payment implementations should be thoroughly tested, including:
+
+1. Success paths with different payment methods
+2. Handling of declined payments
+3. 3D Secure authentication flows
+4. Webhook processing
+5. Error handling and recovery
+6. Subscription management flows
+
+These implementations should be tested in sandbox environments before being deployed to production.
+
+## Payment Error Handling
+
+- Display clear, user-friendly error messages
+- Implement appropriate retry mechanisms for failed payments
+- Securely log payment errors for troubleshooting
+- Handle common payment failure scenarios
+- Guide users through resolution steps
+
+```typescript
+// Good: Payment error handling component
+function PaymentErrorHandler({ error, onRetry }) {
+  // Map error codes to user-friendly messages
+  const getUserMessage = (errorCode) => {
+    const errorMessages = {
+      'card_declined': 'Your card was declined. Please try another card or payment method.',
+      'expired_card': 'This card has expired. Please try another card.',
+      'processing_error': 'An error occurred while processing your payment. Please try again.',
+      'insufficient_funds': 'Your card has insufficient funds. Please try another payment method.',
+      'invalid_cvc': 'The security code you entered is invalid. Please check and try again.',
+      'invalid_expiry': 'The expiration date you entered is invalid. Please check and try again.',
+      'network_error': 'A network error occurred. Please check your connection and try again.',
+      'default': 'We couldn\'t process your payment. Please try again or use a different payment method.'
+    };
+    
+    return errorMessages[errorCode] || errorMessages.default;
+  };
+  
+  // Get suggested actions based on error type
+  const getSuggestedActions = (errorCode) => {
+    switch (errorCode) {
+      case 'card_declined':
+      case 'expired_card':
+      case 'insufficient_funds':
+        return [
+          { label: 'Try a different card', action: 'CHANGE_CARD' },
+          { label: 'Use another payment method', action: 'CHANGE_METHOD' }
+        ];
+      case 'invalid_cvc':
+      case 'invalid_expiry':
+        return [
+          { label: 'Check card details', action: 'EDIT_CARD' },
+          { label: 'Try a different card', action: 'CHANGE_CARD' }
+        ];
+      case 'processing_error':
+      case 'network_error':
+        return [
+          { label: 'Try again', action: 'RETRY' },
+          { label: 'Try a different card', action: 'CHANGE_CARD' }
+        ];
+      default:
+        return [
+          { label: 'Try again', action: 'RETRY' },
+          { label: 'Contact support', action: 'SUPPORT' }
+        ];
+    }
+  };
+  
+  // Handle action selection
+  const handleAction = (actionType) => {
+    switch (actionType) {
+      case 'RETRY':
+        onRetry();
+        break;
+      case 'CHANGE_CARD':
+        // Navigate to card selection
+        break;
+      case 'CHANGE_METHOD':
+        // Navigate to payment method selection
+        break;
+      case 'EDIT_CARD':
+        // Focus on card details form
+        break;
+      case 'SUPPORT':
+        // Open support chat or contact page
+        break;
+    }
+  };
+  
+  const errorCode = error?.code || 'default';
+  const message = getUserMessage(errorCode);
+  const actions = getSuggestedActions(errorCode);
+  
+  return (
+    <div className="payment-error-container p-4 border border-red-200 bg-red-50 rounded-md">
+      <div className="flex items-start">
+        <AlertCircleIcon className="w-5 h-5 text-red-500 mt-0.5 mr-3" />
+        <div>
+          <h3 className="font-medium text-red-800">Payment Failed</h3>
+          <p className="text-sm text-red-700 mt-1">{message}</p>
+          
+          <div className="mt-4 space-y-2">
+            {actions.map((action, index) => (
+              <button
+                key={index}
+                onClick={() => handleAction(action.action)}
+                className="text-sm px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-50 mr-2"
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+### Subscription Management
+
+- Implement secure subscription creation and management
+- Handle subscription lifecycle events (created, updated, cancelled)
+- Store minimal subscription data
+- Support upgrade/downgrade flows
+- Implement proper billing cycle handling
+
+```typescript
+// Good: Subscription management hook
+function useSubscription() {
+  const { user } = useAuth();
+  const [subscription, setSubscription] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  
+  // Fetch current subscription data
+  const fetchSubscription = useCallback(async () => {
+    if (!user) return;
+    
+    setLoading(true);
+    
+    try {
+      const response = await fetch('/api/subscription');
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch subscription');
+      }
+      
+      const data = await response.json();
+      setSubscription(data.subscription);
+    } catch (err) {
+      setError(err.message);
+      logger.error('Error fetching subscription', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+  
+  // Update subscription plan
+  const updateSubscription = async (newPlanId) => {
+    setLoading(true);
+    
+    try {
+      const response = await fetch('/api/subscription/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId: newPlanId }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to update subscription');
+      }
+      
+      const result = await response.json();
+      setSubscription(result.subscription);
+      
+      return { success: true };
+    } catch (err) {
+      setError(err.message);
+      logger.error('Error updating subscription', err);
+      
+      return { success: false, error: err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Cancel subscription
+  const cancelSubscription = async () => {
+    setLoading(true);
+    
+    try {
+      const response = await fetch('/api/subscription/cancel', {
+        method: 'POST',
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to cancel subscription');
+      }
+      
+      const result = await response.json();
+      setSubscription(result.subscription);
+      
+      return { success: true };
+    } catch (err) {
+      setError(err.message);
+      logger.error('Error cancelling subscription', err);
+      
+      return { success: false, error: err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Load subscription on mount
+  useEffect(() => {
+    fetchSubscription();
+  }, [fetchSubscription]);
+  
+  return {
+    subscription,
+    loading,
+    error,
+    updateSubscription,
+    cancelSubscription,
+    refreshSubscription: fetchSubscription,
+  };
+}
+```
+
+### Payment UI Security
+
+- Prevent UI manipulation through browser dev tools
+- Implement proper loading states for payment actions
+- Disable payment buttons during processing
+- Validate payment data on both client and server
+- Prevent payment form auto-fill when inappropriate
+
+```typescript
+// Good: Secure payment UI component
+function SecurePaymentUI() {
+  const [billingDetails, setBillingDetails] = useState({
+    name: '',
+    email: '',
+    address: {
+      line1: '',
+      city: '',
+      postal_code: '',
+      country: '',
+    },
+  });
+  const [cardComplete, setCardComplete] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [paymentIntent, setPaymentIntent] = useState(null);
+  const stripe = useStripe();
+  const elements = useElements();
+  
+  // Fetch payment intent from server
+  useEffect(() => {
+    async function getPaymentIntent() {
+      try {
+        const response = await fetch('/api/payments/create-intent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: 2000, // $20.00
+            currency: 'usd',
+          }),
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+          throw new Error(data.error.message);
+        }
+        
+        setPaymentIntent(data.paymentIntent);
+      } catch (error) {
+        setError(error.message);
+      }
+    }
+    
+    getPaymentIntent();
+  }, []);
+  
+  // Validate the form is complete before enabling submit
+  const isFormComplete = () => {
+    return (
+      stripe &&
+      elements &&
+      paymentIntent?.client_secret &&
+      billingDetails.name &&
+      billingDetails.email &&
+      billingDetails.address.line1 &&
+      billingDetails.address.city &&
+      billingDetails.address.postal_code &&
+      billingDetails.address.country &&
+      cardComplete
+    );
+  };
+  
+  // Handle form submission
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    
+    if (!isFormComplete() || processing) {
+      return;
+    }
+    
+    setProcessing(true);
+    
+    try {
+      // Confirm card payment with billing details
+      const result = await stripe.confirmCardPayment(paymentIntent.client_secret, {
+        payment_method: {
+          card: elements.getElement(CardElement),
+          billing_details: billingDetails,
+        },
+      });
+      
+      if (result.error) {
+        throw new Error(result.error.message);
+      }
+      
+      if (result.paymentIntent.status === 'succeeded') {
+        // Payment successful
+        // Redirect to success page or show success message
+        window.location.href = '/payment/success';
+      }
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setProcessing(false);
+    }
+  };
+  
+  // Update billing details state
+  const handleBillingDetailsChange = (e) => {
+    const { name, value } = e.target;
+    
+    if (name.includes('.')) {
+      const [parent, child] = name.split('.');
+      setBillingDetails(prev => ({
+        ...prev,
+        [parent]: {
+          ...prev[parent],
+          [child]: value,
+        },
+      }));
+    } else {
+      setBillingDetails(prev => ({
+        ...prev,
+        [name]: value,
+      }));
+    }
+  };
+  
+  return (
+    <form onSubmit={handleSubmit} className="payment-form">
+      {/* Billing details fields */}
+      <div className="mb-4">
+        <label htmlFor="name">Name</label>
+        <input
+          id="name"
+          name="name"
+          type="text"
+          placeholder="Jane Doe"
+          required
+          autoComplete="name"
+          value={billingDetails.name}
+          onChange={handleBillingDetailsChange}
+        />
+      </div>
+      
+      {/* More billing details fields */}
+      
+      {/* Secure card element */}
+      <div className="mb-4">
+        <label htmlFor="card">Card</label>
+        <CardElement
+          id="card"
+          options={{
+            style: { /* styles */ },
+            hidePostalCode: true, // We collect it separately above
+          }}
+          onChange={(e) => setCardComplete(e.complete)}
+        />
+      </div>
+      
+      {/* Payment button - disabled until ready and during processing */}
+      <button
+        type="submit"
+        disabled={!isFormComplete() || processing}
+        className={`
+          w-full py-2 px-4 rounded
+          ${!isFormComplete() || processing
+            ? 'bg-gray-400 cursor-not-allowed'
+            : 'bg-blue-600 hover:bg-blue-700'}
+          text-white font-medium
+        `}
+      >
+        {processing ? (
+          <span className="flex items-center justify-center">
+            <Spinner className="w-5 h-5 mr-2" />
+            Processing...
+          </span>
+        ) : (
+          `Pay $${(paymentIntent?.amount || 0) / 100}`
+        )}
+      </button>
+    </form>
+  );
+}
+```
+
+## Testing Payment Implementations
+
+Payment implementations should be thoroughly tested, including:
+
+1. Success paths with different payment methods
+2. Handling of declined payments
+3. 3D Secure authentication flows
+4. Webhook processing
+5. Error handling and recovery
+6. Subscription management flows
+
+These implementations should be tested in sandbox environments before being deployed to production.
+
+## Stripe API Security
+- Use server-side API calls for all payment operations
+- Store Stripe secret key only in server-side environment variables
+- Expose publishable key only to client-side code
+- Rotate API keys following security incidents
+- Implement proper key access controls in deployment environments
+
+## Webhook Security
+- Validate webhook signatures for all incoming Stripe events
+- Use proper idempotency handling for webhook processing
+- Implement appropriate error handling for webhook verification failures
+- Log webhook processing for audit purposes
+- Secure webhook endpoints from unauthorized access
+
+## PCI Compliance
+- Use Stripe Elements or Checkout to avoid handling card data directly
+- Never log or store complete card information
+- Implement proper TLS/SSL for all payment-related endpoints
+- Conduct regular security reviews of payment code
+- Maintain appropriate documentation for compliance audits
+
+## Payment Data Handling
+- Minimize payment data retained in application database
+- Use Stripe customer and payment method IDs as references
+- Implement proper access controls for payment-related data
+- Apply data encryption for sensitive payment information
+- Define clear data retention and deletion policies
+
+## 3D Secure Authentication
+- Implement proper handling of 3D Secure authentication flows
+- Handle authentication challenges gracefully in the UI
+- Provide clear user guidance during authentication steps
+- Test 3D Secure flows in development environments
+- Monitor authentication success rates in production
+
+## Fraud Prevention
+- Implement Stripe Radar rules and custom rules
+- Apply risk scoring for high-value transactions
+- Monitor suspicious payment patterns and activity
+- Implement velocity checks for new customers
+- Create review workflows for flagged transactions 
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Stripe integration guide
+- **`.cursor/docs/security-checklist.md#payment-security-if-applicable`** - Payment deployment checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Detect exposed Stripe keys
+  ```bash
+  ./.cursor/tools/scan-secrets.sh
+  # Detects: sk_live_*, pk_*, hardcoded keys
+  ```
+- **`.cursor/tools/check-env-vars.sh`** - Validate Stripe key separation
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @010-security-compliance.mdc - Core security standards
+- @330-third-party-integration-testing.mdc - Testing payment integrations
+- @331-high-risk-feature-testing.mdc - Critical path testing
+
+### Quick Start
+1. **Scan:** `.cursor/tools/scan-secrets.sh` (find exposed keys)
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Deploy:** `.cursor/docs/security-checklist.md#payment-security-if-applicable`

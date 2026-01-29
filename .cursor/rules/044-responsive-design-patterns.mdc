@@ -1,0 +1,567 @@
+---
+description: Apply when implementing responsive design to ensure mobile-first, accessible layouts that adapt seamlessly across all device sizes
+globs: "**/*.{tsx,jsx,css}"
+---
+
+# Responsive Design Patterns
+
+**Priority**: P0 (CRITICAL - v0.4.0 Foundation)  
+**Domain**: UI Design (040-series)  
+**Applies To**: All components and pages
+
+---
+
+## Context
+
+- Mobile-first approach ensures optimal experience on all devices
+- Over 60% of web traffic comes from mobile devices
+- Responsive design improves accessibility and SEO
+- Tailwind CSS provides mobile-first breakpoints
+- Components must adapt layout, typography, and interactions for screen size
+- Touch targets must meet accessibility standards (44x44px minimum)
+
+---
+
+## Requirements
+
+### 1. Mobile-First Approach
+
+**REQUIRED**: Design for mobile first, then enhance for larger screens
+
+```tsx
+// ✅ CORRECT: Mobile-first (no prefix = mobile, md: = tablet+)
+<div className="flex-col md:flex-row">
+  {/* Mobile: stacked vertically, Desktop: side-by-side */}
+</div>
+
+<div className="text-sm md:text-base lg:text-lg">
+  {/* Mobile: 14px, Tablet: 16px, Desktop: 18px */}
+</div>
+
+// ❌ WRONG: Desktop-first (requires overriding at smaller sizes)
+<div className="flex-row md:flex-col">
+  {/* Backwards - don't do this! */}
+</div>
+```
+
+### 2. Breakpoint Strategy
+
+**REQUIRED**: Use Tailwind's standard breakpoints consistently
+
+| Breakpoint | Width | Device | Usage |
+|------------|-------|--------|-------|
+| *(none)* | 0-639px | Mobile phones | Base styles (mobile-first) |
+| `sm:` | 640px+ | Large phones | Minor adjustments |
+| `md:` | 768px+ | Tablets | Major layout shifts |
+| `lg:` | 1024px+ | Desktops | Enhanced layouts |
+| `xl:` | 1280px+ | Large desktops | Maximum width containers |
+| `2xl:` | 1536px+ | Extra large | Rare use cases |
+
+**Primary Breakpoints for v0.4.0**:
+- **Mobile**: Base styles (no prefix)
+- **Tablet**: `md:` (768px) - Sidebar becomes visible
+- **Desktop**: `lg:` (1024px) - Optimal layout
+
+### 3. Container Patterns
+
+**REQUIRED**: Use responsive container widths
+
+```tsx
+// ✅ CORRECT: Responsive container
+<div className="container mx-auto px-4 md:px-6 lg:px-8">
+  {/* Mobile: 16px padding, Tablet: 24px, Desktop: 32px */}
+</div>
+
+// ✅ CORRECT: Max-width constraints
+<div className="max-w-7xl mx-auto px-4">
+  {/* Never exceeds 1280px, centered, responsive padding */}
+</div>
+
+// ✅ CORRECT: Full-width on mobile, constrained on desktop
+<div className="w-full lg:max-w-4xl lg:mx-auto">
+  {/* Mobile: full width, Desktop: max 896px centered */}
+</div>
+```
+
+### 4. Grid Layouts
+
+**REQUIRED**: Use responsive grid columns
+
+```tsx
+// ✅ CORRECT: Adaptive grid (1 col mobile, 2 tablet, 3 desktop)
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+  <div>Card 1</div>
+  <div>Card 2</div>
+  <div>Card 3</div>
+</div>
+
+// ✅ CORRECT: Auto-fit grid (fills available space)
+<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+  {/* Adapts to screen size automatically */}
+</div>
+
+// ✅ CORRECT: Responsive gap
+<div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 lg:gap-6">
+  {/* Smaller gaps on mobile, larger on desktop */}
+</div>
+```
+
+### 5. Flexbox Layouts
+
+**REQUIRED**: Use responsive flex direction and wrapping
+
+```tsx
+// ✅ CORRECT: Stack on mobile, row on desktop
+<div className="flex flex-col md:flex-row gap-4">
+  <aside className="md:w-64">Sidebar</aside>
+  <main className="flex-1">Content</main>
+</div>
+
+// ✅ CORRECT: Responsive flex wrap
+<div className="flex flex-wrap md:flex-nowrap gap-4">
+  {/* Wraps on mobile, single row on tablet+ */}
+</div>
+
+// ✅ CORRECT: Responsive alignment
+<div className="flex flex-col items-start md:flex-row md:items-center md:justify-between">
+  <h1>Title</h1>
+  <button>Action</button>
+</div>
+```
+
+### 6. Typography Responsive Scaling
+
+**REQUIRED**: Scale text appropriately for screen size
+
+```tsx
+// ✅ CORRECT: Responsive heading sizes
+<h1 className="text-2xl md:text-3xl lg:text-4xl font-bold">
+  Dashboard
+</h1>
+
+<h2 className="text-xl md:text-2xl font-semibold">
+  Section Title
+</h2>
+
+<p className="text-sm md:text-base lg:text-lg">
+  Body text scales with screen size
+</p>
+
+// ✅ CORRECT: Responsive line height
+<p className="text-base leading-normal md:leading-relaxed">
+  Tighter line height on mobile, more spacious on desktop
+</p>
+```
+
+### 7. Spacing Responsive Patterns
+
+**REQUIRED**: Use responsive spacing for margins and padding
+
+```tsx
+// ✅ CORRECT: Responsive padding
+<div className="p-4 md:p-6 lg:p-8">
+  {/* 16px → 24px → 32px */}
+</div>
+
+// ✅ CORRECT: Responsive margins
+<section className="mt-8 md:mt-12 lg:mt-16">
+  {/* 32px → 48px → 64px */}
+</section>
+
+// ✅ CORRECT: Responsive gaps
+<div className="space-y-4 md:space-y-6 lg:space-y-8">
+  {/* Vertical spacing adapts */}
+</div>
+```
+
+### 8. Hide/Show Elements by Screen Size
+
+**REQUIRED**: Conditionally display elements based on viewport
+
+```tsx
+// ✅ CORRECT: Show on desktop, hide on mobile
+<div className="hidden md:block">
+  Only visible on tablet and above
+</div>
+
+// ✅ CORRECT: Show on mobile, hide on desktop
+<div className="block md:hidden">
+  Only visible on mobile
+</div>
+
+// ✅ CORRECT: Different content per screen size
+<>
+  <h1 className="hidden md:block">Full Title for Desktop</h1>
+  <h1 className="block md:hidden">Short Title</h1>
+</>
+```
+
+### 9. Touch Target Sizing
+
+**REQUIRED**: Minimum 44x44px touch targets for mobile (WCAG 2.5.5)
+
+```tsx
+// ✅ CORRECT: Adequate touch target
+<button className="min-h-[44px] min-w-[44px] p-3">
+  <XIcon className="h-5 w-5" />
+</button>
+
+// ✅ CORRECT: Responsive touch target
+<button className="p-2 md:p-3 min-h-[44px]">
+  {/* Smaller visual size on desktop, but still tappable on mobile */}
+</button>
+
+// ❌ WRONG: Touch target too small
+<button className="p-1">
+  <XIcon className="h-4 w-4" />
+</button>
+```
+
+### 10. AppShell Responsive Behavior
+
+**REQUIRED**: AppShell must adapt to screen size
+
+```tsx
+export function AppShell({ user, currentPath, children }: AppShellProps) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* TopBanner: Always visible */}
+      <TopBanner 
+        user={user} 
+        onMenuToggle={() => setSidebarOpen(!sidebarOpen)} 
+      />
+      
+      {/* Sidebar: Drawer on mobile (<768px), Fixed on desktop (≥768px) */}
+      <Sidebar 
+        currentPath={currentPath}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
+      
+      {/* Main: No left padding on mobile, 256px on desktop */}
+      <main className="pt-16 md:pl-64 min-h-screen">
+        <div className="container mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8">
+          {children}
+        </div>
+      </main>
+      
+      <Footer />
+    </div>
+  );
+}
+```
+
+---
+
+## Component Responsive Patterns
+
+### Dashboard Stats Cards
+
+```tsx
+export function DashboardStats({ stats }: DashboardStatsProps) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+      <StatCard 
+        title="Total Tests" 
+        value={stats.total} 
+        icon={TestIcon}
+        className="p-4 md:p-6"
+      />
+      {/* More cards... */}
+    </div>
+  );
+}
+```
+
+### Form Layouts
+
+```tsx
+export function TestConfigForm({ onSubmit }: FormProps) {
+  return (
+    <form className="space-y-4 md:space-y-6">
+      {/* Full width on mobile, two columns on desktop */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+        <FormField label="Test Name">
+          <Input className="w-full" />
+        </FormField>
+        
+        <FormField label="Framework">
+          <Select className="w-full" />
+        </FormField>
+      </div>
+      
+      {/* Full width field */}
+      <FormField label="Description">
+        <Textarea className="w-full" rows={3} />
+      </FormField>
+      
+      {/* Stack buttons on mobile, row on desktop */}
+      <div className="flex flex-col md:flex-row gap-3 md:justify-end">
+        <Button variant="outline" className="w-full md:w-auto">
+          Cancel
+        </Button>
+        <Button type="submit" className="w-full md:w-auto">
+          Start Test
+        </Button>
+      </div>
+    </form>
+  );
+}
+```
+
+### Table Responsive Pattern
+
+```tsx
+export function TestHistoryTable({ tests }: TableProps) {
+  return (
+    <>
+      {/* Desktop: Full table */}
+      <div className="hidden md:block overflow-x-auto">
+        <table className="min-w-full">
+          <thead>
+            <tr>
+              <th>Test Name</th>
+              <th>Date</th>
+              <th>Score</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tests.map(test => (
+              <tr key={test.id}>
+                <td>{test.name}</td>
+                <td>{test.date}</td>
+                <td>{test.score}</td>
+                <td>{test.status}</td>
+                <td><Button size="sm">View</Button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      
+      {/* Mobile: Card list */}
+      <div className="block md:hidden space-y-4">
+        {tests.map(test => (
+          <div key={test.id} className="bg-white p-4 rounded-lg border">
+            <h3 className="font-semibold">{test.name}</h3>
+            <div className="mt-2 space-y-1 text-sm">
+              <p><span className="text-muted-foreground">Date:</span> {test.date}</p>
+              <p><span className="text-muted-foreground">Score:</span> {test.score}</p>
+              <p><span className="text-muted-foreground">Status:</span> {test.status}</p>
+            </div>
+            <Button size="sm" className="mt-3 w-full">View Details</Button>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+```
+
+### Modal/Dialog Responsive
+
+```tsx
+export function Dialog({ open, onClose, children }: DialogProps) {
+  return (
+    <div className={cn(
+      "fixed inset-0 z-50 flex items-end md:items-center justify-center",
+      open ? "pointer-events-auto" : "pointer-events-none"
+    )}>
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
+      
+      {/* Content */}
+      <div className={cn(
+        // Mobile: Full width, bottom sheet
+        "relative w-full bg-white rounded-t-xl md:rounded-xl",
+        // Desktop: Max width, centered, all corners rounded
+        "md:max-w-lg md:mx-auto",
+        // Responsive padding
+        "p-6 md:p-8"
+      )}>
+        {children}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Testing Responsive Behavior
+
+### Manual Testing Checklist
+
+```markdown
+## Responsive Testing Checklist
+
+### Mobile (375px)
+- [ ] Sidebar is hidden by default
+- [ ] Hamburger menu opens sidebar
+- [ ] All text is readable (no tiny fonts)
+- [ ] Touch targets are adequate (44x44px min)
+- [ ] No horizontal scroll
+- [ ] Forms are usable with thumbs
+- [ ] Buttons are full-width where appropriate
+
+### Tablet (768px)
+- [ ] Sidebar is visible
+- [ ] Grid layouts use 2 columns
+- [ ] Tables are readable
+- [ ] Spacing feels appropriate
+
+### Desktop (1024px+)
+- [ ] Content max-width prevents lines being too long
+- [ ] 3-4 column grids where appropriate
+- [ ] Hover states work correctly
+- [ ] Keyboard navigation smooth
+```
+
+### Automated Responsive Tests
+
+```typescript
+import { render } from '@testing-library/react';
+import { AppShell } from '@/components/layout/AppShell';
+
+describe('AppShell Responsive Behavior', () => {
+  it('should hide sidebar on mobile', () => {
+    // Mock mobile viewport
+    global.innerWidth = 375;
+    global.matchMedia = jest.fn().mockImplementation(query => ({
+      matches: query === '(max-width: 767px)',
+      media: query,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+    }));
+    
+    const { container } = render(
+      <AppShell user={mockUser} currentPath="/dashboard">
+        <div>Content</div>
+      </AppShell>
+    );
+    
+    const sidebar = container.querySelector('[role="navigation"]');
+    expect(sidebar).toHaveClass('-translate-x-full');
+  });
+  
+  it('should show sidebar on desktop', () => {
+    // Mock desktop viewport
+    global.innerWidth = 1024;
+    global.matchMedia = jest.fn().mockImplementation(query => ({
+      matches: query === '(min-width: 768px)',
+      media: query,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+    }));
+    
+    const { container } = render(
+      <AppShell user={mockUser} currentPath="/dashboard">
+        <div>Content</div>
+      </AppShell>
+    );
+    
+    const sidebar = container.querySelector('[role="navigation"]');
+    expect(sidebar).toHaveClass('md:translate-x-0');
+  });
+});
+```
+
+---
+
+## Performance Considerations
+
+### 1. Responsive Images
+
+**REQUIRED**: Serve appropriately sized images for each device
+
+```tsx
+// ✅ CORRECT: Responsive images with srcset
+<img
+  src="/image-800.jpg"
+  srcSet="/image-400.jpg 400w, /image-800.jpg 800w, /image-1200.jpg 1200w"
+  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 800px"
+  alt="Dashboard screenshot"
+/>
+
+// ✅ CORRECT: Next.js Image component (automatic optimization)
+<Image
+  src="/dashboard.png"
+  alt="Dashboard screenshot"
+  width={800}
+  height={600}
+  sizes="(max-width: 768px) 100vw, 800px"
+/>
+```
+
+### 2. Conditional Rendering
+
+**REQUIRED**: Avoid rendering hidden elements when possible
+
+```tsx
+// ✅ CORRECT: Conditional rendering (better performance)
+{isDesktop && <DesktopNav />}
+{isMobile && <MobileNav />}
+
+// ⚠️ OK: CSS hiding (simpler but less optimal)
+<DesktopNav className="hidden md:block" />
+<MobileNav className="block md:hidden" />
+```
+
+### 3. Lazy Load Off-Screen Content
+
+```tsx
+// ✅ CORRECT: Lazy load mobile-specific components
+const MobileMenu = dynamic(() => import('./MobileMenu'), {
+  loading: () => <div>Loading...</div>,
+});
+```
+
+---
+
+## See Also
+
+### Related Rules
+- @041-app-shell-layout-standards.mdc - AppShell layout
+- @043-design-tokens-standards.mdc - Spacing, typography tokens
+- @054-accessibility-requirements.mdc - Touch targets, WCAG compliance
+- @062-core-web-vitals.mdc - Performance optimization
+- @070-nextjs-architecture.mdc - Next.js patterns
+
+### Tools & Documentation
+- **Chrome DevTools** - Device toolbar for testing
+- **`.cursor/tools/run-lighthouse.sh`** - Mobile performance testing
+
+### Comprehensive Guides
+- **`guides/ui/Responsive-Design-Guide.md`** ⭐ **Essential** - Complete responsive guide
+- **`docs/SPEC-v0.4.0-01-Layout-Architecture.md`** - Layout responsive behavior
+
+### Quick Start
+
+```bash
+# 1. Test on real devices
+# - iPhone (375px, 414px)
+# - iPad (768px, 1024px)
+# - Desktop (1280px, 1920px)
+
+# 2. Use Chrome DevTools
+# - Open DevTools (F12)
+# - Click device toolbar icon
+# - Test all breakpoints
+
+# 3. Run Lighthouse mobile audit
+./.cursor/tools/run-lighthouse.sh --mobile
+
+# 4. Test with screen reader on mobile
+# - iOS: VoiceOver
+# - Android: TalkBack
+```
+
+---
+
+**Status**: ✅ Production Ready (v0.4.0)  
+**Last Updated**: 2024-12-07  
+**Priority**: P0 (CRITICAL)

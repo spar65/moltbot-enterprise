@@ -1,0 +1,59 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply consistent error handling patterns when implementing features to ensure graceful failure modes and clear user feedback
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Error Handling Standards
+
+## Client-Side Error Handling
+- Implement global error boundaries for React components
+- Create consistent error state UI components
+- Use try/catch blocks for async operations
+- Log client-side errors to monitoring service
+
+## API Error Handling
+- Return consistent error response format from all API endpoints
+- Include appropriate HTTP status codes for different error types
+- Provide user-friendly error messages suitable for display
+- Log detailed error information for debugging
+
+## Form Error Handling
+- Display field-level validation errors inline
+- Show form-level errors at the top of forms
+- Implement proper error focus management for accessibility
+- Clear errors appropriately when inputs change
+
+## Error Recovery
+- Implement retry mechanisms for transient failures
+- Provide user-initiated recovery options where appropriate
+- Preserve user input during error recovery
+- Document recovery paths for common error scenarios
+
+## Error Monitoring
+- Configure error tracking service for production monitoring
+- Include relevant context information with error reports
+- Set up alerting for critical error conditions
+- Implement error categorization for better analysis
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Error handling patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @090-error-handling.mdc - General error handling
+- @130-error-handling.mdc - Error handling standards
+- @130-logging-standards.mdc - Logging errors
+- @140-troubleshooting-standards.mdc - Troubleshooting
+
+### Quick Start
+1. **Handle:** Error boundaries per this rule
+2. **Log:** Follow @130-logging-standards.mdc
+3. **Debug:** See @140-troubleshooting-standards.mdc

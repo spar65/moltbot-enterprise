@@ -1,0 +1,350 @@
+---
+description: Use when implementing tests for high-risk features where the cost of failure is significant (payments, subscription management, usage tracking, etc.)
+globs: "**/__tests__/**/*{payment,subscription,billing,usage,critical}*.{ts,tsx,js,jsx}, **/test/**/*{payment,subscription,billing,usage,critical}*.{ts,tsx,js,jsx}"
+---
+
+# High-Risk Feature Testing Standards
+
+## Context
+- Some features have significantly higher business impact when they fail
+- Payment processing, subscription management, and usage tracking directly affect revenue
+- Data integrity features affect trust and may have compliance implications
+- Authentication and authorization failures can lead to security breaches
+- Performance in critical paths affects customer satisfaction and conversion
+
+## Core Requirements
+
+### Comprehensive Test Coverage
+
+- **REQUIRED**: All high-risk features must have comprehensive automated test coverage
+- Critical workflows must have both unit and integration tests
+- Every edge case and error condition must be tested
+- Tests must cover the entire feature lifecycle
+- Security and permission aspects must be explicitly tested
+- Data consistency must be verified in all test cases
+
+```typescript
+// GOOD: Comprehensive testing for a payment feature
+describe('Subscription Management', () => {
+  // Core functionality tests
+  describe('Subscription Creation', () => {
+    test('creates a new subscription successfully', async () => {
+      // Implementation
+    });
+    
+    test('applies correct initial billing period', async () => {
+      // Implementation
+    });
+    
+    test('correctly calculates prorated amount for mid-cycle subscriptions', async () => {
+      // Implementation
+    });
+    
+    test('respects trial period configuration', async () => {
+      // Implementation
+    });
+    
+    test('applies correct promotional discounts', async () => {
+      // Implementation
+    });
+  });
+  
+  // Edge cases and error handling
+  describe('Error Handling', () => {
+    test('handles payment method failure gracefully', async () => {
+      // Implementation
+    });
+    
+    test('prevents duplicate subscription creation', async () => {
+      // Implementation
+    });
+    
+    test('validates subscription limits for plan tier', async () => {
+      // Implementation
+    });
+  });
+  
+  // Lifecycle tests
+  describe('Subscription Lifecycle', () => {
+    test('handles subscription cancellation correctly', async () => {
+      // Implementation
+    });
+    
+    test('handles plan upgrades correctly', async () => {
+      // Implementation
+    });
+    
+    test('handles plan downgrades correctly', async () => {
+      // Implementation
+    });
+    
+    test('correctly processes renewal billing', async () => {
+      // Implementation
+    });
+  });
+  
+  // Security tests
+  describe('Security Aspects', () => {
+    test('prevents unauthorized subscription modifications', async () => {
+      // Implementation
+    });
+    
+    test('maintains proper audit trail of changes', async () => {
+      // Implementation
+    });
+  });
+});
+```
+
+### Business Logic Validation
+
+- **REQUIRED**: Test business rules explicitly, not just technical functionality
+- Validate all calculations, especially financial ones
+- Test business policy enforcement
+- Test state transitions against business requirements
+- Verify output matches expected business documents/formats
+- Test for compliance with business regulations
+
+```typescript
+// GOOD: Testing business rules explicitly
+describe('Usage-Based Billing', () => {
+  test('applies correct tiered pricing logic', async () => {
+    // Setup test with various usage levels
+    const testCases = [
+      { usage: 5, expectedCost: 10 },   // Tier 1: $2/unit
+      { usage: 15, expectedCost: 25 },  // Tier 2: $1.5/unit for units 11-15
+      { usage: 50, expectedCost: 65 },  // Tier 3: $1/unit for units 21-50
+    ];
+    
+    for (const { usage, expectedCost } of testCases) {
+      const result = await billingService.calculateUsageCost({
+        customerId: 'test-customer',
+        usageAmount: usage,
+        productId: 'api-calls',
+      });
+      
+      expect(result.totalCost).toBe(expectedCost);
+      expect(result.breakdown).toMatchSnapshot();
+    }
+  });
+  
+  test('correctly applies volume discounts', async () => {
+    // Implementation
+  });
+  
+  test('respects usage minimums in contracts', async () => {
+    // Implementation
+  });
+  
+  test('handles usage caps correctly', async () => {
+    // Implementation
+  });
+});
+```
+
+### Data Consistency Testing
+
+- Verify data integrity across the feature lifecycle
+- Test database transaction boundaries and rollbacks
+- Verify audit logs are complete and accurate
+- Test idempotency where required
+- Verify no data is lost in error scenarios
+- Test data consistency across multiple related objects
+
+```typescript
+// GOOD: Testing data consistency
+describe('Subscription Data Consistency', () => {
+  test('maintains data consistency when payment fails mid-process', async () => {
+    // Mock payment processor to fail during subscription creation
+    mockPaymentProcessor.createCharge.mockRejectedValueOnce(new Error('Payment failed'));
+    
+    // Attempt to create subscription
+    await expect(
+      subscriptionService.createSubscription({
+        customerId: 'test-customer',
+        planId: 'premium',
+        paymentMethodId: 'pm_123',
+      })
+    ).rejects.toThrow();
+    
+    // Verify no partial data was created
+    const customer = await customerRepository.findById('test-customer');
+    expect(customer.subscriptions.length).toBe(0);
+    
+    // Verify no charges were created
+    const charges = await paymentRepository.findChargesForCustomer('test-customer');
+    expect(charges.length).toBe(0);
+    
+    // Verify audit log recorded the failed attempt
+    const auditLogs = await auditService.getLogsForCustomer('test-customer');
+    expect(auditLogs).toContainEqual(
+      expect.objectContaining({
+        action: 'subscription_creation_failed',
+        error: expect.stringContaining('Payment failed'),
+      })
+    );
+  });
+  
+  test('maintains invoice and subscription synchronization', async () => {
+    // Implementation testing that invoices and subscriptions stay in sync
+  });
+  
+  test('prevents duplicate usage records', async () => {
+    // Implementation testing idempotency of usage tracking
+  });
+});
+```
+
+### Recovery Testing
+
+- Test system recovery from failures
+- Verify retry mechanisms work correctly
+- Test failover and fallback paths
+- Verify system can resume interrupted operations
+- Test data recovery procedures
+- Verify alert and notification systems
+
+```typescript
+// GOOD: Testing recovery scenarios
+describe('Payment Processing Recovery', () => {
+  test('automatically retries failed payment with exponential backoff', async () => {
+    // Mock payment processor to fail twice, then succeed
+    mockPaymentProcessor.createCharge
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockRejectedValueOnce(new Error('Service unavailable'))
+      .mockResolvedValueOnce({ id: 'ch_123', status: 'succeeded' });
+    
+    // Mock the timer
+    jest.useFakeTimers();
+    
+    // Start payment process
+    const paymentPromise = paymentService.processPayment({
+      amount: 1000,
+      currency: 'usd',
+      customerId: 'test-customer',
+    });
+    
+    // Verify first retry after 2 seconds
+    jest.advanceTimersByTime(2000);
+    expect(mockPaymentProcessor.createCharge).toHaveBeenCalledTimes(2);
+    
+    // Verify second retry after 4 more seconds (6 total)
+    jest.advanceTimersByTime(4000);
+    expect(mockPaymentProcessor.createCharge).toHaveBeenCalledTimes(3);
+    
+    // Verify payment eventually succeeds
+    await paymentPromise;
+    
+    // Verify correct backoff timing and success handling
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Payment succeeded after retries',
+        retryCount: 2,
+      })
+    );
+    
+    jest.useRealTimers();
+  });
+  
+  test('recovers from interrupted webhook processing', async () => {
+    // Test webhook idempotency and recovery
+  });
+  
+  test('fails gracefully when retry limit is exceeded', async () => {
+    // Test proper handling when recovery fails
+  });
+});
+```
+
+## Domain-Specific Requirements
+
+### Payment Processing Tests
+
+- Test all payment method types supported
+- Test payment authentication flows (3D Secure, etc.)
+- Test payment card tokenization
+- Test refund and chargeback processes
+- Test payment reconciliation
+- Test payment failure handling and retries
+
+### Subscription Management Tests
+
+- Test subscription creation, modification, and cancellation
+- Test billing cycle management
+- Test upgrade and downgrade paths
+- Test renewal processing
+- Test grace periods and retry logic
+- Test subscription status transitions
+
+### Usage Tracking & Metering Tests
+
+- Test accuracy of usage data collection
+- Test aggregation and calculation logic
+- Test usage limit enforcement
+- Test usage reporting
+- Test multi-tenant isolation of usage data
+- Test handling of usage spikes and abnormal patterns
+
+### Authentication & Authorization Tests
+
+- Test login/logout flows
+- Test permission enforcement
+- Test token management and rotation
+- Test session validation and expiry
+- Test multi-factor authentication
+- Test account recovery procedures
+
+## Test Implementation Best Practices
+
+### Automated Regression Testing
+
+- **REQUIRED**: Create comprehensive regression test suites for high-risk features
+- Run regression tests on every change that affects the feature
+- Include regression tests in CI/CD pipelines
+- Keep regression tests up-to-date with business logic changes
+- Use data-driven tests for comprehensive coverage
+- Consider using property-based testing for complex logic
+
+### Test Environment Management
+
+- Use isolated test environments for high-risk feature testing
+- Ensure test environment mimics production configuration
+- Reset test environment between test runs
+- Use realistic test data that covers edge cases
+- Document environment setup requirements clearly
+- Consider using containerization for reproducible test environments
+
+### Test Monitoring and Maintenance
+
+- Regularly review and update tests for high-risk features
+- Track test coverage metrics for critical paths
+- Review test failures immediately and thoroughly
+- Maintain test documentation alongside code
+- Keep test data current with business requirements
+- Schedule regular test reviews with business stakeholders 
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Critical feature testing
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Payment testing patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check critical data models
+- **`.cursor/tools/scan-secrets.sh`** - Security validation
+- **`.cursor/tools/check-schema-changes.sh`** - Schema validation
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @020-payment-security.mdc - Payment security (high-risk!)
+- @078-payment-testing-standards.mdc - Payment testing patterns
+- @300-testing-standards.mdc - General testing standards
+- @330-third-party-integration-testing.mdc - Integration testing
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @376-database-test-isolation.mdc - Database testing patterns
+- @380-comprehensive-testing-standards.mdc - Universal testing framework (critical!)
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (verify critical models)
+2. **Follow:** @078-payment-testing-standards.mdc (if payment-related)
+3. **Test:** Comprehensive coverage per @380-comprehensive-testing-standards.mdc

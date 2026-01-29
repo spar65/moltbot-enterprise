@@ -1,0 +1,620 @@
+---
+description: Apply when testing React components with React Testing Library to ensure user-focused, accessible, and maintainable tests
+globs: "**/__tests__/**/*.{test,spec}.{ts,tsx}, **/*.test.{ts,tsx}, **/*.spec.{ts,tsx}"
+---
+
+# React Testing Library Patterns
+
+**Priority**: P0 (CRITICAL - v0.4.0 Testing)  
+**Domain**: Testing Standards (380-series)  
+**Applies To**: All React component tests
+
+---
+
+## Context
+
+- React Testing Library (RTL) focuses on testing user behavior, not implementation
+- Tests should interact with components the way users do
+- Accessibility is built into test queries (use getByRole, getByLabelText)
+- Avoid testing implementation details (state, props, internal methods)
+- Tests should be resilient to refactoring
+- Follow the guiding principle: "The more your tests resemble how users interact with your app, the more confidence they give you"
+
+---
+
+## Requirements
+
+### 1. Query Priority
+
+**REQUIRED**: Use accessible queries in this order of preference
+
+**Priority Order**:
+1. **getByRole** - Most accessible, should be first choice
+2. **getByLabelText** - For form inputs
+3. **getByPlaceholderText** - If no label exists
+4. **getByText** - For non-interactive elements
+5. **getByDisplayValue** - For form inputs with values
+6. **getByAltText** - For images
+7. **getByTitle** - Last resort
+8. **getByTestId** - Only when no other option works
+
+**Examples**:
+```typescript
+// ✅ BEST: Use getByRole (most accessible)
+const button = screen.getByRole('button', { name: /save/i });
+const heading = screen.getByRole('heading', { name: /dashboard/i });
+const link = screen.getByRole('link', { name: /go to settings/i });
+
+// ✅ GOOD: Use getByLabelText for forms
+const emailInput = screen.getByLabelText(/email address/i);
+const passwordInput = screen.getByLabelText(/password/i);
+
+// ✅ OK: Use getByText for non-interactive content
+const description = screen.getByText(/your recent tests/i);
+
+// ⚠️ AVOID: getByTestId (last resort only)
+const element = screen.getByTestId('complex-widget');
+
+// ❌ NEVER: Query by class name or internal implementation
+const element = container.querySelector('.my-class'); // DON'T DO THIS
+```
+
+### 2. User Interaction Patterns
+
+**REQUIRED**: Use userEvent for realistic user interactions
+
+```typescript
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+describe('LoginForm', () => {
+  it('should handle user login', async () => {
+    const user = userEvent.setup();
+    const onSubmit = jest.fn();
+    
+    render(<LoginForm onSubmit={onSubmit} />);
+    
+    // ✅ CORRECT: Type like a real user
+    await user.type(screen.getByLabelText(/email/i), 'test@example.com');
+    await user.type(screen.getByLabelText(/password/i), 'password123');
+    
+    // ✅ CORRECT: Click like a real user
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+    
+    // Assertions
+    expect(onSubmit).toHaveBeenCalledWith({
+      email: 'test@example.com',
+      password: 'password123',
+    });
+  });
+});
+```
+
+**Common User Actions**:
+```typescript
+// Clicking
+await user.click(button);
+await user.dblClick(button);
+
+// Typing
+await user.type(input, 'Hello');
+await user.clear(input);
+
+// Keyboard
+await user.keyboard('{Enter}');
+await user.keyboard('{Escape}');
+await user.tab(); // Tab key
+
+// Selection
+await user.selectOptions(select, 'option-value');
+
+// Hover
+await user.hover(element);
+await user.unhover(element);
+
+// Upload file
+await user.upload(fileInput, file);
+```
+
+### 3. Async Testing Patterns
+
+**REQUIRED**: Use proper async utilities for dynamic content
+
+```typescript
+import { render, screen, waitFor } from '@testing-library/react';
+
+describe('AsyncComponent', () => {
+  it('should load and display data', async () => {
+    render(<UserProfile userId="123" />);
+    
+    // ✅ CORRECT: Wait for element to appear
+    const userName = await screen.findByText(/john doe/i);
+    expect(userName).toBeInTheDocument();
+    
+    // ✅ CORRECT: Wait for condition
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('Loaded');
+    });
+    
+    // ✅ CORRECT: Wait for element to disappear
+    await waitForElementToBeRemoved(() => screen.getByText(/loading.../i));
+  });
+  
+  it('should handle loading states', async () => {
+    render(<DataTable />);
+    
+    // Check loading state exists
+    expect(screen.getByText(/loading.../i)).toBeInTheDocument();
+    
+    // Wait for data to load
+    const table = await screen.findByRole('table');
+    expect(table).toBeInTheDocument();
+    
+    // Loading should be gone
+    expect(screen.queryByText(/loading.../i)).not.toBeInTheDocument();
+  });
+});
+```
+
+**Query Variants**:
+```typescript
+// getBy* - Throws error if not found (synchronous)
+const button = screen.getByRole('button');
+
+// queryBy* - Returns null if not found (synchronous)
+const button = screen.queryByRole('button'); // null if not exists
+
+// findBy* - Returns promise, waits for element (asynchronous)
+const button = await screen.findByRole('button'); // waits up to 1000ms
+```
+
+### 4. Component Testing Structure
+
+**REQUIRED**: Follow consistent test structure
+
+```typescript
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Button } from './Button';
+
+describe('Button Component', () => {
+  // Test basic rendering
+  it('should render with text', () => {
+    render(<Button>Click me</Button>);
+    expect(screen.getByRole('button', { name: /click me/i })).toBeInTheDocument();
+  });
+  
+  // Test user interactions
+  it('should call onClick when clicked', async () => {
+    const user = userEvent.setup();
+    const onClick = jest.fn();
+    
+    render(<Button onClick={onClick}>Click me</Button>);
+    
+    await user.click(screen.getByRole('button'));
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+  
+  // Test variants/props
+  it('should apply variant styles', () => {
+    render(<Button variant="destructive">Delete</Button>);
+    const button = screen.getByRole('button');
+    expect(button).toHaveClass('bg-destructive');
+  });
+  
+  // Test disabled state
+  it('should be disabled when disabled prop is true', () => {
+    render(<Button disabled>Click me</Button>);
+    const button = screen.getByRole('button');
+    expect(button).toBeDisabled();
+  });
+  
+  // Test loading state
+  it('should show loading spinner when loading', () => {
+    render(<Button loading>Save</Button>);
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+  
+  // Test accessibility
+  it('should have accessible name', () => {
+    render(<Button aria-label="Close dialog">×</Button>);
+    expect(screen.getByRole('button', { name: /close dialog/i })).toBeInTheDocument();
+  });
+});
+```
+
+### 5. Form Testing Patterns
+
+**REQUIRED**: Test forms with realistic user interactions
+
+```typescript
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { TestConfigForm } from './TestConfigForm';
+
+describe('TestConfigForm', () => {
+  it('should submit form with user input', async () => {
+    const user = userEvent.setup();
+    const onSubmit = jest.fn();
+    
+    render(<TestConfigForm onSubmit={onSubmit} />);
+    
+    // Fill out form fields
+    await user.type(screen.getByLabelText(/test name/i), 'Morality Test');
+    await user.selectOptions(screen.getByLabelText(/framework/i), 'morality');
+    await user.type(screen.getByLabelText(/question count/i), '120');
+    
+    // Submit form
+    await user.click(screen.getByRole('button', { name: /start test/i }));
+    
+    // Verify submission
+    expect(onSubmit).toHaveBeenCalledWith({
+      name: 'Morality Test',
+      framework: 'morality',
+      questionCount: 120,
+    });
+  });
+  
+  it('should show validation errors', async () => {
+    const user = userEvent.setup();
+    
+    render(<TestConfigForm onSubmit={jest.fn()} />);
+    
+    // Submit without filling fields
+    await user.click(screen.getByRole('button', { name: /start test/i }));
+    
+    // Check for error messages
+    expect(await screen.findByText(/test name is required/i)).toBeInTheDocument();
+    expect(await screen.findByText(/framework is required/i)).toBeInTheDocument();
+  });
+  
+  it('should clear form on reset', async () => {
+    const user = userEvent.setup();
+    
+    render(<TestConfigForm onSubmit={jest.fn()} />);
+    
+    // Fill form
+    const input = screen.getByLabelText(/test name/i);
+    await user.type(input, 'Test');
+    
+    // Reset
+    await user.click(screen.getByRole('button', { name: /reset/i }));
+    
+    // Check cleared
+    expect(input).toHaveValue('');
+  });
+});
+```
+
+### 6. AppShell Component Testing
+
+**REQUIRED**: Test layout components thoroughly
+
+```typescript
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { AppShell } from '@/components/layout/AppShell';
+
+describe('AppShell', () => {
+  const mockUser = {
+    id: '123',
+    name: 'Test User',
+    email: 'test@example.com',
+    role: 'USER' as const,
+  };
+  
+  it('should render TopBanner with user info', () => {
+    render(
+      <AppShell user={mockUser} currentPath="/dashboard">
+        <div>Content</div>
+      </AppShell>
+    );
+    
+    expect(screen.getByText('Test User')).toBeInTheDocument();
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+  });
+  
+  it('should highlight active navigation item', () => {
+    render(
+      <AppShell user={mockUser} currentPath="/dashboard">
+        <div>Content</div>
+      </AppShell>
+    );
+    
+    const dashboardLink = screen.getByRole('link', { name: /dashboard/i });
+    expect(dashboardLink).toHaveClass('bg-primary');
+  });
+  
+  it('should show admin section only for admins', () => {
+    const { rerender } = render(
+      <AppShell user={mockUser} currentPath="/dashboard">
+        <div>Content</div>
+      </AppShell>
+    );
+    
+    // Regular user - no admin section
+    expect(screen.queryByRole('link', { name: /admin/i })).not.toBeInTheDocument();
+    
+    // Admin user - admin section visible
+    rerender(
+      <AppShell user={{ ...mockUser, role: 'ADMIN' }} currentPath="/dashboard">
+        <div>Content</div>
+      </AppShell>
+    );
+    
+    expect(screen.getByRole('link', { name: /admin/i })).toBeInTheDocument();
+  });
+  
+  it('should toggle mobile sidebar', async () => {
+    const user = userEvent.setup();
+    
+    render(
+      <AppShell user={mockUser} currentPath="/dashboard">
+        <div>Content</div>
+      </AppShell>
+    );
+    
+    // Sidebar should be hidden initially on mobile
+    const nav = screen.getByRole('navigation');
+    expect(nav).toHaveClass('-translate-x-full');
+    
+    // Click hamburger menu
+    const menuButton = screen.getByRole('button', { name: /toggle navigation menu/i });
+    await user.click(menuButton);
+    
+    // Sidebar should be visible
+    expect(nav).toHaveClass('translate-x-0');
+  });
+});
+```
+
+### 7. Testing Loading States
+
+**REQUIRED**: Test all async states (loading, success, error)
+
+```typescript
+describe('DashboardStats', () => {
+  it('should show loading state', () => {
+    render(<DashboardStats loading={true} />);
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByText(/loading.../i)).toBeInTheDocument();
+  });
+  
+  it('should show data when loaded', async () => {
+    const stats = { total: 10, completed: 8, inProgress: 2 };
+    
+    render(<DashboardStats stats={stats} />);
+    
+    expect(screen.getByText('10')).toBeInTheDocument();
+    expect(screen.getByText(/total tests/i)).toBeInTheDocument();
+  });
+  
+  it('should show error state', () => {
+    const error = new Error('Failed to load stats');
+    
+    render(<DashboardStats error={error} />);
+    
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByText(/failed to load stats/i)).toBeInTheDocument();
+  });
+  
+  it('should show empty state when no data', () => {
+    render(<DashboardStats stats={null} />);
+    
+    expect(screen.getByText(/no tests yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /run your first test/i })).toBeInTheDocument();
+  });
+});
+```
+
+### 8. Accessibility Testing
+
+**REQUIRED**: Include accessibility checks in component tests
+
+```typescript
+import { render } from '@testing-library/react';
+import { axe, toHaveNoViolations } from 'jest-axe';
+
+expect.extend(toHaveNoViolations);
+
+describe('Button Accessibility', () => {
+  it('should have no accessibility violations', async () => {
+    const { container } = render(<Button>Click me</Button>);
+    const results = await axe(container);
+    expect(results).toHaveNoViolations();
+  });
+  
+  it('should have accessible name when icon-only', async () => {
+    const { container } = render(
+      <Button aria-label="Close dialog">
+        <XIcon />
+      </Button>
+    );
+    
+    const results = await axe(container);
+    expect(results).toHaveNoViolations();
+  });
+  
+  it('should be keyboard accessible', async () => {
+    const user = userEvent.setup();
+    const onClick = jest.fn();
+    
+    render(<Button onClick={onClick}>Click me</Button>);
+    
+    // Tab to button
+    await user.tab();
+    
+    // Press Enter
+    await user.keyboard('{Enter}');
+    
+    expect(onClick).toHaveBeenCalled();
+  });
+});
+```
+
+### 9. Responsive Behavior Testing
+
+**REQUIRED**: Test mobile, tablet, desktop views
+
+```typescript
+describe('Sidebar Responsive Behavior', () => {
+  it('should be hidden on mobile by default', () => {
+    // Set mobile viewport
+    global.innerWidth = 375;
+    
+    render(<Sidebar currentPath="/dashboard" isOpen={false} onClose={jest.fn()} />);
+    
+    const nav = screen.getByRole('navigation');
+    expect(nav).toHaveClass('-translate-x-full');
+  });
+  
+  it('should be visible on desktop', () => {
+    // Set desktop viewport
+    global.innerWidth = 1024;
+    
+    render(<Sidebar currentPath="/dashboard" isOpen={false} onClose={jest.fn()} />);
+    
+    const nav = screen.getByRole('navigation');
+    expect(nav).toHaveClass('md:translate-x-0');
+  });
+});
+```
+
+### 10. Snapshot Testing (Use Sparingly)
+
+**OPTIONAL**: Use snapshots only for stable, visual components
+
+```typescript
+import { render } from '@testing-library/react';
+
+describe('StatCard Snapshot', () => {
+  it('should match snapshot', () => {
+    const { container } = render(
+      <StatCard 
+        title="Total Tests" 
+        value={42} 
+        icon={TestIcon} 
+        trend="+12%" 
+      />
+    );
+    
+    expect(container.firstChild).toMatchSnapshot();
+  });
+});
+```
+
+**⚠️ Snapshot Warnings**:
+- Only use for truly stable UI components
+- Don't snapshot entire pages (too brittle)
+- Update snapshots carefully (review changes)
+- Prefer explicit assertions over snapshots
+
+---
+
+## Testing Best Practices
+
+### 1. Don't Test Implementation Details
+
+```typescript
+// ❌ BAD: Testing state directly
+it('should set loading to true', () => {
+  const { result } = renderHook(() => useData());
+  act(() => result.current.fetch());
+  expect(result.current.loading).toBe(true); // Implementation detail!
+});
+
+// ✅ GOOD: Test user-visible behavior
+it('should show loading spinner when fetching', async () => {
+  render(<DataComponent />);
+  expect(screen.getByRole('status')).toBeInTheDocument();
+});
+```
+
+### 2. Write Resilient Queries
+
+```typescript
+// ❌ BAD: Fragile text matching
+screen.getByText('Save');
+
+// ✅ GOOD: Case-insensitive regex
+screen.getByText(/save/i);
+
+// ✅ BETTER: Use accessible roles
+screen.getByRole('button', { name: /save/i });
+```
+
+### 3. Test One Thing Per Test
+
+```typescript
+// ❌ BAD: Testing multiple things
+it('should do everything', async () => {
+  const user = userEvent.setup();
+  render(<Form />);
+  
+  await user.type(screen.getByLabelText(/name/i), 'Test');
+  expect(screen.getByDisplayValue('Test')).toBeInTheDocument();
+  
+  await user.click(screen.getByRole('button'));
+  expect(screen.getByText(/success/i)).toBeInTheDocument();
+  
+  await user.click(screen.getByRole('button', { name: /reset/i }));
+  expect(screen.queryByDisplayValue('Test')).not.toBeInTheDocument();
+});
+
+// ✅ GOOD: Separate tests
+it('should update input value when user types', async () => {
+  const user = userEvent.setup();
+  render(<Form />);
+  
+  await user.type(screen.getByLabelText(/name/i), 'Test');
+  expect(screen.getByDisplayValue('Test')).toBeInTheDocument();
+});
+
+it('should show success message on submit', async () => {
+  const user = userEvent.setup();
+  render(<Form />);
+  
+  await user.click(screen.getByRole('button', { name: /submit/i }));
+  expect(await screen.findByText(/success/i)).toBeInTheDocument();
+});
+```
+
+---
+
+## See Also
+
+### Related Rules
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+- @390-systematic-frontend-testing.mdc - Frontend testing patterns
+- @041-app-shell-layout-standards.mdc - AppShell components to test
+- @054-accessibility-requirements.mdc - WCAG AA compliance
+
+### Tools & Documentation
+- **`.cursor/tools/run-accessibility-audit.sh`** - Automated a11y testing
+- **`docs/SPEC-v0.4.0-07-Testing-Strategy.md`** - Complete testing strategy
+
+### Comprehensive Guides
+- **`guides/ui/Component-Testing-Guide.md`** ⭐ **Essential** - RTL patterns
+- **`guides/testing/Universal-Testing-Framework-Guide.md`** - Testing framework
+
+### Quick Start
+
+```bash
+# 1. Install dependencies
+npm install --save-dev @testing-library/react @testing-library/user-event jest-axe
+
+# 2. Run component tests
+npm run test:unit -- --testPathPattern="components"
+
+# 3. Run with coverage
+npm run test:unit -- --coverage --testPathPattern="components"
+
+# 4. Watch mode (during development)
+npm run test:unit -- --watch
+```
+
+---
+
+**Status**: ✅ Production Ready (v0.4.0)  
+**Last Updated**: 2024-12-07  
+**Priority**: P0 (CRITICAL)

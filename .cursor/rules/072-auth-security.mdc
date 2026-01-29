@@ -1,0 +1,291 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Implement secure and consistent authentication patterns in Next.js applications to ensure proper access control and user experience
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Next.js Authentication Standards
+
+## Context
+- Authentication in Next.js spans client, server, and middleware
+- Auth0 integration requires consistent patterns (lessons from v3→v4.6.0 migration)
+- Protected routes need proper redirect handling
+
+## Requirements
+
+### Authentication Architecture
+- Use Auth0 Next.js SDK for consistent authentication
+- Implement proper session verification with error boundaries
+- Handle authentication state across client and server
+- Apply middleware protection for route groups
+
+### Client-Side Authentication
+- Use Auth0 React hooks with proper TypeScript types
+- Handle loading and error states consistently
+- Implement proper redirect after authentication
+- Apply role-based conditional rendering
+
+### Server-Side Authentication
+- Use getSession for server-side authentication with proper error handling
+- Implement consistent redirect objects in getServerSideProps
+- Pass user data from server to client safely
+- Avoid token exposure in client-side props
+
+### Middleware Authentication
+- Configure route-based middleware protection with explicit matchers
+- Implement proper public route exclusions
+- Use correct URL handling for redirects
+- Apply consistent authentication checks
+
+## Common Pitfalls
+- **Redirect loops**: Middleware incorrectly configured to protect auth routes
+- **Missing error handling**: getSession calls without try/catch
+- **Breaking changes**: Auth0 SDK version upgrades changing redirect behavior
+- **Session extraction errors**: Using incorrect API version patterns
+- **Static asset blocking**: Not excluding _next/ paths from auth middleware
+
+## Migration Patterns
+- Implement authentication wrappers that abstract library specifics
+- Use feature flags for gradual rollout of authentication changes
+- Create test fixtures that survive dependency updates
+- Document breaking changes between library versions
+
+## Evidence Source
+Based on HitList issues:
+- Auth0-Migration-Status.md (7 middleware test failures)
+- HitList-Problem-TestFailed03.md (redirect handling changes)
+- HitList-Test-Problem-Framework02-Defect.md (Auth0Client constructor issues)
+- Auth0-Integration-Issues.md (session handling challenges)
+
+## Success Metrics
+- Zero Auth0-related test failures
+- Consistent authentication flows across the application
+- Smooth migration path for future Auth0 updates
+- No security vulnerabilities in authentication implementation
+
+## Examples
+
+<example>
+// Good middleware authentication implementation (v4.6.0 compatible)
+// middleware.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { getSession } from '@auth0/nextjs-auth0/edge';
+
+// Define public routes that don't require authentication
+const PUBLIC_ROUTES = [
+  '/',
+  '/about',
+  '/login',
+  '/api/auth/login',
+  '/api/auth/callback',
+  '/api/auth/logout',
+];
+
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  
+  // Skip authentication for public routes - prevent redirect loops
+  if (PUBLIC_ROUTES.some(route => pathname === route || pathname.startsWith(route + '/'))) {
+    return NextResponse.next();
+  }
+  
+  // Skip for static assets - important for performance
+  if (pathname.startsWith('/_next/') || pathname.includes('.')) {
+    return NextResponse.next();
+  }
+  
+  try {
+    // Verify authentication with proper error handling
+    const session = await getSession(req);
+    
+    if (!session || !session.user) {
+      // Create login URL with preserved return path
+      const loginUrl = new URL('/api/auth/login', req.url);
+      loginUrl.searchParams.set('returnTo', pathname + req.nextUrl.search);
+      return NextResponse.redirect(loginUrl);
+    }
+    
+    // User is authenticated, continue
+    return NextResponse.next();
+  } catch (error) {
+    console.error('Authentication middleware error:', error);
+    // Redirect to error page on authentication errors
+    return NextResponse.redirect(new URL('/error?code=auth_error', req.url));
+  }
+}
+
+// Configure which routes use this middleware - critical for performance
+export const config = {
+  matcher: [
+    // Apply to all routes except those starting with excluded paths
+    '/((?!_next/|api/auth/|login|static|favicon.ico).*)',
+  ],
+};
+</example>
+
+<example type="invalid">
+// Bad authentication implementation
+// middleware.ts
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function middleware(req: NextRequest) {
+  // Overly simplistic auth check without error handling
+  const token = req.cookies.get('auth_token');
+  
+  // No proper public route handling - will cause redirect loops
+  // No proper static asset handling - will slow down page loads
+  
+  if (!token) {
+    // Redirect without preserving the original URL - poor UX
+    return NextResponse.redirect('/login');
+  }
+  
+  // No proper token validation
+  // No error handling
+  
+  return NextResponse.next();
+}
+
+// No specific matcher configuration - middleware runs on ALL routes
+</example>
+
+## Server-Side Authentication Example
+
+<example>
+// Good server-side authentication in getServerSideProps
+// pages/dashboard.tsx
+import { GetServerSideProps } from 'next';
+import { getSession } from '@auth0/nextjs-auth0';
+
+export const getServerSideProps: GetServerSideProps = async ({ req, res }) => {
+  try {
+    // Get session with proper error handling
+    const session = await getSession(req, res);
+    
+    if (!session) {
+      // Proper redirect with return URL
+      return {
+        redirect: {
+          destination: '/api/auth/login?returnTo=/dashboard',
+          permanent: false,
+        },
+      };
+    }
+    
+    // Safe user data handling - never expose tokens to client
+    const user = {
+      id: session.user.sub,
+      name: session.user.name,
+      email: session.user.email,
+      // DON'T include sensitive data like session.accessToken
+    };
+    
+    return {
+      props: {
+        user,
+      },
+    };
+  } catch (error) {
+    console.error('Server authentication error:', error);
+    
+    // Proper error handling
+    return {
+      redirect: {
+        destination: '/error?code=auth_error',
+        permanent: false,
+      },
+    };
+  }
+};
+</example>
+
+## Client-Side Authentication Wrapper
+
+<example>
+// Good client-side authentication wrapper
+// components/AuthGuard.tsx
+import { useUser } from '@auth0/nextjs-auth0/client';
+import { useRouter } from 'next/router';
+import { useEffect } from 'react';
+
+interface AuthGuardProps {
+  children: React.ReactNode;
+  redirectTo?: string;
+  loadingComponent?: React.ReactNode;
+}
+
+export function AuthGuard({
+  children,
+  redirectTo = '/api/auth/login',
+  loadingComponent = <div>Loading...</div>,
+}: AuthGuardProps) {
+  const { user, error, isLoading } = useUser();
+  const router = useRouter();
+  
+  useEffect(() => {
+    // Handle authentication errors
+    if (error) {
+      console.error('Authentication error:', error);
+      router.push('/error?code=auth_error');
+      return;
+    }
+    
+    // Redirect unauthenticated users
+    if (!isLoading && !user) {
+      const returnPath = encodeURIComponent(router.asPath);
+      router.push(`${redirectTo}?returnTo=${returnPath}`);
+    }
+  }, [user, isLoading, error, router, redirectTo]);
+  
+  // Show loading state
+  if (isLoading) {
+    return <>{loadingComponent}</>;
+  }
+  
+  // Show children only when authenticated
+  return user ? <>{children}</> : null;
+}
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#auth0-integration-workflow`** - Auth security patterns
+- **`.cursor/docs/security-checklist.md#authentication-authorization`** - Security checks
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-auth-config.sh`** - Validate authentication configuration
+- **`.cursor/tools/check-env-vars.sh`** - Ensure no secrets exposed
+- **`.cursor/tools/scan-secrets.sh`** - Detect hardcoded secrets
+- **`.cursor/tools/audit-dependencies.sh`** - Check auth library vulnerabilities
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @010-security-compliance.mdc - Core security standards
+- @011-env-var-security.mdc - **CRITICAL:** Auth environment variables and secrets
+- @012-api-security.mdc - API security measures
+- @014-third-party-auth.mdc - Authentication implementation standards
+- @019-auth0-integration.mdc - Auth0 integration patterns
+- @046-session-validation.mdc - Session security (critical)
+- @047-session-token-debugging.mdc - Session debugging patterns
+- @067-database-security.mdc - Database authentication and authorization
+- @220-security-monitoring.mdc - **CRITICAL:** Monitor auth failures and rate limiting
+- @310-security-headers.mdc - **CRITICAL:** CSP and CORS for auth endpoints
+- @374-authentication-architecture-standards.mdc - Auth architecture
+- @410-auth-debugging.mdc - Auth debugging workflows
+
+### Quick Start
+1. **Validate:** `.cursor/tools/check-auth-config.sh`
+2. **Scan:** `.cursor/tools/scan-secrets.sh`
+3. **Follow:** `.cursor/docs/security-workflows.md#auth0-integration-workflow`
+
+### Comprehensive Guides
+- **`guides/auth0/00-Auth0-Guide-Index.md`** ⭐ **Master Index** - Complete Auth0 guide system
+- **`guides/AUTH0_CURRENT_IMPLEMENTATION.md`** - Current Auth0 setup and configuration
+- **`guides/AUTH0_DOS_AND_DONTS.md`** - Auth0 security best practices
+- **`guides/AUTH_ARCHITECTURE_PATTERNS_GUIDE.md`** - Secure auth architecture patterns

@@ -1,0 +1,252 @@
+---
+description: Use when creating test environments, test pages, or test endpoints to ensure they follow the established architecture and don't create technical debt through shortcuts
+globs: "app/dashboard/test-*/page.tsx, app/api/**/test*/route.ts"
+---
+
+# Testing Environment Architecture Guidelines
+
+## Context
+- Test environments and pages are often created for quick validation
+- These test implementations tend to bypass established architectural patterns
+- This creates technical debt and confusion when others need to understand or extend the code
+- Test implementations should mirror production architecture to ensure consistency
+
+## Requirements
+
+### Test Page Architecture
+- Test pages must follow the same component structure as production pages
+- Use the same data fetching patterns as production code
+- Test pages must respect organization boundaries and multi-tenancy
+- Avoid hardcoded credentials or environment-specific configurations
+
+### Test API Endpoints
+- Test API endpoints must follow the organization-scoped URL pattern: `/api/[orgId]/[resource]/test`
+- Use the same response formats and error handling as production endpoints
+- Maintain proper separation of concerns (controllers, services, data access)
+- Test endpoints should leverage existing services rather than implementing duplicate logic
+
+### Test Data Services
+- Create properly structured mock services that implement the same interfaces as production services
+- Test services should be clearly marked as test-only and documented
+- If using in-memory data, structure it to match database schema and access patterns
+- Never bypass organization scoping or security controls, even in test environments
+
+### MindStudio Test Integrations
+- Test integrations should use the standard MindStudio client with mock responses
+- Implement proper MockMindStudioClient that follows the same interface as the production client
+- Store test credentials securely, never hardcode in source files
+- Test implementations should validate the transformation logic from MindStudio to internal formats
+
+## Implementation Guidelines
+
+### Test Page Structure
+```typescript
+// Good: Proper test page structure
+export default function TestPage() {
+  const { orgId } = useOrganization(); // Get organization context
+  const [input, setInput] = useState('');
+  const [result, setResult] = useState(null);
+  
+  const handleTest = async () => {
+    // Use standard fetch with proper organization context
+    const response = await fetch(`/api/${orgId}/agents/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input })
+    });
+    
+    const data = await response.json();
+    setResult(data);
+  };
+  
+  return (
+    <div>
+      {/* UI implementation */}
+    </div>
+  );
+}
+
+// Bad: Test page with architectural bypasses
+export default function TestPage() {
+  const handleTest = async () => {
+    // Direct API call bypassing organization context
+    const response = await fetch('/api/direct-test?param=' + input);
+    setResult(await response.json());
+  };
+}
+```
+
+### Test API Implementation
+```typescript
+// Good: Proper test API structure
+// File: app/api/[orgId]/agents/test/route.ts
+export async function POST(request: Request, { params }: { params: { orgId: string } }) {
+  try {
+    // Get organization context
+    const { orgId } = params;
+    const body = await request.json();
+    
+    // Use proper service layer
+    const result = await agentService.testAgent(orgId, body.agentConfiguration, body.input);
+    
+    // Return standardized response
+    return NextResponse.json({
+      data: result,
+      message: "Agent test completed successfully"
+    });
+  } catch (error) {
+    // Use standard error handling
+    return handleApiError(error);
+  }
+}
+
+// Bad: Standalone test endpoint
+// File: app/api/direct-test/route.ts
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const param = searchParams.get('param');
+  
+  // Hardcoded logic with no organization context
+  return NextResponse.json({ result: `Processed ${param}` });
+}
+```
+
+### Test Service Implementation
+```typescript
+// Good: Proper test service
+// File: lib/services/test-agent-service.ts
+export class TestAgentService implements AgentService {
+  constructor(
+    private db: DatabaseService,
+    private mindStudioClient: MindStudioClient
+  ) {}
+  
+  async testAgent(orgId: string, config: AgentConfig, input: any): Promise<TestResult> {
+    // Validate organization access
+    await this.validateOrgAccess(orgId, config.agentId);
+    
+    // Process using proper service methods
+    const result = await this.processAgentTest(config, input);
+    
+    // Return standardized result
+    return {
+      output: result,
+      executionTimeMs: 350,
+      timestamp: new Date().toISOString()
+    };
+  }
+  
+  // Additional methods...
+}
+
+// Bad: Inline mock functions
+const mockTestAgent = (config: any, input: any) => {
+  return {
+    result: `Processed ${input} with ${config.agentId}`,
+    timestamp: new Date().toISOString()
+  };
+};
+```
+
+### MindStudio Test Client
+```typescript
+// Good: Proper mock client
+export class MockMindStudioClient implements MindStudioClient {
+  async validateKey(key: string): Promise<boolean> {
+    // Check if test key
+    return key.startsWith('test-key');
+  }
+  
+  async getWorkerMetadata(workerId: string, key: string): Promise<WorkerMetadata> {
+    // Return structured mock data
+    return {
+      id: workerId,
+      name: `Test Worker ${workerId}`,
+      description: "Mock worker for testing",
+      capabilities: ["text-generation"],
+      version: "1.0.0",
+      lastUpdated: new Date().toISOString()
+    };
+  }
+  
+  async executeWorker(workerId: string, input: any): Promise<WorkerResponse> {
+    // Return structured response that matches production format
+    return {
+      output: {
+        response: `Mock response for input: ${JSON.stringify(input)}`,
+        confidence: 0.95
+      },
+      executionTimeMs: 350,
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+// Bad: Direct function mocks
+const mockExecuteWorker = (input: any) => {
+  return { result: `Response for ${input}` }; // Wrong format
+};
+```
+
+## Integration with Other Rules
+
+- Works with [060-api-standards.mdc](mdc:060-api-standards.mdc) for consistent API interfaces
+- Supports [025-multi-tenancy.mdc](mdc:025-multi-tenancy.mdc) for proper organization isolation
+- Follows [115-mindstudio-integration.mdc](mdc:115-mindstudio-integration.mdc) for MindStudio testing
+- Complements [300-testing-standards.mdc](mdc:300-testing-standards.mdc) for overall testing approach
+
+## Testing Requirements
+
+1. Code Reviews
+- Verify test implementations follow architectural patterns
+- Check for hardcoded credentials or bypassed security
+- Ensure proper organization context is maintained
+
+2. Integration Tests
+- Test endpoints should be covered by integration tests
+- Verify proper error handling and organization isolation
+- Test both success and failure cases
+
+## Anti-Patterns to Avoid
+
+1. **Direct Database Mocking**: Avoid creating mock data that doesn't follow schema structure
+2. **Hardcoded Credentials**: Never embed API keys directly in test code
+3. **Organization Bypass**: Don't skip organization context checks, even in tests
+4. **Duplicate Logic**: Don't reimplement functionality that exists in services
+5. **Non-Standard Endpoints**: Don't create standalone endpoints that don't follow URL conventions
+6. **Jest Dependencies in Runtime Code**: Don't use test libraries in production code
+
+## Migration Strategy
+
+When encountering non-compliant test implementations:
+
+1. Identify the proper architectural pattern that should be used
+2. Create a properly structured replacement following these guidelines
+3. Update all references to use the new implementation
+4. Document the change to help others understand the correct pattern
+5. Remove the non-compliant implementation after ensuring no references remain 
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Test environment patterns
+- **`.cursor/docs/tools-guide.md`** - Testing tool usage
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Inspect data models for test setup
+- **`.cursor/tools/check-schema-changes.sh`** - Validate schema before tests
+- **`.cursor/tools/check-env-vars.sh`** - Verify test environment variables
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (Prisma schema first!)
+- @025-multi-tenancy.mdc - Multi-tenant test isolation
+- @060-api-standards.mdc - API standards for test endpoints
+- @300-testing-standards.mdc - General testing standards
+- @375-api-test-first-time-right.mdc - API testing patterns
+- @376-database-test-isolation.mdc - Database test isolation
+- @380-comprehensive-testing-standards.mdc - Universal testing framework
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (verify test data models)
+2. **Follow:** `.cursor/docs/ai-workflows.md#api-test-creation-workflow`
+3. **Validate:** `.cursor/tools/check-env-vars.sh` (test environment)

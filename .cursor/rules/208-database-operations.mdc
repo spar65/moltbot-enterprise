@@ -1,0 +1,655 @@
+---
+description: Apply database operations standards to ensure data safety, backup/recovery procedures, and disaster recovery planning
+globs: "**/*"
+---
+
+# Database Operations Standards
+
+## Context
+Your database is your most critical asset. Data loss is unacceptable. This rule establishes comprehensive standards for database backups, recovery, migrations, monitoring, and disaster recovery to ensure data safety and business continuity.
+
+**Critical Principles:**
+- Assume disasters will happen (plan for them)
+- Test backups regularly (untested backups = no backups)
+- Never modify production database directly
+- Always have rollback plan for migrations
+- Monitor database health continuously
+
+## Requirements
+
+### 1. Backup Strategy
+
+**Backup Schedule:**
+```yaml
+Production Database Backups:
+  Full Backups:
+    - Frequency: Daily at 2:00 AM UTC
+    - Retention: 30 days
+    - Location: S3 (encrypted)
+    - Cross-region: Yes (geographic redundancy)
+  
+  Incremental Backups:
+    - Frequency: Every 6 hours
+    - Retention: 7 days
+    - Location: S3 (encrypted)
+  
+  Point-in-Time Recovery:
+    - Enabled: Yes
+    - Retention: 7 days
+    - Recovery window: Any point in last 7 days
+  
+  Transaction Logs:
+    - Frequency: Continuous (WAL archiving)
+    - Retention: 7 days
+    - Enables: Point-in-time recovery
+```
+
+**Automated Backup Script:**
+```bash
+#!/bin/bash
+# .cursor/tools/backup-database.sh
+
+set -euo pipefail
+
+# Configuration
+BACKUP_DIR="/tmp/db-backups"
+S3_BUCKET="s3://myapp-backups"
+DATABASE_URL="${DATABASE_URL}"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="backup_${TIMESTAMP}.sql.gz"
+
+echo "🔵 Starting database backup..."
+
+# Create backup directory
+mkdir -p "${BACKUP_DIR}"
+
+# Dump database
+echo "📦 Creating database dump..."
+pg_dump "${DATABASE_URL}" | gzip > "${BACKUP_DIR}/${BACKUP_FILE}"
+
+# Verify backup file exists and has content
+if [ ! -s "${BACKUP_DIR}/${BACKUP_FILE}" ]; then
+  echo "❌ Backup file is empty or doesn't exist!"
+  exit 1
+fi
+
+# Upload to S3
+echo "☁️ Uploading to S3..."
+aws s3 cp "${BACKUP_DIR}/${BACKUP_FILE}" "${S3_BUCKET}/${BACKUP_FILE}" \
+  --storage-class STANDARD_IA \
+  --server-side-encryption AES256
+
+# Verify upload
+aws s3 ls "${S3_BUCKET}/${BACKUP_FILE}" > /dev/null
+if [ $? -eq 0 ]; then
+  echo "✅ Backup uploaded successfully"
+else
+  echo "❌ Backup upload failed!"
+  exit 1
+fi
+
+# Clean up local file
+rm "${BACKUP_DIR}/${BACKUP_FILE}"
+
+# Remove backups older than 30 days
+echo "🧹 Cleaning up old backups..."
+aws s3 ls "${S3_BUCKET}/" | \
+  awk '{print $4}' | \
+  while read file; do
+    if [[ $(date -d "$(echo $file | grep -oP '\d{8}')" +%s) -lt $(date -d "30 days ago" +%s) ]]; then
+      aws s3 rm "${S3_BUCKET}/${file}"
+      echo "Deleted old backup: ${file}"
+    fi
+  done
+
+echo "✅ Database backup complete!"
+```
+
+**Backup Verification:**
+```bash
+#!/bin/bash
+# Test backup restoration monthly
+
+# 1. Download latest backup
+LATEST_BACKUP=$(aws s3 ls s3://myapp-backups/ | sort | tail -n 1 | awk '{print $4}')
+aws s3 cp "s3://myapp-backups/${LATEST_BACKUP}" /tmp/test-backup.sql.gz
+
+# 2. Create test database
+psql -c "CREATE DATABASE backup_test;"
+
+# 3. Restore backup
+gunzip -c /tmp/test-backup.sql.gz | psql backup_test
+
+# 4. Verify data
+psql backup_test -c "SELECT COUNT(*) FROM users;" | grep -q "[0-9]"
+
+if [ $? -eq 0 ]; then
+  echo "✅ Backup restoration test PASSED"
+else
+  echo "❌ Backup restoration test FAILED"
+  exit 1
+fi
+
+# 5. Clean up
+psql -c "DROP DATABASE backup_test;"
+rm /tmp/test-backup.sql.gz
+```
+
+### 2. Recovery Procedures
+
+**Recovery Time Objective (RTO) & Recovery Point Objective (RPO):**
+```yaml
+Production Database:
+  RTO: 1 hour  # Time to restore service
+  RPO: 15 min  # Maximum acceptable data loss
+
+Staging/Development:
+  RTO: 4 hours
+  RPO: 24 hours
+```
+
+**Full Recovery Procedure:**
+```markdown
+## Database Recovery Procedure
+
+### Scenario 1: Data Corruption (< 24 hours ago)
+
+**Objective:** Restore from point-in-time before corruption
+
+1. **Identify corruption point** (5 min)
+   ```sql
+   -- Check data integrity
+   SELECT * FROM users WHERE created_at > '2024-01-19 14:00:00';
+   -- Last known good: 14:30:00
+   ```
+
+2. **Stop application** (2 min)
+   ```bash
+   # Prevent writes during recovery
+   vercel env add DATABASE_READONLY true production
+   ```
+
+3. **Create new database from point-in-time** (20 min)
+   ```bash
+   # Vercel Postgres (example)
+   vercel postgres create-from-backup \
+     --timestamp "2024-01-19T14:30:00Z" \
+     --name "recovery-db"
+   ```
+
+4. **Verify recovered data** (10 min)
+   ```bash
+   # Connect to recovery database
+   psql $RECOVERY_DATABASE_URL
+   
+   # Verify data looks correct
+   SELECT COUNT(*) FROM users;
+   SELECT * FROM users ORDER BY created_at DESC LIMIT 10;
+   ```
+
+5. **Switch application to recovery database** (5 min)
+   ```bash
+   vercel env add DATABASE_URL $RECOVERY_DATABASE_URL production
+   ```
+
+6. **Restart application** (2 min)
+   ```bash
+   vercel env rm DATABASE_READONLY production
+   vercel deploy --prod
+   ```
+
+7. **Monitor for issues** (20 min)
+   - Check error rates
+   - Verify user actions work
+   - Monitor database performance
+
+**Total RTO:** ~1 hour
+
+---
+
+### Scenario 2: Complete Database Loss
+
+**Objective:** Restore from latest backup
+
+1. **Declare incident** (1 min)
+   ```markdown
+   🚨 DATABASE LOST - RECOVERY IN PROGRESS
+   ETA: 1-2 hours
+   ```
+
+2. **Provision new database** (10 min)
+   ```bash
+   # Create new database instance
+   vercel postgres create myapp-prod-new
+   ```
+
+3. **Download latest backup** (5 min)
+   ```bash
+   LATEST=$(aws s3 ls s3://myapp-backups/ | sort | tail -n 1 | awk '{print $4}')
+   aws s3 cp "s3://myapp-backups/${LATEST}" /tmp/restore.sql.gz
+   ```
+
+4. **Restore backup** (30 min)
+   ```bash
+   gunzip -c /tmp/restore.sql.gz | psql $NEW_DATABASE_URL
+   ```
+
+5. **Verify restoration** (10 min)
+   ```sql
+   -- Check row counts
+   SELECT 
+     'users' as table, COUNT(*) as count FROM users
+   UNION ALL
+   SELECT 
+     'posts' as table, COUNT(*) as count FROM posts;
+   
+   -- Check latest data
+   SELECT MAX(created_at) FROM users;
+   ```
+
+6. **Update DNS/connection strings** (5 min)
+   ```bash
+   vercel env add DATABASE_URL $NEW_DATABASE_URL production
+   ```
+
+7. **Deploy application** (5 min)
+   ```bash
+   vercel deploy --prod
+   ```
+
+8. **Monitor and verify** (20 min)
+   - Check application functionality
+   - Verify user can login/use app
+   - Monitor error rates
+
+**Total RTO:** ~1.5 hours
+**Data Loss:** Up to 15 minutes (since last incremental backup)
+```
+
+### 3. Database Migration Safety
+
+**Migration Best Practices:**
+```typescript
+// migrations/20240119_add_email_column.ts
+
+/**
+ * SAFE MIGRATION CHECKLIST:
+ * ✅ Backward compatible (old code still works)
+ * ✅ Has rollback (down migration)
+ * ✅ Tested in staging
+ * ✅ No data loss risk
+ * ✅ Uses transactions
+ * ✅ Has timeout limits
+ */
+
+export async function up(prisma: PrismaClient) {
+  // Use transaction for safety
+  await prisma.$transaction(async (tx) => {
+    // Add column as nullable first (backward compatible)
+    await tx.$executeRaw`
+      ALTER TABLE users 
+      ADD COLUMN email VARCHAR(255) NULL;
+    `;
+    
+    // Create index (if needed)
+    await tx.$executeRaw`
+      CREATE INDEX CONCURRENTLY idx_users_email ON users(email);
+    `;
+  }, {
+    timeout: 30000, // 30 second timeout
+  });
+}
+
+export async function down(prisma: PrismaClient) {
+  // Rollback: Remove column
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      DROP INDEX IF EXISTS idx_users_email;
+    `;
+    
+    await tx.$executeRaw`
+      ALTER TABLE users DROP COLUMN IF EXISTS email;
+    `;
+  });
+}
+```
+
+**Migration Workflow:**
+```markdown
+## Safe Migration Deployment
+
+### 1. Preparation (Dev/Staging)
+- [ ] Write migration with `up` and `down`
+- [ ] Test migration in dev
+- [ ] Test rollback in dev
+- [ ] Peer review migration
+- [ ] Test in staging with production-like data
+- [ ] Measure migration duration
+
+### 2. Pre-Migration (Production)
+- [ ] Backup database (even if automated backup exists)
+- [ ] Check database disk space (migration needs space)
+- [ ] Schedule during low-traffic window
+- [ ] Notify team in #engineering
+- [ ] Have rollback commands ready
+
+### 3. Execute Migration
+```bash
+# Backup first
+./scripts/backup-database.sh
+
+# Run migration
+npx prisma migrate deploy
+
+# Verify schema
+npx prisma db pull
+git diff schema.prisma  # Should show expected changes
+```
+
+### 4. Post-Migration
+- [ ] Verify application works
+- [ ] Check error rates (should be normal)
+- [ ] Monitor database performance
+- [ ] Verify new column/table accessible
+- [ ] Document completion in #engineering
+
+### 5. If Issues (Rollback)
+```bash
+# Roll back migration
+npx prisma migrate rollback
+
+# Or manual SQL
+psql $DATABASE_URL -c "ALTER TABLE users DROP COLUMN email;"
+
+# Deploy previous code version
+vercel rollback
+```
+```
+
+**Zero-Downtime Migration Strategies:**
+```markdown
+## Strategy 1: Expand-Contract Pattern
+
+**Adding a column:**
+1. Deploy: Add nullable column (old code works)
+2. Deploy: Write to both old and new column
+3. Backfill: Populate new column from old data
+4. Deploy: Read from new column
+5. Deploy: Stop writing to old column
+6. Cleanup: Remove old column (weeks later)
+
+**Renaming a column:**
+1. Add new column
+2. Write to both columns
+3. Backfill new column
+4. Read from new column
+5. Stop writing to old column
+6. Remove old column
+
+## Strategy 2: Database Views
+
+**For complex changes:**
+1. Create view with new schema
+2. Application uses view
+3. Migrate underlying tables gradually
+4. Update view definition
+5. Eventually remove view, use tables directly
+```
+
+### 4. Database Monitoring
+
+**Key Database Metrics:**
+```typescript
+export const databaseMetrics = {
+  // Connection pool
+  connections: {
+    active: 25,
+    idle: 10,
+    max: 100,
+    threshold: 80, // Alert if > 80% used
+  },
+  
+  // Query performance
+  queries: {
+    avgDuration: 45,    // ms
+    p95Duration: 200,   // ms
+    p99Duration: 500,   // ms
+    slowQueries: 3,     // > 1000ms
+    threshold: 10,      // Alert if > 10 slow queries/min
+  },
+  
+  // Database health
+  health: {
+    replicationLag: 0,  // ms
+    deadlocks: 0,
+    lockWaits: 2,
+    tempFileSize: 0,    // MB
+  },
+  
+  // Storage
+  storage: {
+    size: 45,           // GB
+    growth: 0.5,        // GB/day
+    projected: 60,      // GB in 30 days
+    limit: 100,         // GB
+  },
+};
+```
+
+**Slow Query Logging:**
+```typescript
+// prisma.ts
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient({
+  log: [
+    {
+      emit: 'event',
+      level: 'query',
+    },
+  ],
+});
+
+prisma.$on('query', (e) => {
+  // Log slow queries
+  if (e.duration > 100) {
+    logger.warn('Slow query detected', {
+      query: e.query,
+      duration: e.duration,
+      params: e.params,
+    });
+    
+    // Track metric
+    metrics.histogram('database.query.duration', e.duration, {
+      operation: e.query.split(' ')[0],
+    });
+    
+    // Alert if too many slow queries
+    if (slowQueryCount > 10) {
+      alert('High slow query rate', {
+        count: slowQueryCount,
+        threshold: 10,
+      });
+    }
+  }
+});
+```
+
+### 5. Database Security
+
+**Access Control:**
+```yaml
+Database Users:
+  app_user:
+    - Permissions: SELECT, INSERT, UPDATE, DELETE on application tables
+    - NO DROP, ALTER, CREATE permissions
+    - Used by: Application
+  
+  migration_user:
+    - Permissions: All DDL (CREATE, ALTER, DROP)
+    - Used by: Migrations only
+    - Requires: MFA for manual use
+  
+  readonly_user:
+    - Permissions: SELECT only
+    - Used by: Analytics, reporting
+  
+  admin_user:
+    - Permissions: Full access
+    - Requires: MFA, audit logging
+    - Used by: Emergency operations only
+```
+
+**Connection Security:**
+```typescript
+// Secure connection string
+const DATABASE_URL = `postgresql://user:pass@host:5432/db?sslmode=require&connection_limit=10`;
+
+// Connection pooling
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: DATABASE_URL,
+    },
+  },
+  // Connection pool limits
+  connectionLimit: 10,
+});
+
+// Never log connection strings
+logger.info('Database connected', {
+  // ❌ DON'T: url: DATABASE_URL,
+  host: new URL(DATABASE_URL).host, // ✅ DO
+  database: new URL(DATABASE_URL).pathname.slice(1),
+});
+```
+
+### 6. Disaster Recovery Planning
+
+**DR Checklist:**
+```markdown
+## Disaster Recovery Readiness
+
+### Documentation
+- [ ] RTO and RPO defined (1 hour / 15 min)
+- [ ] Recovery procedures documented
+- [ ] Escalation contacts listed
+- [ ] Runbooks up to date
+
+### Backups
+- [ ] Automated daily backups running
+- [ ] Backup verification tested monthly
+- [ ] Cross-region replication enabled
+- [ ] Backup encryption enabled
+
+### Testing
+- [ ] Quarterly DR drill scheduled
+- [ ] Last successful recovery test: [Date]
+- [ ] Recovery time measured: [Duration]
+- [ ] Issues identified and fixed
+
+### Monitoring
+- [ ] Backup completion alerts
+- [ ] Database health monitoring
+- [ ] Replication lag monitoring
+- [ ] Disk space monitoring
+
+### Access
+- [ ] Emergency contacts defined
+- [ ] Admin credentials secured (password manager)
+- [ ] MFA enabled for admin access
+- [ ] Audit logging enabled
+```
+
+**DR Drill Procedure:**
+```markdown
+## Quarterly DR Drill
+
+**Schedule:** First Saturday of quarter, 2-4 AM UTC
+
+**Procedure:**
+1. Announce drill to team (1 week prior)
+2. Take snapshot of production database
+3. Create test environment
+4. Simulate disaster (delete test database)
+5. Execute recovery procedure
+6. Measure time to recovery
+7. Verify data integrity
+8. Document lessons learned
+9. Update procedures
+
+**Success Criteria:**
+- Recovery completed within RTO (1 hour)
+- Data loss within RPO (15 min)
+- Application fully functional
+- No issues encountered
+
+**Last Drill:** 2024-01-15
+**Result:** ✅ PASS (52 minutes, 5 min data loss)
+**Issues:** None
+**Improvements:** Updated documentation
+```
+
+## Database Operations Checklist
+
+```markdown
+## Daily
+- [ ] Check backup completion
+- [ ] Review slow query log
+- [ ] Monitor connection pool usage
+- [ ] Check disk space growth
+
+## Weekly
+- [ ] Review database performance metrics
+- [ ] Check for failed transactions
+- [ ] Review lock wait times
+- [ ] Verify replication health
+
+## Monthly
+- [ ] Test backup restoration
+- [ ] Review and optimize slow queries
+- [ ] Check index usage
+- [ ] Review table sizes and growth
+- [ ] Update capacity planning
+
+## Quarterly
+- [ ] DR drill
+- [ ] Review and update RTO/RPO
+- [ ] Security audit
+- [ ] Performance review
+```
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Database workflows
+- **`003-cursor-system-overview.mdc`** ⭐ - System overview
+
+### Complete Guides
+- **`guides/Database-Operations-Guide.md`** ⭐ - Complete database operations
+- **`guides/Incident-Response-Complete-Guide.md`** ⭐ - Database incident response
+
+### Related Rules
+- @081-data-versioning-standards.mdc - Data versioning and audit trails (complementary to backups)
+- @202-rollback-procedures.mdc - Migration rollback
+- @221-application-monitoring.mdc - Database monitoring
+- @222-metrics-alerting.mdc - Database alerts
+
+### Tools
+- **`.cursor/tools/backup-database.sh`** ⭐ - Automated backup script
+- **`.cursor/tools/check-schema-changes.sh`** - Verify schema before migration
+
+### Quick Start
+1. **Set up backups:** Daily full + hourly incremental
+2. **Test restoration:** Monthly backup verification
+3. **Document procedures:** Recovery and migration
+4. **Monitor health:** Slow queries, connections, storage
+5. **Plan for disaster:** Define RTO/RPO, quarterly drills
+
+## Priority
+**P0 (Required)** - Database operations are critical for data safety, business continuity, and disaster recovery.
+
+## References
+- [PostgreSQL Backup](https://www.postgresql.org/docs/current/backup.html)
+- [Database Reliability Engineering](https://www.oreilly.com/library/view/database-reliability-engineering/9781491925935/)
+- [Prisma Migrations](https://www.prisma.io/docs/concepts/components/prisma-migrate)

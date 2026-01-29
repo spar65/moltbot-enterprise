@@ -1,0 +1,469 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply database monitoring standards when implementing database operations to ensure performance visibility, query optimization, and reliable troubleshooting
+globs: "src/**/*.{ts,tsx}, src/lib/monitoring/**/*.{ts,tsx}"
+___
+
+# Database Monitoring Standards
+
+## Context
+
+Database performance and health monitoring is essential for maintaining application reliability and identifying potential issues before they impact users. These standards ensure proper monitoring, logging, and performance tracking for database operations.
+
+## Requirements
+
+### Query Performance Tracking
+
+- All database operations MUST include performance tracking metadata
+- Slow queries (>100ms) MUST be logged with execution context and parameters
+- Query execution plans SHOULD be captured for slow queries
+- Performance-critical database operations MUST be regularly benchmarked
+- Query performance metrics MUST be aggregated for trend analysis
+
+### Health Monitoring
+
+- Database connection health MUST be regularly verified
+- Database connection pool metrics MUST be monitored
+- Application-level database errors MUST be captured and categorized
+- Database server metrics (CPU, memory, disk, connections) SHOULD be monitored
+- Database availability MUST be included in overall service health checks
+
+### Troubleshooting Tools
+
+- Database logs MUST be easily accessible for troubleshooting
+- Complex queries MUST include identifying metadata for debugging
+- Correlation IDs SHOULD be included in database operations for request tracing
+- Query parameters MUST be logged for problematic operations
+- Database-related errors MUST include clear, actionable error messages
+
+### Multi-Tenant Monitoring
+
+- Performance metrics MUST be aggregated by tenant
+- Resource-intensive tenants MUST be identified and addressed
+- Cross-tenant performance impact MUST be monitored
+- Tenant-specific database issues MUST be isolated and resolved
+- Tenant database usage patterns SHOULD be analyzed for optimization
+
+### Alerting and Notifications
+
+- Critical database performance issues MUST trigger alerts
+- Database connection failures MUST be reported immediately
+- Unusual query patterns SHOULD trigger investigation
+- Persistent slow queries MUST be escalated for optimization
+- Database monitoring alerts MUST include context for quick resolution
+
+## Examples
+
+<example>
+// Query performance tracking implementation
+import { PrismaClient } from '@prisma/client';
+import { metrics } from '../utils/metrics';
+import { logger } from '../utils/logger';
+
+// Create Prisma client with middleware for monitoring
+const prisma = new PrismaClient({
+  log: [
+    { level: 'query', emit: 'event' },
+    { level: 'error', emit: 'event' },
+    { level: 'info', emit: 'event' },
+    { level: 'warn', emit: 'event' },
+  ],
+});
+
+// Track query performance
+prisma.$on('query', (e) => {
+  const duration = e.duration;
+  
+  // Track metrics
+  metrics.recordDatabaseQuery({
+    model: extractModelFromQuery(e.query),
+    operation: extractOperationFromQuery(e.query),
+    duration
+  });
+  
+  // Log slow queries
+  if (duration > 100) {
+    logger.warn({
+      message: 'Slow database query detected',
+      query: sanitizeQuery(e.query),
+      params: sanitizeParams(e.params),
+      duration,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Track query errors
+prisma.$on('error', (e) => {
+  logger.error({
+    message: 'Database query error',
+    error: e.message,
+    query: sanitizeQuery(e.query),
+    params: sanitizeParams(e.params),
+    timestamp: new Date().toISOString()
+  });
+  
+  metrics.incrementDatabaseErrors({
+    model: extractModelFromQuery(e.query),
+    operation: extractOperationFromQuery(e.query),
+    errorCode: extractErrorCode(e.message)
+  });
+});
+
+// Helper functions
+function extractModelFromQuery(query: string): string {
+  // Extract model name from query (e.g., "User" from "SELECT * FROM User")
+  const matches = query.match(/FROM\s+"?([a-zA-Z0-9_]+)"?/i);
+  return matches?.[1] || 'unknown';
+}
+
+function extractOperationFromQuery(query: string): string {
+  // Identify operation type (SELECT, INSERT, UPDATE, DELETE)
+  if (query.match(/^SELECT/i)) return 'select';
+  if (query.match(/^INSERT/i)) return 'insert';
+  if (query.match(/^UPDATE/i)) return 'update';
+  if (query.match(/^DELETE/i)) return 'delete';
+  return 'other';
+}
+
+function extractErrorCode(errorMessage: string): string {
+  // Extract Prisma error code (e.g., P2002)
+  const matches = errorMessage.match(/P[0-9]{4}/);
+  return matches?.[0] || 'unknown';
+}
+
+// Remove sensitive data from logs
+function sanitizeQuery(query: string): string {
+  return query;
+}
+
+function sanitizeParams(params: any): any {
+  // Remove sensitive data from parameters
+  if (!params) return params;
+  
+  const sanitized = { ...params };
+  const sensitiveFields = ['password', 'token', 'secret', 'key', 'credentials'];
+  
+  Object.keys(sanitized).forEach(key => {
+    if (sensitiveFields.some(field => key.toLowerCase().includes(field))) {
+      sanitized[key] = '[REDACTED]';
+    }
+  });
+  
+  return sanitized;
+}
+
+export { prisma };
+</example>
+
+<example>
+// Database health check implementation
+import { PrismaClient } from '@prisma/client';
+import { metrics } from '../utils/metrics';
+
+const prisma = new PrismaClient();
+
+export async function checkDatabaseHealth(): Promise<{
+  status: 'healthy' | 'unhealthy';
+  latency?: number;
+  error?: string;
+}> {
+  const start = Date.now();
+  
+  try {
+    // Simple query to test connectivity
+    await prisma.$queryRaw`SELECT 1`;
+    const latency = Date.now() - start;
+    
+    // Record health check metrics
+    metrics.recordDatabaseLatency(latency);
+    
+    return { 
+      status: 'healthy',
+      latency
+    };
+  } catch (error) {
+    const latency = Date.now() - start;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // Record failed health check
+    metrics.incrementDatabaseHealthFailures();
+    
+    console.error('Database health check failed:', errorMessage);
+    return {
+      status: 'unhealthy',
+      latency,
+      error: errorMessage
+    };
+  }
+}
+
+// Scheduled health check
+export function startDatabaseHealthCheck(intervalMs = 30000): () => void {
+  const interval = setInterval(async () => {
+    const health = await checkDatabaseHealth();
+    
+    if (health.status === 'unhealthy') {
+      console.error(`Database health check failed: ${health.error}`);
+      // Trigger alert for unhealthy database
+    } else if (health.latency && health.latency > 200) {
+      console.warn(`Database latency is high: ${health.latency}ms`);
+    }
+  }, intervalMs);
+  
+  return () => clearInterval(interval);
+}
+
+// Start health check in production
+if (process.env.NODE_ENV === 'production') {
+  startDatabaseHealthCheck();
+}
+</example>
+
+<example>
+// Multi-tenant performance tracking
+import { PrismaClient } from '@prisma/client';
+import { metrics } from '../utils/metrics';
+
+const prisma = new PrismaClient();
+
+// Repository with tenant performance tracking
+export class ProjectRepository {
+  async findAll(organizationId: string, options: any = {}): Promise<Project[]> {
+    const start = Date.now();
+    
+    try {
+      const projects = await prisma.project.findMany({
+        where: { organizationId },
+        skip: options.skip,
+        take: options.take,
+        orderBy: options.orderBy
+      });
+      
+      const duration = Date.now() - start;
+      
+      // Track tenant-specific metrics
+      metrics.recordTenantDatabaseOperation({
+        tenantId: organizationId,
+        operation: 'project.findAll',
+        resultCount: projects.length,
+        duration
+      });
+      
+      return projects;
+    } catch (error) {
+      const duration = Date.now() - start;
+      
+      // Track tenant-specific errors
+      metrics.recordTenantDatabaseError({
+        tenantId: organizationId,
+        operation: 'project.findAll',
+        error: error instanceof Error ? error.message : String(error),
+        duration
+      });
+      
+      throw error;
+    }
+  }
+}
+
+// Tenant usage dashboard data collection
+export async function getTenantDatabaseMetrics(): Promise<any[]> {
+  // Collect tenant usage statistics
+  const tenantMetrics = await prisma.$queryRaw`
+    SELECT 
+      "organizationId",
+      COUNT(*) as total_records,
+      AVG(EXTRACT(EPOCH FROM (NOW() - "updatedAt"))) as avg_data_age_seconds,
+      COUNT(DISTINCT "userId") as active_users
+    FROM "Project"
+    GROUP BY "organizationId"
+    ORDER BY total_records DESC
+  `;
+  
+  return tenantMetrics;
+}
+</example>
+
+<example>
+// Database monitoring dashboard API
+import { NextApiRequest, NextApiResponse } from 'next';
+import { withAuth, requireRole } from '../../../middleware/auth';
+import { metrics } from '../../../utils/metrics';
+import { checkDatabaseHealth } from '../../../utils/db-health';
+import { prisma } from '../../../lib/prisma';
+
+async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Only allow admin users
+  requireRole(req, 'ADMIN');
+  
+  try {
+    // Get all monitoring metrics
+    const [
+      dbHealth,
+      connectionStats,
+      queryMetrics,
+      slowQueries,
+      tenantMetrics
+    ] = await Promise.all([
+      checkDatabaseHealth(),
+      getDatabaseConnectionStats(),
+      metrics.getDatabaseMetrics(),
+      getRecentSlowQueries(),
+      getTopTenants()
+    ]);
+    
+    res.status(200).json({
+      health: dbHealth,
+      connections: connectionStats,
+      performance: queryMetrics,
+      slowQueries,
+      tenants: tenantMetrics,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching database metrics:', error);
+    res.status(500).json({ error: 'Failed to fetch database metrics' });
+  }
+}
+
+async function getDatabaseConnectionStats() {
+  try {
+    const stats = await prisma.$queryRaw`
+      SELECT 
+        count(*) as total_connections,
+        sum(CASE WHEN state = 'active' THEN 1 ELSE 0 END) as active_connections,
+        sum(CASE WHEN state = 'idle' THEN 1 ELSE 0 END) as idle_connections
+      FROM pg_stat_activity 
+      WHERE datname = current_database()
+    `;
+    return stats[0];
+  } catch (error) {
+    console.error('Error getting connection stats:', error);
+    return { error: 'Failed to fetch connection stats' };
+  }
+}
+
+async function getRecentSlowQueries() {
+  try {
+    return await prisma.queryLog.findMany({
+      where: {
+        duration: { gt: 100 },
+        timestamp: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Last 24 hours
+      },
+      orderBy: { duration: 'desc' },
+      take: 10
+    });
+  } catch (error) {
+    console.error('Error getting slow queries:', error);
+    return [];
+  }
+}
+
+async function getTopTenants() {
+  try {
+    return await prisma.$queryRaw`
+      SELECT 
+        o.id as "organizationId", 
+        o.name as "organizationName",
+        COUNT(DISTINCT p.id) as project_count,
+        COUNT(DISTINCT t.id) as task_count,
+        MAX(p."updatedAt") as latest_activity
+      FROM "Organization" o
+      LEFT JOIN "Project" p ON o.id = p."organizationId"
+      LEFT JOIN "Task" t ON p.id = t."projectId"
+      GROUP BY o.id, o.name
+      ORDER BY project_count DESC, task_count DESC
+      LIMIT 10
+    `;
+  } catch (error) {
+    console.error('Error getting top tenants:', error);
+    return [];
+  }
+}
+
+export default withAuth(handler);
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Missing query performance tracking
+async function getAllUsers() {
+  // No performance tracking
+  return await prisma.user.findMany();
+}
+
+// ❌ AVOID: Generic error handling without context
+try {
+  await prisma.user.create({ data: userData });
+} catch (error) {
+  // Generic error without context or logging
+  console.error('Database error');
+  throw error;
+}
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Logging sensitive data
+function logDatabaseOperation(query, params, result) {
+  console.log('Query executed:', query);
+  console.log('Parameters:', params); // Could contain sensitive data
+  console.log('Result:', result); // Could contain sensitive data
+}
+
+// ❌ AVOID: Missing tenant context in metrics
+metrics.recordDatabaseQuery({
+  operation: 'findUsers',
+  duration: 150
+  // Missing tenant context
+});
+</example>
+
+<example type="invalid">
+// ❌ AVOID: Hard-coded query timeouts
+setTimeout(() => {
+  if (!queryCompleted) {
+    abortQuery();
+    throw new Error('Query timed out');
+  }
+}, 5000); // Hard-coded timeout
+
+// ❌ AVOID: Missing health checks
+// Application doesn't verify database is available before operations
+</example>
+
+## Measuring Compliance
+
+- Review query performance logs for slow queries
+- Analyze database error rates and patterns
+- Monitor connection pool utilization
+- Track tenant-specific database metrics
+- Review query execution plans for optimization opportunities
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Monitoring workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Comprehensive Guides
+- **`guides/Database-Resilience-Guide.md`** - **CRITICAL:** Monitoring and resilience patterns!
+- **`guides/Database-Error-Classification-Guide.md`** - **CRITICAL:** Error monitoring and classification!
+- **`guides/Database-Query-Optimization-Guide.md`** - Query performance monitoring
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @060-performance-metrics.mdc - General performance monitoring
+- @069-database-resilience-patterns.mdc - Resilience patterns
+- @082-database-performance-budgets.mdc - **CRITICAL:** Performance budgets and monitoring!
+- @130-logging-standards.mdc - Logging patterns
+- @220-security-monitoring.mdc - Security monitoring
+
+### Quick Start
+1. **Error Monitoring:** Follow `guides/Database-Error-Classification-Guide.md`
+2. **Performance:** Monitor queries per @082-database-performance-budgets.mdc
+3. **Resilience:** Implement patterns from `guides/Database-Resilience-Guide.md`
+4. **Logging:** Use @130-logging-standards.mdc for database logs

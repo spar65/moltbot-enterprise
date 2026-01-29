@@ -1,0 +1,244 @@
+---
+description: REQUIRED - Use when writing or modifying TypeScript code to prevent common linter errors and ensure proper type safety
+globs: "**/*.ts, **/*.tsx"
+---
+
+# TypeScript Code Quality Standards
+
+## Context
+- TypeScript provides type safety that improves code quality and prevents runtime errors
+- Linter errors indicate potential problems with types, imports, or code structure
+- Fixing linter errors after implementation is inefficient and error-prone
+- This rule is REQUIRED for all TypeScript code in the project
+
+## Requirements
+
+### Import Management
+- Verify that modules exist before importing them
+- Use the correct import syntax for each module type
+- Comment out imports that don't exist yet with clear TODOs
+- Prefer explicit named imports over namespace imports
+
+### Type Safety
+- Always provide explicit types for function parameters
+- Avoid the `any` type except in clearly documented cases
+- Use proper React component prop typing with interfaces
+- Add type assertions only when TypeScript cannot infer the type correctly
+
+### Code Implementation Sequence
+1. First check if dependencies exist in the codebase
+2. Define interfaces and types before implementation
+3. Implement with proper type annotations
+4. Test the implementation in the development environment
+
+## Implementation Examples
+
+### Import Management
+```typescript
+// Good: Verified imports with fallbacks
+import React, { useState } from 'react';
+import { Button } from '@/components/ui/button';
+// TODO: Implement this hook - uncomment when available
+// import { useOrganization } from '@/lib/hooks/use-organization';
+
+// Temporarily use a placeholder value
+const orgId = 'org_placeholder';
+
+// Bad: Unverified imports
+import { SomeComponent } from '@/components/non-existent'; // Will cause error
+```
+
+### Type Safety
+```typescript
+// Good: Explicit types
+interface UserData {
+  id: string;
+  name: string;
+  email?: string; // Optional property
+}
+
+function processUser(user: UserData): string {
+  return `Processing ${user.name}`;
+}
+
+// Bad: Implicit any types
+function processUser(user) { // Implicit any - will cause linter error
+  return `Processing ${user.name}`;
+}
+```
+
+### React Component Props
+```typescript
+// Good: Properly typed component
+interface RecipeCardProps {
+  title: string;
+  ingredients: string[];
+  instructions: string[];
+  onSave?: () => void; // Optional callback
+}
+
+export function RecipeCard({ title, ingredients, instructions, onSave }: RecipeCardProps) {
+  // Implementation
+}
+
+// Bad: Implicit any props
+export function RecipeCard({ title, ingredients, instructions, onSave }) {
+  // Implementation with implicit any types - will cause linter errors
+}
+```
+
+### Handling Third-Party Libraries
+```typescript
+// Good: Import with proper types
+import ReactMarkdown from 'react-markdown';
+
+// When types are missing or incorrect, provide a module declaration
+// In a separate types file or above the import:
+declare module 'some-module-without-types' {
+  const content: any;
+  export default content;
+}
+import SomeModule from 'some-module-without-types';
+```
+
+### Dealing with React Component Props
+```typescript
+// Good: Explicitly typing component props
+type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: 'default' | 'outline' | 'ghost';
+  size?: 'sm' | 'md' | 'lg';
+  isLoading?: boolean;
+};
+
+// Good: Using React.FC (though explicit return type is also fine)
+const Button: React.FC<ButtonProps> = ({ 
+  variant = 'default',
+  size = 'md',
+  isLoading = false,
+  children,
+  ...props
+}) => {
+  return (
+    <button
+      className={`btn btn-${variant} btn-${size} ${isLoading ? 'loading' : ''}`}
+      disabled={isLoading || props.disabled}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+};
+```
+
+### Handling Event Callbacks
+```typescript
+// Good: Properly typed event handlers
+const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+  // Handle form submission
+};
+
+const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const { name, value } = e.target;
+  // Handle input change
+};
+
+const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+  // Handle button click
+};
+```
+
+### API Responses and Async Functions
+```typescript
+// Good: Typed API responses
+interface ApiResponse<T> {
+  data: T;
+  status: number;
+  message: string;
+}
+
+// Using with async functions
+async function fetchData<T>(url: string): Promise<ApiResponse<T>> {
+  const response = await fetch(url);
+  
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+  
+  return await response.json() as ApiResponse<T>;
+}
+
+// Usage with specific types
+interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+}
+
+async function getUserProfile(userId: string): Promise<UserProfile> {
+  const response = await fetchData<UserProfile>(`/api/users/${userId}`);
+  return response.data;
+}
+```
+
+## Common TypeScript Errors and Solutions
+
+### "Cannot find module X or its corresponding type declarations"
+- **Solution 1**: Check if the module exists in the project structure
+- **Solution 2**: Install missing type definitions with `npm install --save-dev @types/module-name`
+- **Solution 3**: Create custom type declarations in a `*.d.ts` file
+
+### "Binding element X implicitly has an 'any' type"
+- **Solution**: Explicitly type function parameters and destructured objects
+```typescript
+// Before (error)
+function processUser({ name, email }) { ... }
+
+// After (fixed)
+function processUser({ name, email }: { name: string; email: string }) { ... }
+```
+
+### "Property X does not exist on type Y"
+- **Solution 1**: Ensure the property exists in the type definition
+- **Solution 2**: Use optional chaining for possibly undefined properties: `obj?.prop`
+- **Solution 3**: Use type guards to narrow down types:
+```typescript
+if ('specificProp' in obj) {
+  // TypeScript now knows obj has specificProp
+  console.log(obj.specificProp);
+}
+```
+
+### "Type X is not assignable to type Y"
+- **Solution 1**: Ensure values match their declared types
+- **Solution 2**: Use type intersection or union types to represent complex objects
+- **Solution 3**: Create a proper type conversion function to transform between types
+
+## Verification Process
+
+Before submitting any code change:
+
+1. Check for red underlines in your editor indicating linter errors
+2. Run the TypeScript compiler to verify type correctness
+3. Run ESLint to catch additional code quality issues
+4. Test the implementation in the development environment
+
+## Integration with Other Rules
+
+- Supports [100-coding-patterns.mdc](mdc:100-coding-patterns.mdc) for code quality standards
+- Complements [150-technical-debt-prevention.mdc](mdc:150-technical-debt-prevention.mdc) by preventing type-related technical debt
+- Works with @375-api-test-first-time-right.mdc (API-specific type safety)
+- Works with @376-database-test-isolation.mdc (Database type safety with Prisma)
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/rules-guide.md`** - Understanding the rule system
+- **`.cursor/docs/ai-workflows.md`** - Proven development patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Related Rules
+- @002-rule-application.mdc - Rule priority and application
+- @100-coding-patterns.mdc - General coding standards
+- @150-technical-debt-prevention.mdc - Preventing technical debt
+- Supports [060-api-standards.mdc](mdc:060-api-standards.mdc) for properly typed API interactions 

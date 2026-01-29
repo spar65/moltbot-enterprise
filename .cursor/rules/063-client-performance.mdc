@@ -1,0 +1,78 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply client-side performance optimization techniques when building interactive features to ensure responsive user experience
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# Client-Side Performance Standards
+
+## Rendering Optimization
+- Use React.memo for expensive component renders
+- Implement useMemo for computationally intensive calculations
+- Apply useCallback for functions passed to child components
+- Avoid unnecessary re-renders with proper dependency arrays
+
+## Asset Optimization
+- Use the Next.js Image component with proper sizing and formats
+- Implement responsive images with srcset for different viewport sizes
+- Apply lazy loading for below-the-fold images and components
+- Optimize SVGs and consider using them inline for critical UI elements
+
+## JavaScript Execution
+- Defer non-critical JavaScript initialization
+- Implement requestIdleCallback or requestAnimationFrame for background tasks
+- Batch DOM updates to minimize layout thrashing
+- Use web workers for computationally intensive operations
+
+## Memory Management
+- Clean up event listeners and subscriptions in useEffect return functions
+- Implement pagination or virtualization for long lists
+- Use proper keys in list rendering to optimize reconciliation
+- Monitor and fix memory leaks using React Developer Tools
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Client performance patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### ⭐ NEW: Comprehensive Performance Guides
+- **`guides/Frontend-Performance-Complete-Guide.md`** ⭐ **MASTER GUIDE - CRITICAL!** - Comprehensive client performance
+- **`guides/Core-Web-Vitals-Optimization-Guide.md`** - LCP, INP, CLS optimization
+- **`guides/Caching-Complete-Guide.md`** - Client-side caching strategies
+- **`guides/Next.js-Architecture-Guide.md`** - Client-side Next.js patterns
+- **`guides/Component-Library-Guide.md`** - Performant component patterns
+
+### ⭐ NEW: Performance Automation Tools (USE THESE!)
+- **`.cursor/tools/run-lighthouse.sh`** ⭐ - Client performance audits
+- **`.cursor/tools/analyze-performance.sh`** ⭐ - Comprehensive performance analysis
+- **`.cursor/tools/check-bundle-size.sh`** ⭐ - Bundle analysis
+
+### ⭐ NEW: Core Performance Rules
+- @062-core-web-vitals.mdc - **CRITICAL:** LCP, INP, CLS optimization
+- @067-runtime-optimization.mdc - **CRITICAL:** React & runtime performance
+- @064-font-optimization.mdc - Font loading (CLS impact)
+- @065-third-party-script-management.mdc - Third-party script optimization
+- @066-network-optimization.mdc - Network performance
+- @062-rendering-strategies.mdc - SSR, SSG, RSC strategies
+- @064-caching-strategies.mdc - Multi-layer caching
+
+### Related Rules (Existing)
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @060-performance-metrics.mdc - **CRITICAL:** Performance metrics and budgets!
+- @061-code-splitting.mdc - Bundle optimization
+- @073-nextjs-image-optimization.mdc - **CRITICAL:** Image performance!
+- @070-nextjs-architecture.mdc - Next.js patterns
+- @042-ui-component-architecture.mdc - Component performance
+- @082-database-performance-budgets.mdc - Database impact on client
+
+### Quick Start
+1. **Read:** `guides/Frontend-Performance-Complete-Guide.md` (MASTER guide!)
+2. **Audit:** Run `.cursor/tools/analyze-performance.sh` for baseline
+3. **Core Web Vitals:** Optimize LCP, INP, CLS (@062-core-web-vitals.mdc)
+4. **Runtime:** Follow @067-runtime-optimization.mdc for React patterns
+5. **Images:** Follow @073-nextjs-image-optimization.mdc (CRITICAL!)

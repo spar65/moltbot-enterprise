@@ -1,0 +1,221 @@
+---
+description: 
+globs: ""
+alwaysApply: false
+---
+___
+description: Use when organizing CSS structure to ensure maintainable and consistent styling
+globs: "**/*.css, **/components/**/*.tsx, **/app/**/*.tsx"
+___
+
+# CSS Structure and Organization 
+
+## Context
+- CSS organization is critical for maintainable applications
+- Inconsistent styling approaches lead to visual inconsistencies and harder maintenance
+- Global styles should follow a consistent pattern for reuse across components
+- Tailwind utility classes should be organized and consistent
+- CSS structure directly impacts the testability of components
+
+## Requirements
+
+### Global CSS Variables
+- Define a standard set of CSS variables for theming in globals.css
+- Use semantic naming for variables (--sidebar-width, --header-height)
+- Include fallback values for all dynamic properties
+- Group variables by function (layout, colors, typography)
+- Apply CSS variables using Tailwind theme configuration
+- Keep root-level CSS variables to a minimum and organize by purpose
+
+### Layout Component Classes
+- Create dedicated CSS classes for major layout sections
+- Namespace classes by feature (dashboard-sidebar, dashboard-content)
+- Avoid nesting beyond 3 levels
+- Use consistent BEM-style naming (.component, .component__element, .component--modifier)
+- Document CSS classes with comments explaining their purpose
+- Extract repeated utility patterns into named classes
+
+### Responsive Breakpoints
+- Define and document standard breakpoints
+- Test all views at each breakpoint during development
+- Use mobile-first approach with min-width queries
+- Prefer Tailwind's responsive prefixes (sm:, md:, lg:) for consistency
+- Implement responsive strategy for each major component
+- Add breakpoint indicators to dev environment for easy testing
+
+### State-Based Styling
+- Define clear states for components (default, hover, active, disabled)
+- Use CSS custom properties for state transitions
+- Create consistent hover/focus effects across interactive elements
+- Ensure sufficient color contrast for all states
+- Implement unique visual indicators for each state
+
+### White-Label Styling
+- Separate structure from theming using CSS variables
+- Implement dynamic branding through CSS variable overrides
+- Test components with multiple branding configurations
+- Default to system design tokens when organization values aren't available
+- Create fallback styles that gracefully handle missing branding values
+
+### Testing-Friendly CSS Patterns
+- Avoid style rules that target elements by HTML tag names
+- Group related styles into named utility classes
+- Use predictable class names that indicate component purpose
+- Add data attributes for test selectors when needed
+- Ensure critical UI states have distinct visual characteristics
+- Maintain consistent class application across component states
+- Avoid visual styling that doesn't rely on CSS classes or attributes
+
+## Examples
+
+<example>
+/* Good - CSS variables with semantic naming */
+:root {
+  /* Layout */
+  --sidebar-width: 16rem;
+  --header-height: 4rem;
+  
+  /* Colors */
+  --primary-color: #0070f3;
+  --secondary-color: #f5f5f5;
+  
+  /* Branding - with fallbacks */
+  --org-primary: var(--primary-color);
+  --org-secondary: var(--secondary-color);
+}
+
+/* Layout components with namespaced classes */
+.dashboard-sidebar {
+  width: var(--sidebar-width);
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+}
+
+.dashboard-content {
+  margin-left: var(--sidebar-width);
+  min-height: 100vh;
+}
+</example>
+
+<example type="invalid">
+/* Bad - Mixed approach with inline values */
+.sidebar {
+  width: 16rem;
+  position: fixed;
+}
+
+.content {
+  margin-left: 16rem;
+}
+
+/* Inconsistent naming and no variables */
+.main-area {
+  padding: 24px;
+}
+</example>
+
+<example>
+/* Good - Tailwind theme configuration */
+// tailwind.config.js
+module.exports = {
+  theme: {
+    extend: {
+      colors: {
+        "org-primary": "var(--org-primary)",
+        "org-secondary": "var(--org-secondary)",
+      },
+      spacing: {
+        "sidebar": "var(--sidebar-width)",
+        "header": "var(--header-height)",
+      }
+    }
+  }
+}
+
+// Component usage
+<button className="bg-org-primary text-white hover:bg-org-primary/90">
+  Submit
+</button>
+</example>
+
+<example type="invalid">
+// Bad - Hard-coded values in components
+<button className="bg-[#0070f3] text-white hover:bg-[#0070f3]/90">
+  Submit
+</button>
+</example>
+
+<example>
+/* Good - Testing-friendly CSS for loading states */
+/* Define clear visual states */
+.loading-skeleton {
+  @apply animate-pulse bg-gray-200 rounded;
+}
+
+/* Component implementation */
+function CardSkeleton() {
+  return (
+    <div className="card loading-state" data-testid="card-loading">
+      <div className="loading-skeleton h-40 w-full"></div>
+      <div className="mt-2">
+        <div className="loading-skeleton h-4 w-3/4 mb-2"></div>
+        <div className="loading-skeleton h-4 w-1/2"></div>
+      </div>
+    </div>
+  );
+}
+</example>
+
+<example>
+/* Good - Consistent class patterns for different states */
+.form-input {
+  @apply border rounded px-4 py-2;
+}
+
+.form-input--error {
+  @apply border-red-500 bg-red-50;
+}
+
+.form-input--success {
+  @apply border-green-500 bg-green-50;
+}
+
+/* Component usage */
+<input 
+  className={cn(
+    "form-input",
+    error && "form-input--error",
+    success && "form-input--success"
+  )}
+  data-testid="username-input"
+  data-state={error ? "error" : success ? "success" : "default"}
+/>
+</example> 
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - CSS development patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Comprehensive Guides
+- **`guides/Component-Library-Guide.md`** - Component CSS patterns
+- **`guides/Next.js-Architecture-Guide.md`** - Next.js CSS architecture
+
+### Tools (Future)
+📅 **Planned Guides:**
+- `guides/CSS-Architecture-Best-Practices.md` (planned) - Comprehensive CSS guide
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @030-visual-design-system.mdc - **CRITICAL:** Design system CSS variables!
+- @042-ui-component-architecture.mdc - Component CSS organization
+- @055-button-transparency-prevention.mdc - CSS specificity issues
+- @074-nextjs-styling-consistency.mdc - Next.js CSS patterns
+- @200-shadcn-ui-strictness.mdc - UI library CSS
+
+### Quick Start
+1. **Variables:** Use design system CSS variables (@030-visual-design-system.mdc)
+2. **Organization:** Follow CSS architecture in this rule
+3. **Next.js:** See @074-nextjs-styling-consistency.mdc

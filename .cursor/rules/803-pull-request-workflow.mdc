@@ -1,0 +1,564 @@
+---
+description: Apply pull request workflow standards when creating and managing PRs to ensure efficient collaboration and code quality
+globs: "**/*"
+---
+
+# Pull Request Workflow
+
+## Context
+Pull Requests (PRs) are the primary mechanism for code review, collaboration, and knowledge sharing. A well-defined PR workflow ensures code quality, facilitates efficient reviews, and maintains team velocity. This rule establishes standards for creating, reviewing, and merging PRs.
+
+**Key Goals:**
+- Fast, efficient reviews
+- High code quality
+- Knowledge sharing
+- Minimal context switching
+- Clear communication
+
+## Requirements
+
+### PR Creation
+
+**1. Before Creating PR:**
+
+```bash
+# Pre-PR Checklist
+✅ Self-review completed
+✅ All tests pass locally
+✅ Linter passes with no warnings
+✅ Type checking passes
+✅ Branch is up to date with main
+✅ Commits follow conventional commits format
+✅ No debug code or console.logs
+✅ Documentation updated if needed
+```
+
+**2. PR Size Guidelines:**
+
+| Size | Lines Changed | Review Time | Status |
+|------|---------------|-------------|--------|
+| **XS** | < 10 | < 5 min | ✅ Ideal for docs, config |
+| **S** | 10-100 | ~15 min | ✅ Ideal for features |
+| **M** | 100-200 | ~30 min | ✅ Acceptable |
+| **L** | 200-400 | 1+ hour | ⚠️ Consider splitting |
+| **XL** | > 400 | 2+ hours | ❌ Must split or justify |
+
+<example>
+// ✅ GOOD: Small, focused PRs
+
+PR #123: Add email validation
+- Files: 3
+- Lines: 85
+- Review time: 15 min
+- Easy to review thoroughly
+
+PR #124: Update README with setup instructions
+- Files: 1
+- Lines: 45
+- Review time: 5 min
+- Quick approval
+
+---
+
+// ⚠️ ACCEPTABLE: Medium PR with justification
+
+PR #125: Implement user authentication
+- Files: 12
+- Lines: 350
+- Justification: "Auth requires UI, API, and tests to work together. 
+  Splitting would create incomplete/untestable states."
+- Review time: 1 hour
+- Reviewers: 2 (one for backend, one for frontend)
+
+---
+
+// ❌ BAD: Too large without justification
+
+PR #126: Various improvements
+- Files: 47
+- Lines: 2,341
+- No clear scope
+- Should be split into multiple PRs
+</example>
+
+**3. PR Title Format:**
+
+```
+<type>(<scope>): <short description>
+
+Examples:
+feat(auth): add email verification
+fix(api): prevent race condition in payments
+docs(readme): update installation instructions
+refactor(db): optimize user queries
+chore(deps): upgrade Next.js to 14.0
+```
+
+**4. PR Description Template:**
+
+```markdown
+## Summary
+Brief 1-2 sentence description of what this PR does.
+
+## Motivation
+Why is this change needed? What problem does it solve?
+
+## Changes
+- Bullet point list of key changes
+- Focus on what, not how (code shows how)
+- Highlight any breaking changes
+
+## Testing
+### Automated
+- [ ] Unit tests added/updated
+- [ ] Integration tests added/updated
+- [ ] All existing tests pass
+
+### Manual
+- [ ] Tested locally in browser
+- [ ] Tested on mobile (if UI change)
+- [ ] Edge cases verified
+
+## Screenshots/Videos
+(Add if UI change - before/after)
+
+## Checklist
+- [ ] Self-reviewed the code
+- [ ] Code follows project style guide
+- [ ] Documentation updated
+- [ ] No console.logs or debug code
+- [ ] Breaking changes documented
+- [ ] Related issue: Closes #XYZ
+
+## Reviewers
+@username - Requesting review for [specific aspect]
+
+## Notes
+Any additional context reviewers should know.
+```
+
+<example>
+// ✅ GOOD: Complete PR description
+
+## Summary
+Adds email verification flow for new user registrations.
+
+## Motivation
+Users were able to register with fake emails, causing issues with
+password resets and support communication. Email verification ensures
+users provide valid email addresses.
+
+## Changes
+- Add email verification token generation and storage
+- Send verification email via Resend API
+- Create verification link handling
+- Add verification status to user model
+- Update registration flow to require verification
+
+## Testing
+### Automated
+- [x] Unit tests for token generation
+- [x] Integration tests for verification flow
+- [x] Email sending mocked in tests
+
+### Manual
+- [x] Tested registration → email → verification flow
+- [x] Tested expired token handling
+- [x] Tested resend verification email
+
+## Screenshots
+[Screenshot of verification email]
+[Screenshot of verification success page]
+
+## Checklist
+- [x] Self-reviewed the code
+- [x] Code follows project style guide
+- [x] Documentation updated (auth docs)
+- [x] No console.logs or debug code
+- [x] Breaking changes: None
+- [x] Related issue: Closes #PRD-123
+
+## Reviewers
+@backend-dev - Review email verification logic
+@frontend-dev - Review UI components
+
+## Notes
+- Token expires in 24 hours (configurable via env var)
+- Resend has 100/day limit in dev, 50k/month in production
+</example>
+
+### PR Labels
+
+**Use Labels to Categorize:**
+- `feature` - New feature
+- `bug` - Bug fix
+- `hotfix` - Production emergency
+- `refactor` - Code refactoring
+- `docs` - Documentation
+- `dependencies` - Dependency updates
+- `breaking-change` - Breaking changes
+- `needs-review` - Ready for review
+- `work-in-progress` - Not ready yet (use Draft PR instead)
+- `blocked` - Waiting on something
+
+**Size Labels (Automated):**
+- `size/XS` - < 10 lines
+- `size/S` - 10-100 lines
+- `size/M` - 100-200 lines
+- `size/L` - 200-400 lines
+- `size/XL` - > 400 lines
+
+### Draft PRs
+
+**Use Draft PRs When:**
+- Want early feedback on approach
+- PR not ready for full review
+- CI/CD checks need to run
+- Want to show progress
+
+```markdown
+## 🚧 Work in Progress
+
+This PR is not ready for review yet. Opening as draft to:
+- Run CI/CD checks
+- Get early feedback on architecture
+- Show progress to stakeholders
+
+**TODO before ready for review:**
+- [ ] Add comprehensive tests
+- [ ] Update documentation
+- [ ] Address TODOs in code
+- [ ] Self-review
+
+Will mark as ready for review by [date].
+```
+
+**Convert to Ready:**
+- Click "Ready for review" button
+- Notify reviewers
+- Ensure checklist is complete
+
+## PR Review Process
+
+### 1. Requesting Review
+
+**When to Request:**
+- After self-review
+- When all checks pass
+- When PR is complete (not WIP)
+- During your team's working hours
+
+**How to Request:**
+```markdown
+# In PR description or comment
+@reviewer1 - Requesting review for backend changes
+@reviewer2 - Requesting review for frontend/UI
+
+Expected review turnaround: 24 hours
+Urgent: No (or Yes with justification)
+```
+
+**Auto-Request via CODEOWNERS:**
+```
+# .github/CODEOWNERS
+/app/api/*           @backend-team
+/app/components/*    @frontend-team
+*.mdc                @docs-team
+/.cursor/rules/*     @tech-leads
+```
+
+### 2. Review Turnaround Time
+
+**Targets:**
+- **Normal:** Within 24 hours
+- **Urgent:** Within 4 hours (must justify)
+- **Hotfix:** Within 1 hour (production emergency)
+
+**Reviewer Response:**
+```markdown
+# If can't review within target
+Thanks for the PR! I'm swamped today. Can review by tomorrow 2pm. 
+If urgent, please ping @other-reviewer.
+
+# If urgent and can't help
+This is outside my expertise. Recommending @domain-expert instead.
+```
+
+### 3. Addressing Feedback
+
+**Response Guidelines:**
+- Respond to all comments
+- Ask questions if unclear
+- Mark resolved when fixed
+- Thank reviewers
+
+**Types of Responses:**
+
+```markdown
+# ✅ Accepting feedback
+Good catch! Fixed in latest commit.
+Commit: abc123
+
+# ✅ Asking for clarification
+Could you elaborate on this? I'm not sure I understand the concern.
+
+# ✅ Pushing back (respectfully)
+I considered this approach, but chose the current implementation because
+[reason]. Open to discussion if you feel strongly.
+
+# ✅ Deferring to follow-up
+Great suggestion! This would be a good improvement. Given this PR is 
+already large, could we tackle this in a follow-up PR? I'll create
+an issue to track it.
+
+# ❌ Dismissive
+I disagree.
+
+# ❌ Defensive
+This is the way I always do it.
+```
+
+### 4. Re-requesting Review
+
+**After addressing feedback:**
+```bash
+# Push changes
+git add .
+git commit -m "refactor(auth): improve error handling per review"
+git push origin feature/my-branch
+
+# Re-request review on GitHub
+# Click "Re-request review" button
+```
+
+**Comment on PR:**
+```markdown
+@reviewer All feedback addressed! Summary of changes:
+- Improved error handling as suggested
+- Added tests for edge cases
+- Updated documentation
+
+Ready for another look. Thanks!
+```
+
+## Merging PRs
+
+### Merge Requirements
+
+**Before merging, ensure:**
+- [ ] All reviewers approved (1-2 required)
+- [ ] All CI/CD checks passing
+- [ ] No unresolved conversations
+- [ ] Branch up to date with main
+- [ ] All feedback addressed
+
+**Who Can Merge:**
+- PR author (after approvals)
+- Reviewers who approved
+- Team leads (any PR)
+
+### Merge Strategies
+
+**1. Squash and Merge (Default):**
+
+**Use When:**
+- Most feature PRs
+- Want clean commit history
+- Multiple WIP commits
+
+```bash
+# Results in single commit on main
+feat(auth): add email verification (#123)
+
+Implements email verification for new user registrations.
+Sends verification email with token that expires in 24 hours.
+
+Closes #PRD-123
+
+Co-authored-by: Reviewer Name <reviewer@example.com>
+```
+
+**2. Merge Commit:**
+
+**Use When:**
+- Want to preserve commit history
+- Multiple significant commits
+- Hotfixes
+
+**3. Rebase and Merge:**
+
+**Use When:**
+- Want linear history with individual commits
+- Each commit is valuable
+- Author cleaned up commits
+
+### Post-Merge Actions
+
+```markdown
+## After Merging:
+
+1. Delete branch
+   - [x] Click "Delete branch" on GitHub
+   - [x] Delete local branch: `git branch -d feature/my-branch`
+
+2. Verify deployment
+   - [ ] Check deployment status
+   - [ ] Smoke test production (if auto-deployed)
+   - [ ] Monitor error rates
+
+3. Close related issues
+   - [x] Closes #PRD-123 (auto-closed by GitHub)
+
+4. Notify stakeholders (if needed)
+   - [ ] PM: Feature X is now live
+   - [ ] Support: Bug Y is fixed
+```
+
+## Special PR Types
+
+### Hotfix PRs
+
+**Process:**
+1. Create from main branch
+2. Fix with minimal changes
+3. Request immediate review (< 1 hour)
+4. Fast-track approval
+5. Deploy immediately after merge
+6. Follow up with comprehensive fix if needed
+
+**PR Template:**
+```markdown
+## 🚨 HOTFIX: [Brief description]
+
+### Issue
+Production bug causing [impact]. Affects [number] users.
+
+### Fix
+Minimal change to [what]. Will follow up with comprehensive solution.
+
+### Testing
+- [x] Tested locally with reproduction steps
+- [x] Verified fix works
+- [x] No new issues introduced
+
+### Urgency
+IMMEDIATE - Production is impacted
+
+### Reviewers
+@team-lead @on-call-engineer
+
+### Post-Deploy
+- [ ] Monitor error rates
+- [ ] Create issue for comprehensive fix
+- [ ] Notify support team
+```
+
+### Dependency Update PRs
+
+**Automated (Dependabot/Renovate):**
+```markdown
+## Dependency Update: package-name
+
+### Changes
+- Upgrade package-name from 1.0.0 to 1.1.0
+
+### Changelog
+[Link to changelog]
+
+### Breaking Changes
+None (minor version bump)
+
+### Checklist
+- [x] CI/CD passes
+- [x] No breaking changes
+- [ ] Manual testing (if major version)
+- [ ] Bundle size impact reviewed
+
+### Auto-merge
+Safe to auto-merge if all checks pass.
+```
+
+### Documentation PRs
+
+**Fast-track approval:**
+- Focus on accuracy and clarity
+- Review for typos and broken links
+- Verify examples work
+- Approve quickly (< 30 min)
+
+## PR Metrics to Track
+
+**Team Velocity:**
+- PRs opened per week
+- PRs merged per week
+- Average time to merge
+
+**Review Efficiency:**
+- Time to first review
+- Time to approval
+- Number of review rounds
+
+**Code Quality:**
+- PR size distribution
+- Test coverage trends
+- Bug rate from PRs
+
+## Automation
+
+**GitHub Actions for PRs:**
+```yaml
+# .github/workflows/pr-checks.yml
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: PR Size Check
+        run: |
+          # Fail if PR > 400 lines without justification
+          
+      - name: Lint PR Title
+        uses: amannn/action-semantic-pull-request@v5
+        
+      - name: Check PR Description
+        run: |
+          # Ensure PR description is not empty
+          
+      - name: Label PR by Size
+        uses: codelytv/pr-size-labeler@v1
+```
+
+## See Also
+
+### Documentation
+- **`guides/Git-Workflow-Complete-Guide.md`** ⭐ - Complete Git and PR guide
+- **`guides/Code-Review-Complete-Guide.md`** ⭐ - Review process details
+- **`.cursor/docs/ai-workflows.md`** - Development workflows
+
+### Related Rules
+- @101-code-review-standards.mdc - Review standards and checklist
+- @802-git-workflow-standards.mdc - Git branching and commits
+- @804-hotfix-procedures.mdc - Emergency hotfix process
+- @100-coding-patterns.mdc - Coding standards
+
+### Quick Start
+1. **Create PR:** Use template, keep small (< 200 lines ideal)
+2. **Self-Review:** Check everything before requesting review
+3. **Request Review:** Tag specific reviewers with context
+4. **Respond:** Address feedback promptly and professionally
+5. **Merge:** After approval, merge and clean up
+
+## Priority
+**P1 (Important)** - Consistent PR workflow is essential for efficient team collaboration and maintaining code quality.
+
+## References
+- [GitHub Pull Requests](https://docs.github.com/en/pull-requests)
+- [Conventional Comments](https://conventionalcomments.org/)
+- [Google Engineering Practices](https://google.github.io/eng-practices/)

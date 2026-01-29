@@ -1,0 +1,116 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+---
+
+description: Apply user communication standards when sending any notifications or messages to ensure consistent, valuable, and appropriate user communications
+globs: "src/\*_/_.{js,jsx,ts,tsx}"
+
+---
+
+# User Communication Standards
+
+## Communication Strategy
+
+- Document purpose and goals for each communication type
+- Apply consistent voice and tone guidelines
+- Implement communication frequency limits
+- Create user journey-based communication flows
+- Document user feedback mechanisms
+- Measure and optimize communication effectiveness
+
+## Message Content
+
+- Create value-focused messaging
+- Apply consistent terminology and language
+- Implement proper call-to-action design
+- Ensure accuracy of all content and links
+- Apply personalization appropriately
+- Test content for clarity and effectiveness
+
+## Dark Mode Optimization (REQUIRED - 2024)
+
+- Implement dark mode styles using `@media (prefers-color-scheme: dark)`
+- Test dark mode rendering in Apple Mail, Gmail, Outlook
+- Use semantic color variables that adapt to light and dark modes
+- Ensure 4.5:1 color contrast ratio in both light and dark modes
+- Apply proper logo and image handling for dark backgrounds
+- Create fallback styles for email clients without dark mode support
+- Test dark mode with actual devices and email clients
+- Document dark mode testing results and client support
+- Implement transparent PNG logos or SVGs that work in both modes
+- Avoid pure white backgrounds and pure black text in dark mode
+
+## Multi-Brand Support
+
+- Implement brand-specific email templates and styling
+- Apply appropriate sender names and addresses by brand
+- Create brand-specific unsubscribe and preference centers
+- Maintain consistent brand voice within each product line
+- Document brand guidelines for email communications
+- Apply proper brand segmentation in email marketing platform
+
+## Delivery Optimization
+
+- Implement send-time optimization
+- Apply proper segmentation for targeting
+- Create A/B testing strategy for optimization
+- Document optimal sending frequency
+- Implement engagement-based sending rules
+- Apply user timezone awareness
+
+## See Also
+
+### Related Rules
+
+- @075-email-marketing-standards.mdc - Email marketing compliance and standards
+- @076-mailchimp-integration-standards.mdc - MailChimp integration and automation
+- @078-email-deliverability-standards.mdc - Deliverability and sender reputation
+- @079-email-accessibility-standards.mdc - Accessible email design
+- @080-email-effectiveness-tracking.mdc - Email metrics and analytics
+- @082-email-automation-optimization.mdc - Automation workflow optimization
+- @083-lifecycle-marketing-automation.mdc - Lifecycle marketing strategies
+- @030-visual-design-system.mdc - Visual design and branding standards
+
+### Tools & Documentation
+
+- **`.cursor/tools/test-dark-mode.sh`** - Dark mode email testing tool
+  ```bash
+  ./.cursor/tools/test-dark-mode.sh path/to/email-template.html
+  # Tests dark mode rendering across email clients
+  ```
+
+### Comprehensive Guides
+
+- **`guides/Email-Template-Development-Guide.md`** ⭐ **ESSENTIAL** - Complete template development
+- **`guides/Email-Personalization-Guide.md`** - Personalization strategies
+- **`guides/Email-Analytics-Guide.md`** - Email analytics and reporting
+- **`guides/Email-MailChimp-Integration-Guide.md`** - MailChimp setup and campaigns
+
+### Quick Start - User Communication Setup
+
+```bash
+# 1. Define communication strategy
+# Document purpose, goals, frequency for each email type
+
+# 2. Implement dark mode styles
+# Add @media (prefers-color-scheme: dark) to all templates
+
+# 3. Test across email clients
+./.cursor/tools/test-dark-mode.sh templates/welcome-email.html
+
+# 4. Set up multi-brand support (if applicable)
+# Configure brand-specific templates and settings
+
+# 5. Monitor effectiveness
+# Track opens, clicks, conversions by communication type
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P1 (Important)  
+**Last Updated**: November 20, 2025

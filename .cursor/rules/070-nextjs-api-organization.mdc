@@ -1,0 +1,353 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Implement consistent API route organization when building Next.js API endpoints to ensure maintainability and performance
+globs: "src/pages/api/**/*.{js,ts}"
+___
+
+# Next.js API Organization Standards
+
+## Context
+
+- Next.js file-based API routes can become disorganized without clear patterns
+- API routes should focus on request handling, not business logic
+- Consistent error handling is essential for client integration
+
+## Requirements
+
+### API Route Structure
+
+- Separate API handler logic from business logic
+- Use HTTP method handlers with a switch/case pattern
+- Implement consistent request validation
+- Apply standardized error handling
+
+### Business Logic Separation
+
+- Extract business logic to service modules
+- Inject dependencies into API handlers
+- Maintain clear separation of concerns
+- Implement proper error propagation
+
+### Error Handling
+
+- Use standardized error response format across all API endpoints:
+  ```typescript
+  type ApiError = {
+    error: {
+      code: string; // Machine-readable error code
+      message: string; // Human-readable message
+      details?: unknown; // Optional detailed information
+      requestId?: string; // Request identifier for tracing
+    };
+  };
+  ```
+- Include appropriate HTTP status codes
+- Provide clear error messages and codes
+- Add request IDs for traceability
+
+### External Service Integration
+
+- Separate client and server code for third-party services
+- Implement proper error handling for external service calls
+- Use environment variables to configure service connections
+- Test external service integrations with proper mocking
+
+## Common Pitfalls
+
+- **Mixed business/API logic**: Database queries directly in API routes
+- **Inconsistent error formats**: Different formats across endpoints
+- **Missing validation**: Not validating request data before processing
+- **Hardcoded credentials**: Including API keys directly in route handlers
+- **Inadequate error handling**: Not catching errors from service calls
+
+## Migration Patterns
+
+- Create adapter functions for third-party service upgrades
+- Implement feature flags for API changes
+- Version API routes for breaking changes
+- Use middleware functions for cross-cutting concerns
+
+## Evidence Source
+
+Based on HitList issues:
+
+- HitList-Problem-TestFailed03.md (API endpoint test failures)
+- HitList-Debug-API-500-Errors.md (inconsistent error handling)
+- HitList-Test-Problem-Framework03-Test-Initial-DB.md (database query issues)
+- HitList-Test-Problem-Framwork06-Stripe-Integration.md (external service integration)
+
+## Success Metrics
+
+- Consistent error response format across all API endpoints
+- Clear separation between API routes and business logic
+- Improved test coverage for API routes
+- Reduced 500 errors in production
+
+## Examples
+
+<example>
+// Good API route implementation with business logic separation
+// pages/api/users/[id].ts
+import { NextApiRequest, NextApiResponse } from 'next';
+import { getUserById, updateUser, deleteUser } from '@/services/userService';
+import { withAuthMiddleware } from '@/middleware/auth';
+import { ApiError, handleApiError } from '@/lib/errors';
+
+async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { id } = req.query;
+  
+  try {
+    switch (req.method) {
+      case 'GET':
+        const user = await getUserById(id as string);
+        
+        if (!user) {
+          return res.status(404).json({
+            error: {
+              code: 'USER_NOT_FOUND',
+              message: 'User not found',
+              requestId: req.headers['x-request-id'] as string,
+            }
+          });
+        }
+        
+        return res.status(200).json({
+          data: user,
+          meta: { requestId: req.headers['x-request-id'] as string }
+        });
+        
+      case 'PUT':
+        const updatedUser = await updateUser(id as string, req.body);
+        return res.status(200).json({
+          data: updatedUser,
+          meta: { requestId: req.headers['x-request-id'] as string }
+        });
+        
+      case 'DELETE':
+        await deleteUser(id as string);
+        return res.status(204).end();
+        
+      default:
+        return res.status(405).json({
+          error: {
+            code: 'METHOD_NOT_ALLOWED',
+            message: `Method ${req.method} not allowed`,
+            requestId: req.headers['x-request-id'] as string,
+          }
+        });
+    }
+    
+  } catch (error) {
+    return handleApiError(error, res, req.headers['x-request-id'] as string);
+  }
+}
+
+export default withAuthMiddleware(handler);
+</example>
+
+<example type="invalid">
+// Bad API route implementation - business logic mixed with API handling
+// pages/api/users/[id].ts
+import { NextApiRequest, NextApiResponse } from 'next';
+import prisma from '@/lib/prisma';
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { id } = req.query;
+  
+  if (req.method === 'GET') {
+    try {
+      // Business logic directly in the API route - violates separation of concerns
+      const user = await prisma.user.findUnique({
+        where: { id: id as string },
+      });
+      
+      if (!user) {
+        // Inconsistent error format - no error code or requestId
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      // Inconsistent response format - no data wrapper
+      return res.status(200).json(user);
+    } catch (error) {
+      // Poor error handling - generic message, no details
+      console.error(error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    
+  } else {
+    // Inconsistent error format - no JSON body
+    return res.status(405).end();
+  }
+}
+</example>
+
+## Service Module Example
+
+<example>
+// Good service module implementation
+// services/userService.ts
+import prisma from '@/lib/prisma';
+import { User } from '@prisma/client';
+import { ApiError } from '@/lib/errors';
+
+interface UserUpdateData {
+  name?: string;
+  email?: string;
+  // other fields...
+}
+
+export async function getUserById(id: string): Promise<User | null> {
+  try {
+    return await prisma.user.findUnique({
+      where: { id },
+    });
+  } catch (error) {
+    // Transform database errors to standardized API errors
+    throw new ApiError({
+      code: 'DATABASE_ERROR',
+      message: 'Failed to retrieve user',
+      details: error,
+    });
+  }
+}
+
+export async function updateUser(id: string, data: UserUpdateData): Promise<User> {
+  // Validate input data
+  if (!data || Object.keys(data).length === 0) {
+    throw new ApiError({
+      code: 'INVALID_INPUT',
+      message: 'No update data provided',
+    });
+  }
+  
+  try {
+    return await prisma.user.update({
+      where: { id },
+      data,
+    });
+  } catch (error) {
+    // Handle specific error types
+    if (error.code === 'P2025') {
+      throw new ApiError({
+        code: 'USER_NOT_FOUND',
+        message: 'User not found',
+        details: error,
+      });
+    }
+    
+    throw new ApiError({
+      code: 'DATABASE_ERROR',
+      message: 'Failed to update user',
+      details: error,
+    });
+  }
+}
+
+export async function deleteUser(id: string): Promise<void> {
+  try {
+    await prisma.user.delete({
+      where: { id },
+    });
+  } catch (error) {
+    if (error.code === 'P2025') {
+      throw new ApiError({
+        code: 'USER_NOT_FOUND',
+        message: 'User not found',
+        details: error,
+      });
+    }
+    
+    throw new ApiError({
+      code: 'DATABASE_ERROR',
+      message: 'Failed to delete user',
+      details: error,
+    });
+  }
+}
+</example>
+
+## Error Handling Utility
+
+<example>
+// Good error handling utility
+// lib/errors.ts
+import { NextApiResponse } from 'next';
+
+export class ApiError extends Error {
+  code: string;
+  status: number;
+  details?: unknown;
+  
+  constructor({
+    code,
+    message,
+    status = 500,
+    details,
+  }: {
+    code: string;
+    message: string;
+    status?: number;
+    details?: unknown;
+  }) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+    this.details = details;
+  }
+}
+
+export function handleApiError(
+  error: unknown,
+  res: NextApiResponse,
+  requestId?: string
+): NextApiResponse {
+  console.error('API Error:', error);
+  
+  // Handle known API errors
+  if (error instanceof ApiError) {
+    return res.status(error.status).json({
+      error: {
+        code: error.code,
+        message: error.message,
+        ...(error.details && { details: error.details }),
+        ...(requestId && { requestId }),
+      },
+    });
+  }
+  
+  // Handle unexpected errors
+  return res.status(500).json({
+    error: {
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'An unexpected error occurred',
+      ...(requestId && { requestId }),
+    },
+  });
+}
+</example>
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - API organization patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/inspect-model.sh`** - Check API data models
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy (schema first!)
+- @012-api-security.mdc - API security patterns
+- @025-multi-tenancy.mdc - Organization-scoped APIs
+- @060-api-standards.mdc - API standards (critical!)
+- @375-api-test-first-time-right.mdc - API testing patterns
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (API models)
+2. **Organize:** Per @060-api-standards.mdc
+3. **Test:** Follow @375-api-test-first-time-right.mdc

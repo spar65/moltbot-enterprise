@@ -1,0 +1,296 @@
+---
+
+description: Use when testing API key generation, validation, rotation, and security to ensure comprehensive coverage and consistent patterns
+globs: "\**/*api-key\*.test.ts"
+
+---
+
+# API Key Testing Standards
+
+## Context
+
+- Apply when testing API key management functionality
+- Use with database testing infrastructure (jest.database.config.js)
+- Follow when implementing CRUD, security, or business logic tests for API keys
+
+## Requirements
+
+### Test Organization
+
+- Create focused test files: `__tests__/api-key-{feature}.test.ts`
+- Use descriptive test names: `✅ Should generate key with correct format`
+- Group related tests in describe blocks by functionality
+- Include both success (✅) and error (❌) scenarios
+
+### Mock Setup Patterns
+
+- Use explicit mock setup with `mockResolvedValueOnce` for each database call
+- Configure bcrypt mocks in beforeEach: `bcrypt.hash.mockResolvedValue('$2b$12$hashedkey')`
+- Clear mocks between tests: `jest.clearAllMocks()`
+- Mock exactly the number of database calls expected
+
+### Database Integration Testing
+
+- Import mocked SQL: `const { sql: mockSql } = require('../src/lib/database')`
+- Test actual ApiKeyManager methods, not implementation details
+- Verify database call count: `expect(mockSql).toHaveBeenCalledTimes(expectedCount)`
+- Test audit trail creation for all key operations
+
+### API Key Format Validation
+
+- Test correct key format: `vibe_{environment}_{64_hex_chars}`
+- Validate environment prefixes: live, test, dev
+- Test key length: 74 characters total
+- Verify hint generation: `vibe_{last_8_chars}`
+
+### Security Testing Requirements
+
+- Test bcrypt hash generation and verification
+- Validate environment isolation (live keys don't work in test)
+- Test GDPR-compliant IP address hashing
+- Verify key expiration handling
+
+### Business Logic Coverage
+
+- Test maximum key limits (2 per user per environment)
+- Test key rotation workflow with grace periods
+- Test expiry detection and warnings (14-day threshold)
+- Test usage count updates and tracking
+
+### Error Scenario Testing
+
+- Test invalid environment rejection
+- Test maximum key limit enforcement
+- Test expired key handling
+- Test malformed key rejection
+- Test database error scenarios
+
+### API Endpoint Testing
+
+- Use `jest.api.config.js` for endpoint tests
+- Mock authentication with `mockAuth.session()`
+- Test request validation and error responses
+- Verify proper HTTP status codes
+- Test request body validation
+
+## Examples
+
+<example>
+// ✅ Good: Explicit mock setup with exact call expectations
+test('✅ Should generate API key with audit trail', async () => {
+  const userId = 'user-123';
+  
+  (mockSql as jest.Mock)
+    .mockResolvedValueOnce([{ count: 0 }]) // Count check
+    .mockResolvedValueOnce([{ id: 'key-123', created_at: new Date() }]) // Insert
+    .mockResolvedValueOnce([]); // Audit log
+
+const result = await ApiKeyManager.generateApiKey(userId, {
+keyName: 'Test Key',
+environment: 'test'
+});
+
+expect(result.keyId).toBe('key-123');
+expect(result.apiKey).toMatch(/^vibe*test*/);
+expect(mockSql).toHaveBeenCalledTimes(3);
+});
+</example>
+
+<example>
+// ✅ Good: Testing business logic constraints
+test('❌ Should reject when maximum keys reached', async () => {
+  const userId = 'user-123';
+  
+  (mockSql as jest.Mock).mockResolvedValueOnce([{ count: 2 }]);
+
+await expect(
+ApiKeyManager.generateApiKey(userId, { environment: 'live' })
+).rejects.toThrow('Maximum API keys (2) already exist');
+});
+</example>
+
+<example>
+// ✅ Good: Security validation testing
+test('🛡️ Should validate environment prefixes correctly', async () => {
+  const liveKey = 'vibe_live_' + 'a'.repeat(64);
+  const testKey = 'vibe_test_' + 'b'.repeat(64);
+  
+  expect(ApiKeyManager.validateEnvironmentPrefix(liveKey, 'live')).toBe(true);
+  expect(ApiKeyManager.validateEnvironmentPrefix(liveKey, 'test')).toBe(false);
+});
+</example>
+
+<example type="invalid">
+// ❌ Bad: Complex mock chains that are brittle
+(mockSql as jest.Mock)
+  .mockResolvedValue([{ count: 0 }])
+  .mockResolvedValue([{ id: 'key-123' }])
+  .mockRejectedValue(new Error('Database error'))
+  .mockResolvedValue([]);
+</example>
+
+<example type="invalid">
+// ❌ Bad: Testing implementation details instead of behavior
+expect(mockSql).toHaveBeenCalledWith(
+  expect.stringContaining('INSERT INTO user_api_keys'),
+  expect.stringContaining('bcrypt_hash_here'),
+  // ... too many implementation-specific parameters
+);
+</example>
+
+## Coverage Requirements
+
+### Core Functionality (Must Test)
+
+- Key generation with all parameters
+- Key validation and authentication
+- Key revocation with audit trail
+- Key information retrieval
+- Key rotation workflow
+- Expiry detection and management
+
+### Security Features (Must Test)
+
+- bcrypt hash generation and verification
+- Environment prefix validation
+- GDPR-compliant IP hashing
+- Key format validation
+- Maximum key limits enforcement
+
+### Error Scenarios (Must Test)
+
+- Invalid environment handling
+- Expired key rejection
+- Malformed key handling
+- Database error recovery
+- Rate limit enforcement
+
+### API Integration (Should Test)
+
+- Endpoint request/response validation
+- Authentication middleware integration
+- Error response formatting
+- Request body validation
+
+## File Naming Conventions
+
+- `__tests__/api-key-generation.test.ts` - Core generation logic
+- `__tests__/api-key-security.test.ts` - Security validations
+- `__tests__/api-key-rotation.test.ts` - Key rotation workflow
+- `__tests__/api-key-endpoints.test.ts` - API endpoint testing
+- `__tests__/api-key-limits.test.ts` - Business logic constraints
+
+## See Also
+
+### Related Rules
+
+- **@002-rule-application.mdc** - Source of Truth Hierarchy (ALWAYS check schema first!)
+- **@373-api-key-system-design.mdc** - API key system design and architecture
+- **@375-api-test-first-time-right.mdc** - Schema-First testing patterns (95%+ success)
+- **@376-database-test-isolation.mdc** - Database test isolation and cleanup
+- **@380-comprehensive-testing-standards.mdc** ⭐ **Universal testing framework**
+- **@300-testing-standards.mdc** - General testing best practices
+- **@012-api-security.mdc** - API security testing requirements
+- **@011-env-var-security.mdc** - Environment variable security in tests
+- **@130-error-handling.mdc** - Error handling testing patterns
+- **@350-debug-test-failures.mdc** - Systematic test debugging
+- **@351-sql-mock-debugging.mdc** - SQL mock troubleshooting
+
+### Tools & Documentation
+
+- **`.cursor/tools/inspect-model.sh`** - Inspect API key schema before writing tests
+  ```bash
+  ./.cursor/tools/inspect-model.sh ApiKey
+  # ALWAYS run this before writing any API key tests!
+  # Shows exact field names (key_hash vs keyHash, etc.)
+  ```
+
+- **`.cursor/tools/check-schema-changes.sh`** - Detect schema changes that break tests
+  ```bash
+  ./.cursor/tools/check-schema-changes.sh
+  # Run before committing to catch schema/test mismatches
+  ```
+
+- **`.cursor/tools/scan-secrets.sh`** - Ensure no hardcoded test API keys
+  ```bash
+  ./.cursor/tools/scan-secrets.sh
+  # Prevents committing real API keys in test files
+  ```
+
+- **`.cursor/tools/check-env-vars.sh`** - Validate test environment configuration
+  ```bash
+  ./.cursor/tools/check-env-vars.sh
+  # Ensures TEST_DATABASE_URL and other test vars are set
+  ```
+
+- **`.cursor/docs/ai-workflows.md#api-test-creation-workflow`** - Complete 19-step API testing workflow
+- **`.cursor/docs/security-workflows.md`** - API key security testing patterns
+
+### Comprehensive Guides
+
+- **`guides/API-Key-Management-Complete-Guide.md`** ⭐ **Essential** - Complete testing section with examples
+- **`guides/api-key-management/Complete-API-Key-System-Documentation.md`** - Testing documentation reference
+- **`guides/API-Database-Testing-Complete-Guide.md`** - Database testing patterns
+- **`guides/testing/API-Key-Generation-Complete-Guide.md`** - Detailed API key testing guide
+
+### Quick Start - API Key Testing Workflow
+
+```bash
+# 1. ALWAYS inspect schema FIRST (Schema-First Development)
+./.cursor/tools/inspect-model.sh ApiKey
+# Note exact field names: key_hash, environment, created_at, etc.
+
+# 2. Generate fresh Prisma types
+cd app && npx prisma generate
+
+# 3. Create test file with schema validation header
+touch __tests__/api-key-generation.test.ts
+
+# 4. Import Prisma-generated types
+# import { ApiKey } from '@prisma/client';
+
+# 5. Write tests following @375 checklist:
+npm test -- api-key-generation
+
+# 6. Before committing, validate schema didn't change
+./.cursor/tools/check-schema-changes.sh
+
+# 7. Ensure no secrets exposed
+./.cursor/tools/scan-secrets.sh
+```
+
+**Test Structure Pattern:**
+```typescript
+// __tests__/api-key-generation.test.ts
+/**
+ * SCHEMA VALIDATION:
+ * - Checked: ./.cursor/tools/inspect-model.sh ApiKey
+ * - Fields: key_hash, environment, user_id, expires_at
+ * - Types: Prisma-generated types imported
+ */
+
+import { ApiKey } from '@prisma/client';
+import { ApiKeyManager } from '../lib/api-key-manager';
+
+describe('API Key Generation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('✅ Should generate key with correct format', async () => {
+    // UUID test data (no collisions)
+    const userId = crypto.randomUUID();
+    
+    // Mock database calls explicitly
+    mockSql
+      .mockResolvedValueOnce([{ count: 0 }]) // Count check
+      .mockResolvedValueOnce([{ id: 'key-123' }]); // Insert
+    
+    const result = await ApiKeyManager.generateApiKey(userId, {
+      environment: 'test',
+    });
+    
+    expect(result.apiKey).toMatch(/^vibe_test_[a-f0-9]{64}$/);
+  });
+});
+```

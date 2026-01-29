@@ -1,0 +1,190 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+---
+
+description: ENSURE proper database schema and constraint handling when IMPLEMENTING Stripe sync functionality to PREVENT sync failures
+globs: "**/stripe/sync\*.{ts,tsx}", "**/admin/stripe/**/\*.{ts,tsx}", "**/api/webhooks/stripe\*.{ts,tsx}"
+
+---
+
+# Stripe Sync Implementation Standards
+
+## Context
+
+- Stripe sync operations require specific database constraints and schema
+- Timestamps from Stripe API can be undefined and must be handled safely
+- Upsert operations need proper unique constraints for ON CONFLICT clauses
+- Production environments may have different Stripe key configurations
+
+## Requirements
+
+### Database Schema Requirements
+
+- **REQUIRED**: Ensure subscriptions table has ALL required columns:
+
+  - stripe_subscription_id (VARCHAR)
+  - stripe_price_id (VARCHAR)
+  - stripe_customer_id (VARCHAR)
+  - current_period_start (TIMESTAMP WITH TIME ZONE)
+  - current_period_end (TIMESTAMP WITH TIME ZONE)
+  - amount (INTEGER)
+  - currency (VARCHAR)
+  - interval (VARCHAR)
+
+- **REQUIRED**: Add composite unique constraint for upserts:
+
+```sql
+ALTER TABLE subscriptions
+ADD CONSTRAINT subscriptions_user_id_stripe_subscription_id_unique
+UNIQUE (user_id, stripe_subscription_id);
+```
+
+- **REQUIRED**: Update status constraint to include all Stripe statuses:
+
+```sql
+CHECK (status IN ('active', 'past_due', 'unpaid', 'canceled', 'cancelled',
+'incomplete', 'incomplete_expired', 'trialing', 'paused', 'inactive'))
+```
+
+### Timestamp Handling
+
+- **REQUIRED**: Always check for undefined timestamps from Stripe API
+- **REQUIRED**: Convert Unix timestamps (seconds) to JavaScript Date (milliseconds)
+- **REQUIRED**: Provide fallback values for missing timestamps
+
+<example>
+// Good: Safe timestamp handling
+const currentPeriodStart = subscription.current_period_start 
+  ? new Date(subscription.current_period_start * 1000).toISOString() 
+  : null;
+
+const currentPeriodEnd = subscription.current_period_end
+? new Date(subscription.current_period_end \* 1000).toISOString()
+: null;
+
+// Fallback to current date if created timestamp is missing
+const created = subscription.created
+? new Date(subscription.created \* 1000).toISOString()
+: new Date().toISOString();
+</example>
+
+<example type="invalid">
+// Bad: Assumes timestamps always exist
+const currentPeriodStart = new Date(subscription.current_period_start * 1000);
+// This will throw: Invalid Date if current_period_start is undefined
+</example>
+
+### Sync Implementation Pattern
+
+- **REQUIRED**: Use database transactions for all sync operations
+- **REQUIRED**: Create users if they don't exist during sync
+- **REQUIRED**: Use ON CONFLICT for idempotent operations
+- **REQUIRED**: Include comprehensive error handling and rollback
+
+<example>
+// Good: Complete sync implementation
+async function syncStripeData() {
+  const startTime = Date.now();
+  let syncedCustomers = 0;
+  let syncedSubscriptions = 0;
+  let errors = 0;
+
+try {
+await sql`BEGIN`;
+
+    // Fetch all data with proper expansion
+    const [customers, subscriptions] = await Promise.all([
+      stripe.customers.list({ limit: 100, expand: ['data.subscriptions'] }),
+      stripe.subscriptions.list({ limit: 100, status: 'all', expand: ['data.customer'] })
+    ]);
+
+    // Sync customers with upsert
+    for (const customer of customers.data) {
+      if (!customer.email) continue;
+
+      try {
+        await sql`
+          INSERT INTO users (id, email, stripe_customer_id, created_at, updated_at)
+          VALUES (gen_random_uuid(), ${customer.email.toLowerCase()}, ${customer.id}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          ON CONFLICT (email) DO UPDATE SET
+            stripe_customer_id = EXCLUDED.stripe_customer_id,
+            updated_at = CURRENT_TIMESTAMP
+        `;
+        syncedCustomers++;
+      } catch (error) {
+        console.error(`Failed to sync customer ${customer.id}:`, error);
+        errors++;
+      }
+    }
+
+    // Sync subscriptions with all fields
+    for (const subscription of subscriptions.data) {
+      // ... full implementation with timestamp handling
+    }
+
+    await sql`COMMIT`;
+
+    return {
+      success: true,
+      syncedCustomers,
+      syncedSubscriptions,
+      errors,
+      duration: Date.now() - startTime
+    };
+
+} catch (error) {
+await sql`ROLLBACK`;
+throw error;
+}
+}
+</example>
+
+### Environment Variable Usage
+
+- **REQUIRED**: Use process.env.STRIPE_SECRET_KEY (contains live key in production)
+- Do NOT create separate STRIPE_SECRET_KEY_LIVE variables
+- Vercel automatically swaps test/live keys based on environment
+
+### Testing Requirements
+
+- **REQUIRED**: Mock Stripe API responses in tests
+- **REQUIRED**: Test undefined timestamp scenarios
+- **REQUIRED**: Test constraint violations and error handling
+- Include duration as number (milliseconds) not string in responses
+
+## Related Rules
+
+- [020-stripe-integration.mdc](020-stripe-integration.mdc) - General Stripe integration patterns
+- [011-env-var-security.mdc](011-env-var-security.mdc) - Environment variable handling
+- [080-cross-service-data-consistency.mdc](080-cross-service-data-consistency.mdc) - Data sync patterns
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/security-workflows.md#payment-security-workflow`** - Sync patterns
+- **`.cursor/docs/security-checklist.md#payment-security-if-applicable`** - Validation
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/scan-secrets.sh`** - Detect exposed webhook secrets
+- **`.cursor/tools/check-env-vars.sh`** - Validate webhook configuration
+- **`.cursor/tools/inspect-model.sh`** - Check data models for sync
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @020-payment-security.mdc - Payment security (critical!)
+- @020-stripe-integration.mdc - Primary Stripe integration patterns
+- @069-stripe-webhook-debugging.mdc - Webhook debugging (critical!)
+- @069-webhook-processing-standards.mdc - Webhook processing patterns
+- @080-cross-service-data-consistency.mdc - Data consistency patterns
+- @078-payment-testing-standards.mdc - Testing sync flows
+- @331-high-risk-feature-testing.mdc - Critical path testing
+
+### Quick Start
+1. **Schema:** `.cursor/tools/inspect-model.sh` (check sync models)
+2. **Follow:** `.cursor/docs/security-workflows.md#payment-security-workflow`
+3. **Debug:** See @069-stripe-webhook-debugging.mdc

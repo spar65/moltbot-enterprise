@@ -1,0 +1,129 @@
+---
+
+description: Prevent button transparency issues when implementing UI components to ensure professional, accessible interfaces
+globs: "src/\*_/_.{ts,tsx}"
+
+---
+
+# Button Transparency Prevention
+
+## Context
+
+- Transparent or semi-transparent buttons create poor user experience
+- Ghost and outline button variants can appear invisible on certain backgrounds
+- Professional survey applications require clearly visible, solid button backgrounds
+- Accessibility standards require sufficient contrast ratios for interactive elements
+- Users prefer solid white buttons with clear borders over transparent alternatives
+
+## Requirements
+
+### Foundation Layer Fixes
+
+- **REQUIRED**: Ensure button component variants have explicit solid backgrounds
+- **REQUIRED**: Check global CSS for transparency overrides that make buttons invisible
+- **REQUIRED**: Verify theme colors are solid HSL values without alpha channels
+- **REQUIRED**: Add CSS overrides to force solid backgrounds when needed
+
+### Button Variant Standards
+
+- **REQUIRED**: Use `variant="default"` for primary actions (Submit, Save, Login)
+- **REQUIRED**: Use `variant="secondary"` for secondary actions with solid backgrounds
+- **REQUIRED**: Ensure `variant="outline"` has explicit `bg-background` or `bg-white`
+- **REQUIRED**: Replace `variant="ghost"` in main UI with solid variants
+- **REQUIRED**: Keep `variant="ghost"` only in dropdown menus where appropriate
+
+### Dropdown Menu Transparency Prevention
+
+- **REQUIRED**: Ensure dropdown containers have solid white backgrounds
+- **REQUIRED**: Ensure dropdown menu items have solid backgrounds
+- **REQUIRED**: Add proper hover states with solid backgrounds
+- **REQUIRED**: Test dropdown visibility on all backgrounds
+
+## Examples
+
+<example>
+// Good: Solid button backgrounds
+<Button variant="default">Submit Survey</Button>
+<Button variant="secondary">Cancel</Button>
+<Button variant="outline" className="bg-white">Back</Button>
+
+// CSS to ensure solid backgrounds
+@layer components {
+button[class*="outline"] {
+background-color: white !important;
+border: 1px solid hsl(var(--border)) !important;
+}
+
+[data-radix-dropdown-menu-content] {
+background-color: white !important;
+border: 1px solid hsl(var(--border)) !important;
+}
+
+[role="menuitem"] {
+background-color: white !important;
+}
+}
+</example>
+
+<example type="invalid">
+// Bad: Transparent buttons that are hard to see
+<Button variant="ghost">Important Action</Button>
+<Button variant="outline">Submit</Button> // Without bg-background
+
+// Bad: Dropdown without solid background
+<DropdownMenuContent>
+<DropdownMenuItem>Action</DropdownMenuItem>
+</DropdownMenuContent>
+</example>
+
+## Implementation Checklist
+
+### Foundation Layer
+
+- [ ] Verify button component has `bg-background` in outline variant
+- [ ] Check globals.css for transparency overrides
+- [ ] Add CSS rules to force solid backgrounds
+- [ ] Verify theme colors are solid HSL values
+
+### Application Layer
+
+- [ ] Replace ghost buttons in main UI with secondary variant
+- [ ] Ensure primary actions use default variant
+- [ ] Add explicit background classes to outline buttons
+- [ ] Fix dropdown menu transparency
+
+### Testing & Verification
+
+- [ ] Create test page with transparency test (striped background)
+- [ ] Test all buttons on different backgrounds
+- [ ] Verify dropdown menus have solid backgrounds
+- [ ] Check accessibility contrast ratios (≥ 4.5:1)
+
+## Integration with Other Rules
+
+- Supports [054-accessibility-requirements.mdc](mdc:054-accessibility-requirements.mdc) for contrast standards
+- Complements [030-visual-design-system.mdc](mdc:030-visual-design-system.mdc) for consistent appearance
+- Works with [042-ui-component-architecture.mdc](mdc:042-ui-component-architecture.mdc) for component standards
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - Button styling patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Comprehensive Guides
+- **`guides/Component-Library-Guide.md`** - Button component patterns
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @030-visual-design-system.mdc - **CRITICAL:** Design system colors!
+- @042-ui-component-architecture.mdc - Component architecture
+- @050-css-architecture.mdc - CSS specificity and organization
+- @054-accessibility-requirements.mdc - Button accessibility
+- @074-accessibility.mdc - Additional accessibility
+- @200-shadcn-ui-strictness.mdc - UI library button usage
+
+### Quick Start
+1. **CSS Vars:** Use design system colors (@030-visual-design-system.mdc)
+2. **Specificity:** Avoid CSS specificity issues (@050-css-architecture.mdc)
+3. **Test:** Verify button opacity and visibility

@@ -1,0 +1,534 @@
+---
+description: Apply Git workflow standards when working with version control to ensure consistent branching, commits, and collaboration
+globs: "**/*"
+---
+
+# Git Workflow Standards
+
+## Context
+
+A consistent Git workflow is essential for team coordination, release management, and maintaining code quality. This rule establishes branching strategies, commit conventions, and collaboration patterns for effective version control.
+
+**Key Goals:**
+
+- Clear branching strategy
+- Consistent commit history
+- Efficient collaboration
+- Safe deployments
+- Easy rollbacks
+
+## Requirements
+
+### Branching Strategy
+
+**GitHub Flow (Recommended for Continuous Deployment):**
+
+```
+main (production)
+  ├── feature/user-authentication
+  ├── feature/payment-integration
+  ├── fix/login-bug
+  └── hotfix/critical-security-patch
+```
+
+**Branch Types:**
+
+- `main` - Production code (always deployable)
+- `feature/*` - New features
+- `fix/*` - Bug fixes
+- `hotfix/*` - Emergency production fixes
+- `refactor/*` - Code refactoring
+- `docs/*` - Documentation changes
+- `test/*` - Test improvements
+
+**Branch Naming Convention:**
+
+```
+<type>/<ticket-number>-<short-description>
+
+Examples:
+feature/PRD-123-user-authentication
+fix/BUG-456-login-timeout
+hotfix/SEC-789-xss-vulnerability
+refactor/TECH-012-database-layer
+docs/DOC-034-api-documentation
+```
+
+<example>
+// ✅ GOOD: Clear, descriptive branch names
+feature/PRD-123-add-email-verification
+fix/BUG-456-prevent-duplicate-submissions
+hotfix/SEC-789-fix-sql-injection
+
+// ❌ BAD: Vague or inconsistent names
+my-branch
+fix-stuff
+temp
+test123
+</example>
+
+### Git Flow (Alternative for Scheduled Releases)
+
+**Use if:** You have scheduled releases, need staging environment, or complex release process.
+
+```
+main (production)
+  └── develop (integration)
+      ├── feature/user-auth
+      ├── feature/payments
+      └── release/v2.0.0
+          └── hotfix/critical-bug
+```
+
+**Branch Structure:**
+
+- `main` - Production releases only
+- `develop` - Integration branch
+- `feature/*` - Branched from develop
+- `release/*` - Branched from develop for release prep
+- `hotfix/*` - Branched from main for emergency fixes
+
+## Commit Standards (Conventional Commits)
+
+### Commit Message Format
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+**Type (Required):**
+
+- `feat` - New feature
+- `fix` - Bug fix
+- `docs` - Documentation changes
+- `style` - Code style (formatting, missing semicolons)
+- `refactor` - Code refactoring (no functional change)
+- `perf` - Performance improvements
+- `test` - Adding or updating tests
+- `chore` - Maintenance tasks (dependencies, build)
+- `ci` - CI/CD changes
+- `revert` - Revert previous commit
+
+**Scope (Optional):**
+
+- Component, module, or feature area
+- Examples: `auth`, `api`, `ui`, `db`
+
+**Subject (Required):**
+
+- Imperative mood ("Add feature" not "Added feature")
+- Lowercase first letter
+- No period at end
+- Max 50 characters
+
+**Body (Optional):**
+
+- Explain what and why, not how
+- Wrap at 72 characters
+- Separate from subject with blank line
+
+**Footer (Optional):**
+
+- Breaking changes: `BREAKING CHANGE:`
+- Issue references: `Closes #123`, `Fixes #456`
+
+<example>
+// ✅ GOOD: Clear conventional commits
+
+feat(auth): add email verification flow
+
+Implement email verification for new user registrations.
+Sends verification email with token that expires in 24 hours.
+
+Closes #PRD-123
+
+---
+
+fix(api): prevent race condition in payment processing
+
+Add transaction lock to prevent duplicate charges when user
+double-clicks the payment button.
+
+Fixes #BUG-456
+
+---
+
+perf(db): optimize user query with eager loading
+
+Reduce N+1 queries by using Prisma include. Improves
+response time from 2s to 200ms for user dashboard.
+
+---
+
+docs(readme): update installation instructions
+
+Add section for M1 Mac users and troubleshoot common issues.
+
+---
+
+chore(deps): upgrade Next.js to 14.0.0
+
+BREAKING CHANGE: Requires Node.js 18.17 or higher
+</example>
+
+<example type="invalid">
+// ❌ BAD: Poor commit messages
+
+"fixed bug"
+
+- No type, no context, which bug?
+
+"WIP"
+
+- Work in progress should be squashed before merging
+
+"Updated files"
+
+- Too vague, what files? Why?
+
+"asdfasdf"
+
+- Meaningless message
+
+"Fixed the thing that wasn't working"
+
+- Not specific, no issue reference
+  </example>
+
+### Commit Practices
+
+**1. Atomic Commits:**
+
+- One logical change per commit
+- All tests pass after each commit
+- Can be reverted independently
+
+```bash
+# ✅ GOOD: Separate logical changes
+git commit -m "feat(auth): add login form component"
+git commit -m "feat(auth): add login API endpoint"
+git commit -m "test(auth): add login integration tests"
+
+# ❌ BAD: Everything in one commit
+git commit -m "add authentication feature"
+# (includes UI, API, tests, docs - hard to review/revert)
+```
+
+**2. Commit Frequency:**
+
+- Commit often (multiple times per day)
+- Push at least once per day
+- Don't wait until feature is "done"
+
+**3. Before Committing:**
+
+```bash
+# Check what you're committing
+git status
+git diff
+
+# Stage specific files
+git add src/components/LoginForm.tsx
+
+# Or stage chunks interactively
+git add -p
+
+# Commit with message
+git commit -m "feat(auth): add login form component"
+```
+
+## Workflow Patterns
+
+### Feature Development (GitHub Flow)
+
+```bash
+# 1. Start from latest main
+git checkout main
+git pull origin main
+
+# 2. Create feature branch
+git checkout -b feature/PRD-123-email-verification
+
+# 3. Make changes and commit
+git add src/auth/email-verification.ts
+git commit -m "feat(auth): add email verification service"
+
+# 4. Push to remote
+git push origin feature/PRD-123-email-verification
+
+# 5. Create Pull Request on GitHub
+# (Use PR template)
+
+# 6. Address review feedback
+git add src/auth/email-verification.ts
+git commit -m "refactor(auth): improve error handling per review"
+git push origin feature/PRD-123-email-verification
+
+# 7. Merge when approved
+# (Squash and merge or merge commit - team decision)
+
+# 8. Delete branch
+git branch -d feature/PRD-123-email-verification
+git push origin --delete feature/PRD-123-email-verification
+```
+
+### Bug Fix Workflow
+
+```bash
+# 1. Create fix branch from main
+git checkout main
+git pull origin main
+git checkout -b fix/BUG-456-login-timeout
+
+# 2. Fix the bug
+git add src/auth/login.ts
+git commit -m "fix(auth): increase session timeout to 30 minutes
+
+Previous 5-minute timeout was too short for users filling
+long forms. Updated to 30 minutes per security review.
+
+Fixes #BUG-456"
+
+# 3. Add test to prevent regression
+git add src/auth/login.test.ts
+git commit -m "test(auth): add test for session timeout"
+
+# 4. Push and create PR
+git push origin fix/BUG-456-login-timeout
+```
+
+### Hotfix Workflow (Production Emergency)
+
+```bash
+# 1. Create hotfix branch from main
+git checkout main
+git pull origin main
+git checkout -b hotfix/SEC-789-xss-vulnerability
+
+# 2. Make minimal fix
+git add src/utils/sanitize.ts
+git commit -m "fix(security): sanitize user input to prevent XSS
+
+SECURITY: Critical XSS vulnerability in comment system.
+Added DOMPurify sanitization for all user-generated content.
+
+Fixes #SEC-789"
+
+# 3. Push immediately
+git push origin hotfix/SEC-789-xss-vulnerability
+
+# 4. Fast-track PR review
+# Request immediate review from security team
+
+# 5. Deploy to production immediately after merge
+
+# 6. If using Git Flow, also merge to develop
+git checkout develop
+git merge hotfix/SEC-789-xss-vulnerability
+git push origin develop
+```
+
+## Merge Strategies
+
+### Squash and Merge (Recommended)
+
+**When:** Feature branches, most PRs
+
+**Pros:**
+
+- Clean, linear history
+- One commit per feature
+- Easy to revert
+
+**Cons:**
+
+- Loses individual commit history
+
+```bash
+# On GitHub: "Squash and merge" button
+# Results in:
+feat(auth): add email verification (#123)
+
+* feat(auth): add email verification service
+* test(auth): add email verification tests
+* docs(auth): update auth documentation
+```
+
+### Merge Commit
+
+**When:** Keeping branch history important, hotfixes
+
+**Pros:**
+
+- Preserves all commits
+- Shows when feature was integrated
+
+**Cons:**
+
+- More complex history
+
+```bash
+# On GitHub: "Create a merge commit" button
+git checkout main
+git merge --no-ff feature/PRD-123-email-verification
+```
+
+### Rebase and Merge
+
+**When:** Want linear history but keep commits
+
+**Pros:**
+
+- Linear history
+- Keeps individual commits
+
+**Cons:**
+
+- Rewrites history
+- Can be confusing
+
+```bash
+# On GitHub: "Rebase and merge" button
+git checkout feature/PRD-123-email-verification
+git rebase main
+git push --force-with-lease
+```
+
+## Common Git Operations
+
+### Syncing with Main
+
+```bash
+# Update your branch with latest main
+git checkout feature/my-feature
+git fetch origin
+git rebase origin/main
+
+# If conflicts, resolve them
+git add <resolved-files>
+git rebase --continue
+
+# Force push (with safety)
+git push --force-with-lease origin feature/my-feature
+```
+
+### Fixing Last Commit
+
+```bash
+# Amend last commit message
+git commit --amend -m "fix(auth): correct typo in commit message"
+
+# Add forgotten file to last commit
+git add forgotten-file.ts
+git commit --amend --no-edit
+
+# Push amended commit (if already pushed)
+git push --force-with-lease origin feature/my-feature
+```
+
+### Reverting Changes
+
+```bash
+# Undo last commit (keep changes)
+git reset --soft HEAD~1
+
+# Undo last commit (discard changes)
+git reset --hard HEAD~1
+
+# Revert a specific commit (creates new commit)
+git revert <commit-hash>
+
+# Revert a merge commit
+git revert -m 1 <merge-commit-hash>
+```
+
+### Cleaning Up
+
+```bash
+# Delete merged local branches
+git branch --merged | grep -v "\*" | xargs -n 1 git branch -d
+
+# Prune remote branches
+git remote prune origin
+
+# Delete local branch
+git branch -d feature/my-feature
+
+# Force delete unmerged branch
+git branch -D feature/my-feature
+```
+
+## Best Practices
+
+### DO:
+
+- ✅ Pull before starting work
+- ✅ Commit often with clear messages
+- ✅ Push daily
+- ✅ Keep branches short-lived (< 1 week)
+- ✅ Rebase feature branches on main regularly
+- ✅ Delete branches after merge
+- ✅ Use `--force-with-lease` not `--force`
+
+### DON'T:
+
+- ❌ Commit directly to main
+- ❌ Force push to main
+- ❌ Push broken code
+- ❌ Rewrite public history (after push)
+- ❌ Use `git push --force` (use `--force-with-lease`)
+- ❌ Commit secrets or credentials
+- ❌ Create long-lived branches
+
+## Protected Branches
+
+**Main Branch Protection (GitHub):**
+
+```yaml
+Branch protection rules for 'main':
+  - Require pull request before merging
+  - Require 1-2 approvals
+  - Dismiss stale reviews when new commits pushed
+  - Require status checks to pass (tests, linting)
+  - Require branches to be up to date before merging
+  - Include administrators in restrictions
+  - Do not allow force pushes
+  - Do not allow deletions
+```
+
+## See Also
+
+### Documentation
+
+- **`guides/Git-Workflow-Complete-Guide.md`** ⭐ - Comprehensive Git guide
+- **`guides/Code-Review-Complete-Guide.md`** - PR and review process
+- **`.cursor/docs/ai-workflows.md`** - Development workflows
+
+### Related Rules
+
+- @101-code-review-standards.mdc - Code review process
+- @803-pull-request-workflow.mdc - PR creation and management
+- @804-hotfix-procedures.mdc - Emergency hotfix process
+- @102-git-commit-standards.mdc - Detailed commit conventions
+
+### Quick Start
+
+1. **Choose Strategy:** GitHub Flow for most projects
+2. **Branch Naming:** `type/ticket-description`
+3. **Commits:** Use Conventional Commits format
+4. **PRs:** Keep small, review quickly, merge often
+
+## Priority
+
+**P1 (Important)** - Consistent Git workflow is essential for team coordination and code quality.
+
+## References
+
+- [Conventional Commits](https://www.conventionalcommits.org/)
+- [GitHub Flow](https://guides.github.com/introduction/flow/)
+- [Git Flow](https://nvie.com/posts/a-successful-git-branching-model/)
+- [Atlassian Git Workflows](https://www.atlassian.com/git/tutorials/comparing-workflows)

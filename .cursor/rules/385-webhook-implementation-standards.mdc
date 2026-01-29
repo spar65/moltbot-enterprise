@@ -1,0 +1,840 @@
+---
+description: Implement secure webhook systems when building event-driven APIs to ensure reliable, tamper-proof notifications with proper retry logic
+globs: "**/*.{ts,tsx,js,jsx}"
+---
+
+# Webhook Implementation Standards
+
+**Priority**: P0 (Critical for event-driven architectures)  
+**Domain**: API & Integration (300-series)  
+**Applies To**: Event notifications, async processing, third-party integrations
+
+---
+
+## Context
+
+Webhooks are HTTP callbacks that enable real-time event notifications between systems. They are essential for:
+
+- **Event-driven architectures**: Notify external systems when events occur
+- **Async processing**: Inform clients when long-running operations complete
+- **Third-party integrations**: Enable partner systems to react to changes
+- **Audit trails**: Provide transparent notification history
+
+**Critical Success Factors:**
+- **Security**: Verify webhook authenticity (HMAC signatures)
+- **Reliability**: Implement retry logic with exponential backoff
+- **Idempotency**: Enable recipients to handle duplicate notifications
+- **Observability**: Track delivery attempts, failures, and timing
+
+---
+
+## Requirements
+
+### 1. Security - HMAC Signature Verification (REQUIRED)
+
+**Why HMAC Signatures:**
+- Prove webhook authenticity (recipient knows it came from you)
+- Prevent payload tampering (any modification invalidates signature)
+- Protect against man-in-the-middle attacks
+- Industry standard (Stripe, GitHub, Twilio all use HMAC)
+
+**Implementation Pattern:**
+
+```typescript
+// webhooks.ts - Signature generation and verification
+import crypto from 'crypto';
+
+interface WebhookPayload {
+  event: string;
+  timestamp: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Generate HMAC signature for webhook payload
+ * 
+ * Recipients verify authenticity by recalculating this signature
+ * using the shared secret and comparing with the signature header.
+ * 
+ * @param payload - Webhook payload object
+ * @param secret - Shared secret (from environment variable)
+ * @returns HMAC SHA256 signature (hex)
+ */
+export function generateHmacSignature(
+  payload: WebhookPayload,
+  secret: string
+): string {
+  // Serialize payload to canonical JSON
+  const payloadString = JSON.stringify(payload);
+  
+  // Generate HMAC using SHA256
+  return crypto
+    .createHmac('sha256', secret)
+    .update(payloadString)
+    .digest('hex');
+}
+
+/**
+ * Verify webhook HMAC signature (for recipients)
+ * 
+ * SECURITY: Uses timing-safe comparison to prevent timing attacks
+ * 
+ * @param payload - Webhook payload
+ * @param receivedSignature - Signature from X-Webhook-Signature header
+ * @param secret - Shared secret
+ * @returns True if signature is valid
+ */
+export function verifyWebhookSignature(
+  payload: WebhookPayload,
+  receivedSignature: string,
+  secret: string
+): boolean {
+  const expectedSignature = generateHmacSignature(payload, secret);
+  
+  // CRITICAL: Use timing-safe comparison to prevent timing attacks
+  return crypto.timingSafeEqual(
+    Buffer.from(receivedSignature),
+    Buffer.from(expectedSignature)
+  );
+}
+```
+
+**Security Checklist:**
+- [ ] Use HMAC-SHA256 (industry standard)
+- [ ] Use timing-safe comparison (`crypto.timingSafeEqual`)
+- [ ] Store webhook secrets in environment variables (not hardcoded)
+- [ ] Rotate webhook secrets periodically
+- [ ] Include timestamp in payload to prevent replay attacks
+- [ ] Validate timestamp freshness (reject old webhooks)
+
+---
+
+### 2. Reliability - Retry Logic with Exponential Backoff (REQUIRED)
+
+**Why Retry Logic:**
+- Networks fail (transient errors are common)
+- Recipient services may be temporarily down
+- Rate limits may be hit
+- Idempotent webhooks can safely be retried
+
+**Retry Strategy:**
+- **Max Attempts**: 3 retries (configurable)
+- **Backoff**: Exponential (1s, 4s, 16s)
+- **Jitter**: Add randomness to prevent thundering herd
+- **Timeout**: 30-second request timeout
+- **Circuit Breaker**: Stop retrying if service is consistently down
+
+**Implementation Pattern:**
+
+```typescript
+/**
+ * Send webhook with retry logic
+ * 
+ * @param url - Webhook URL
+ * @param payload - Webhook payload
+ * @param secret - HMAC secret
+ * @returns Delivery status
+ */
+export async function sendWebhook(
+  url: string,
+  payload: WebhookPayload,
+  secret: string
+): Promise<{ success: boolean; attempts: number; error?: string }> {
+  
+  const maxRetries = 3;
+  let lastError: Error | null = null;
+
+  // Generate signature
+  const signature = generateHmacSignature(payload, secret);
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      console.log(`📡 Webhook attempt ${attempt + 1}/${maxRetries} to ${url}`);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Webhook-Signature': signature,
+          'X-Webhook-Timestamp': payload.timestamp,
+          'X-Webhook-Event': payload.event,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(30000), // 30s timeout
+      });
+
+      // Success: 2xx status code
+      if (response.ok) {
+        console.log(`✅ Webhook delivered successfully (attempt ${attempt + 1})`);
+        return { success: true, attempts: attempt + 1 };
+      }
+
+      // Client error (4xx): Don't retry (permanent failure)
+      if (response.status >= 400 && response.status < 500) {
+        console.error(`❌ Webhook rejected (${response.status}), not retrying`);
+        return {
+          success: false,
+          attempts: attempt + 1,
+          error: `Client error: ${response.status}`,
+        };
+      }
+
+      // Server error (5xx): Retry with backoff
+      console.warn(`⚠️  Webhook failed (${response.status}), will retry...`);
+      lastError = new Error(`Server error: ${response.status}`);
+
+    } catch (error) {
+      console.error(`⚠️  Webhook network error (attempt ${attempt + 1}):`, error);
+      lastError = error as Error;
+    }
+
+    // Exponential backoff with jitter (if not last attempt)
+    if (attempt < maxRetries - 1) {
+      const baseDelay = Math.pow(4, attempt) * 1000; // 1s, 4s, 16s
+      const jitter = Math.random() * 1000; // 0-1s random jitter
+      const delay = baseDelay + jitter;
+      
+      console.log(`⏳ Waiting ${Math.round(delay / 1000)}s before retry...`);
+      await sleep(delay);
+    }
+  }
+
+  // All retries exhausted
+  console.error(`❌ Webhook delivery failed after ${maxRetries} attempts`);
+  return {
+    success: false,
+    attempts: maxRetries,
+    error: lastError?.message || 'Unknown error',
+  };
+}
+
+/**
+ * Sleep utility for retry delays
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+```
+
+**Retry Checklist:**
+- [ ] Implement exponential backoff (prevent hammering)
+- [ ] Add jitter to prevent thundering herd
+- [ ] Set reasonable timeout (30s)
+- [ ] Don't retry 4xx errors (permanent failures)
+- [ ] Do retry 5xx errors and network errors
+- [ ] Log all attempts for observability
+- [ ] Consider circuit breaker for persistent failures
+
+---
+
+### 3. Idempotency - Enable Safe Retries (REQUIRED)
+
+**Why Idempotency:**
+- Retries may cause duplicate deliveries
+- Network issues may result in duplicate sends
+- Recipients need to handle duplicates gracefully
+
+**Idempotency Keys:**
+- Include unique identifier in each webhook
+- Recipients use this to deduplicate
+- Typically: event ID or transaction ID
+
+**Implementation Pattern:**
+
+```typescript
+interface WebhookPayload {
+  event: string;
+  idempotencyKey: string; // ← CRITICAL: Unique per event
+  timestamp: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Send webhook with idempotency key
+ */
+export async function sendEventWebhook(
+  url: string,
+  event: string,
+  eventId: string,
+  data: Record<string, unknown>,
+  secret: string
+): Promise<void> {
+  
+  const payload: WebhookPayload = {
+    event,
+    idempotencyKey: eventId, // Recipient can use this to deduplicate
+    timestamp: new Date().toISOString(),
+    data,
+  };
+
+  const result = await sendWebhook(url, payload, secret);
+  
+  if (!result.success) {
+    // Log failure but don't throw (webhook failure shouldn't break main flow)
+    console.error('Webhook delivery failed:', result);
+  }
+}
+```
+
+**Recipient-Side Deduplication:**
+
+```typescript
+// Webhook receiver endpoint
+export async function POST(request: Request) {
+  const payload: WebhookPayload = await request.json();
+  const signature = request.headers.get('X-Webhook-Signature');
+  
+  // 1. Verify signature
+  if (!verifyWebhookSignature(payload, signature, WEBHOOK_SECRET)) {
+    return new Response('Invalid signature', { status: 401 });
+  }
+  
+  // 2. Check idempotency (prevent duplicate processing)
+  const existing = await db.processedWebhooks.findUnique({
+    where: { idempotencyKey: payload.idempotencyKey }
+  });
+  
+  if (existing) {
+    console.log('Duplicate webhook, already processed');
+    return new Response('OK', { status: 200 }); // Return success
+  }
+  
+  // 3. Process webhook
+  await processEvent(payload);
+  
+  // 4. Record idempotency key
+  await db.processedWebhooks.create({
+    data: {
+      idempotencyKey: payload.idempotencyKey,
+      processedAt: new Date(),
+    },
+  });
+  
+  return new Response('OK', { status: 200 });
+}
+```
+
+**Idempotency Checklist:**
+- [ ] Include idempotency key in every webhook
+- [ ] Use deterministic keys (event ID, transaction ID)
+- [ ] Recipients deduplicate using idempotency key
+- [ ] Store processed keys with TTL (e.g., 7 days)
+- [ ] Return 200 OK for duplicate webhooks
+
+---
+
+### 4. Observability - Track Delivery Status (REQUIRED)
+
+**Why Observability:**
+- Debug delivery failures
+- Monitor webhook reliability
+- Alert on persistent failures
+- Provide delivery logs to users
+
+**What to Track:**
+- Delivery attempts (count, timestamps)
+- HTTP status codes
+- Response times
+- Failures and error messages
+- Retry attempts
+
+**Implementation Pattern:**
+
+```typescript
+// Database schema for webhook delivery tracking
+model WebhookDelivery {
+  id              String   @id @default(cuid())
+  organizationId  String
+  event           String
+  url             String
+  attempts        Int      @default(0)
+  status          String   // 'pending', 'delivered', 'failed'
+  lastAttemptAt   DateTime?
+  deliveredAt     DateTime?
+  lastError       String?
+  idempotencyKey  String   @unique
+  createdAt       DateTime @default(now())
+}
+
+/**
+ * Send webhook with delivery tracking
+ */
+export async function sendTrackedWebhook(
+  organizationId: string,
+  event: string,
+  eventId: string,
+  data: Record<string, unknown>,
+  webhookUrl: string,
+  secret: string
+): Promise<void> {
+  
+  // Create delivery record
+  const delivery = await prisma.webhookDelivery.create({
+    data: {
+      organizationId,
+      event,
+      url: webhookUrl,
+      idempotencyKey: eventId,
+      status: 'pending',
+    },
+  });
+
+  const payload: WebhookPayload = {
+    event,
+    idempotencyKey: eventId,
+    timestamp: new Date().toISOString(),
+    data,
+  };
+
+  // Send webhook
+  const result = await sendWebhook(webhookUrl, payload, secret);
+
+  // Update delivery record
+  await prisma.webhookDelivery.update({
+    where: { id: delivery.id },
+    data: {
+      attempts: result.attempts,
+      status: result.success ? 'delivered' : 'failed',
+      lastAttemptAt: new Date(),
+      deliveredAt: result.success ? new Date() : null,
+      lastError: result.error,
+    },
+  });
+
+  // Alert on persistent failures
+  if (!result.success) {
+    console.error(`🚨 Webhook delivery failed for org ${organizationId}:`, result.error);
+    // Consider: Send internal alert, notify user, etc.
+  }
+}
+```
+
+**Observability Checklist:**
+- [ ] Store delivery attempts in database
+- [ ] Log all webhook attempts (success and failure)
+- [ ] Track response times
+- [ ] Alert on persistent failures
+- [ ] Provide delivery logs to users (dashboard)
+- [ ] Monitor webhook success rate (metrics)
+
+---
+
+### 5. Configuration & Testing (REQUIRED)
+
+**Webhook URL Validation:**
+
+```typescript
+/**
+ * Validate webhook URL before saving
+ */
+export function validateWebhookUrl(url: string): {
+  valid: boolean;
+  error?: string;
+} {
+  try {
+    const parsed = new URL(url);
+    
+    // Security: Only allow HTTPS in production
+    if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') {
+      return { valid: false, error: 'Webhook URL must use HTTPS in production' };
+    }
+    
+    // Prevent localhost/private IPs (SSRF protection)
+    const hostname = parsed.hostname;
+    if (['localhost', '127.0.0.1', '0.0.0.0'].includes(hostname)) {
+      return { valid: false, error: 'Cannot use localhost as webhook URL' };
+    }
+    
+    // Check for private IP ranges (SSRF protection)
+    if (hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+      return { valid: false, error: 'Cannot use private IP addresses' };
+    }
+    
+    return { valid: true };
+    
+  } catch (error) {
+    return { valid: false, error: 'Invalid URL format' };
+  }
+}
+```
+
+**Test Webhook Endpoint:**
+
+```typescript
+/**
+ * API endpoint to test webhook configuration
+ * POST /api/webhooks/test
+ */
+export async function POST(request: Request) {
+  const { webhookUrl, secret } = await request.json();
+  
+  // Validate URL
+  const validation = validateWebhookUrl(webhookUrl);
+  if (!validation.valid) {
+    return Response.json({ error: validation.error }, { status: 400 });
+  }
+  
+  // Send test webhook
+  const testPayload: WebhookPayload = {
+    event: 'webhook.test',
+    idempotencyKey: `test_${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    data: { message: 'This is a test webhook' },
+  };
+  
+  const result = await sendWebhook(webhookUrl, testPayload, secret);
+  
+  return Response.json({
+    success: result.success,
+    attempts: result.attempts,
+    error: result.error,
+    message: result.success 
+      ? 'Webhook delivered successfully'
+      : 'Webhook delivery failed',
+  });
+}
+```
+
+**Configuration Checklist:**
+- [ ] Validate webhook URLs (HTTPS, no localhost, no private IPs)
+- [ ] Provide test webhook endpoint
+- [ ] Allow users to configure webhook URL via UI/API
+- [ ] Store webhook secrets securely (encrypted)
+- [ ] Provide webhook documentation to users
+- [ ] Include example webhook receivers in docs
+
+---
+
+## Examples
+
+### Complete Webhook System
+
+<example>
+```typescript
+// ✅ GOOD: Complete webhook implementation with all best practices
+
+import crypto from 'crypto';
+import { prisma } from '@/lib/db';
+
+interface WebhookPayload {
+  event: string;
+  idempotencyKey: string;
+  timestamp: string;
+  organizationId: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Send webhook notification for an event
+ */
+export async function sendWebhookNotification(
+  organizationId: string,
+  event: string,
+  eventId: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  console.log(`📢 Sending webhook for event: ${event}`);
+
+  // Get organization's webhook settings
+  const settings = await prisma.webhookSettings.findUnique({
+    where: { organizationId },
+    select: { webhookUrl: true, webhookSecret: true },
+  });
+
+  if (!settings?.webhookUrl) {
+    console.log('⏭️ No webhook URL configured, skipping');
+    return;
+  }
+
+  // Build payload with idempotency key
+  const payload: WebhookPayload = {
+    event,
+    idempotencyKey: eventId,
+    timestamp: new Date().toISOString(),
+    organizationId,
+    data,
+  };
+
+  // Send with tracking
+  await sendTrackedWebhook(
+    organizationId,
+    payload,
+    settings.webhookUrl,
+    settings.webhookSecret
+  );
+}
+
+/**
+ * Send webhook with full tracking and retry logic
+ */
+async function sendTrackedWebhook(
+  organizationId: string,
+  payload: WebhookPayload,
+  url: string,
+  secret: string
+): Promise<void> {
+  
+  // Create delivery record
+  const delivery = await prisma.webhookDelivery.create({
+    data: {
+      organizationId,
+      event: payload.event,
+      url,
+      idempotencyKey: payload.idempotencyKey,
+      status: 'pending',
+    },
+  });
+
+  // Generate signature
+  const signature = generateHmacSignature(payload, secret);
+  
+  // Retry logic
+  const maxRetries = 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Webhook-Signature': signature,
+          'X-Webhook-Timestamp': payload.timestamp,
+          'X-Webhook-Event': payload.event,
+          'X-Webhook-Id': delivery.id,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (response.ok) {
+        // Success!
+        await prisma.webhookDelivery.update({
+          where: { id: delivery.id },
+          data: {
+            attempts: attempt + 1,
+            status: 'delivered',
+            deliveredAt: new Date(),
+            lastAttemptAt: new Date(),
+          },
+        });
+        console.log(`✅ Webhook delivered (attempt ${attempt + 1})`);
+        return;
+      }
+
+      // Don't retry 4xx errors
+      if (response.status >= 400 && response.status < 500) {
+        await prisma.webhookDelivery.update({
+          where: { id: delivery.id },
+          data: {
+            attempts: attempt + 1,
+            status: 'failed',
+            lastError: `Client error: ${response.status}`,
+            lastAttemptAt: new Date(),
+          },
+        });
+        return;
+      }
+
+      lastError = new Error(`Server error: ${response.status}`);
+
+    } catch (error) {
+      lastError = error as Error;
+    }
+
+    // Exponential backoff with jitter
+    if (attempt < maxRetries - 1) {
+      const delay = Math.pow(4, attempt) * 1000 + Math.random() * 1000;
+      await sleep(delay);
+    }
+  }
+
+  // All retries failed
+  await prisma.webhookDelivery.update({
+    where: { id: delivery.id },
+    data: {
+      attempts: maxRetries,
+      status: 'failed',
+      lastError: lastError?.message || 'Unknown error',
+      lastAttemptAt: new Date(),
+    },
+  });
+  
+  console.error(`❌ Webhook delivery failed after ${maxRetries} attempts`);
+}
+
+function generateHmacSignature(payload: WebhookPayload, secret: string): string {
+  return crypto
+    .createHmac('sha256', secret)
+    .update(JSON.stringify(payload))
+    .digest('hex');
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+```
+</example>
+
+### Invalid Examples
+
+<example type="invalid">
+```typescript
+// ❌ WRONG: No signature verification (insecure)
+export async function sendWebhook(url: string, data: any) {
+  await fetch(url, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+// ❌ WRONG: No retry logic (unreliable)
+export async function sendWebhook(url: string, data: any) {
+  const response = await fetch(url, { method: 'POST', body: JSON.stringify(data) });
+  if (!response.ok) {
+    throw new Error('Webhook failed'); // Fails permanently on first error
+  }
+}
+
+// ❌ WRONG: No idempotency key (duplicates cause issues)
+const payload = {
+  event: 'order.created',
+  data: { orderId: '123' },
+  // Missing: idempotencyKey
+};
+
+// ❌ WRONG: No observability (can't debug failures)
+export async function sendWebhook(url: string, data: any) {
+  await fetch(url, { method: 'POST', body: JSON.stringify(data) });
+  // No logging, no tracking, no visibility
+}
+
+// ❌ WRONG: Retrying 4xx errors (waste of resources)
+if (response.status >= 400) {
+  // Retry even for 400, 404, etc. (permanent failures)
+  await retry();
+}
+
+// ❌ WRONG: Blocking main flow on webhook failure
+await sendWebhook(url, data); // If webhook fails, entire operation fails
+await saveOrder(order); // This won't execute if webhook fails
+```
+</example>
+
+---
+
+## Security Considerations
+
+**HMAC Secrets:**
+- Store webhook secrets in environment variables
+- Use strong random secrets (32+ characters)
+- Rotate secrets periodically (quarterly)
+- Provide secret rotation API for users
+
+**SSRF Protection:**
+- Validate webhook URLs (no localhost, private IPs)
+- Enforce HTTPS in production
+- Consider allowlist/blocklist patterns
+
+**Rate Limiting:**
+- Limit webhook delivery rate per organization
+- Prevent webhook bombing attacks
+- Consider circuit breaker for failing endpoints
+
+**Replay Attack Prevention:**
+- Include timestamp in signature
+- Reject webhooks older than 5 minutes
+- Use idempotency keys
+
+---
+
+## See Also
+
+### Related Rules
+
+**Security & Authentication:**
+- @012-api-security.mdc - API security best practices
+- @011-env-var-security.mdc - Secure secret management
+- @224-secrets-management.mdc - Secret storage and rotation
+- @373-api-key-system-design.mdc - API key patterns (similar authentication)
+
+**API Standards:**
+- @060-api-standards.mdc - API design patterns
+- @110-api-client-standards.mdc - API client implementation
+- @111-sdk-generation-standards.mdc - SDK patterns (webhook receivers)
+- @130-error-handling.mdc - Error handling patterns
+
+**Testing & Reliability:**
+- @380-comprehensive-testing-standards.mdc - Testing standards
+- @372-api-key-testing-standards.mdc - Similar testing patterns
+- @136-error-recovery-resilience.mdc - Retry and resilience patterns
+- @355-rate-limiting-implementation.mdc - Rate limiting (webhook protection)
+
+**Deployment & Operations:**
+- @221-application-monitoring.mdc - Monitoring webhook delivery
+- @222-metrics-alerting.mdc - Alert on webhook failures
+- @130-logging-standards.mdc - Logging best practices
+
+### Tools & Documentation
+
+**Validation Tools:**
+- **`.cursor/tools/validate-webhooks.sh`** - Validate webhook implementation
+  ```bash
+  ./.cursor/tools/validate-webhooks.sh
+  # Checks: HMAC signatures, retry logic, idempotency, tracking
+  ```
+
+**Testing Tools:**
+- **`.cursor/tools/test-webhook-delivery.sh`** - Test webhook delivery
+  ```bash
+  ./.cursor/tools/test-webhook-delivery.sh https://webhook.site/unique-url
+  # Sends test webhook and validates response
+  ```
+
+**Documentation:**
+- **`.cursor/docs/webhook-workflow.md`** - Webhook implementation workflow
+- **`.cursor/docs/api-integration.md`** - API integration patterns
+
+### Comprehensive Guides
+
+**Essential for Webhooks:**
+- **`guides/Webhook-Implementation-Complete-Guide.md`** ⭐ **Essential** - Complete webhook guide
+- **`guides/API-Security-Complete-Guide.md`** - Security patterns
+- **`guides/Error-Recovery-Complete-Guide.md`** - Retry and resilience
+
+### Quick Start - Webhook Implementation
+
+```bash
+# 1. Validate current webhook implementation
+./.cursor/tools/validate-webhooks.sh
+# Reports: Missing signatures, no retry logic, no idempotency
+
+# 2. Review the implementation guide
+# Read: guides/Webhook-Implementation-Complete-Guide.md
+
+# 3. Implement HMAC signature generation
+# Add: generateHmacSignature() and verifyWebhookSignature()
+
+# 4. Add retry logic with exponential backoff
+# Add: sendWebhook() with 3 retries, exponential backoff, jitter
+
+# 5. Add idempotency keys
+# Include: idempotencyKey in every webhook payload
+
+# 6. Add delivery tracking
+# Create: WebhookDelivery table, track attempts/status
+
+# 7. Test webhook delivery
+./.cursor/tools/test-webhook-delivery.sh https://webhook.site/your-url
+# Validates: Signature, retry logic, idempotency
+
+# 8. Monitor webhook reliability
+# Dashboard: Show delivery success rate, failures, avg latency
+```
+
+---
+
+**Status**: ✅ Active  
+**Priority**: P0 (Critical for event-driven systems)  
+**Last Updated**: 2024-11-25  
+**Version**: 1.0

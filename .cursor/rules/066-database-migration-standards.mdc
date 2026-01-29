@@ -1,0 +1,301 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+___
+description: Apply database migration standards when making schema changes to ensure zero-downtime deployments and data integrity across environments
+globs: "prisma/**/*.{sql,prisma}, migrations/**/*.{js,ts,sql}"
+___
+
+# Database Migration Standards
+
+## Context
+
+Database schema changes are high-risk operations that can impact data integrity and application availability. Proper migration standards ensure that schema changes can be applied safely across environments with minimal downtime and risk.
+
+## Requirements
+
+### Migration Framework
+
+- All schema changes MUST be implemented using a migration framework (Prisma Migrate, SQL scripts in versioned files)
+- Migration files MUST be version-controlled and follow a consistent naming convention (timestamp_descriptive_name)
+- Each migration MUST be documented with its purpose and impact
+- Migrations MUST be tested in development and staging environments before production deployment
+- Migration rollback procedures MUST be documented and tested
+
+### Zero-Downtime Migrations
+
+- Schema changes MUST be designed for zero-downtime when possible
+- Potentially blocking operations MUST use multi-phase migration patterns
+- Table locks MUST be minimized in duration and scope
+- Large data migrations MUST be batched to avoid long-running transactions
+- Backward compatibility MUST be maintained during the migration process
+
+### Safe Migration Patterns
+
+- Adding columns: Use nullable columns or default values
+- Renaming columns or tables: Use multi-phase approach with temporary dual writes
+- Changing column types: Use multi-phase approach with new columns
+- Adding constraints: Validate existing data before applying constraints
+- Dropping columns or tables: Use multi-phase approach with code changes first
+
+### Multi-Tenant Considerations
+
+- Migrations MUST respect tenant isolation
+- Organization-specific migrations MUST be handled through application logic
+- Cross-tenant operations MUST be explicitly authorized and audited
+- Migration scripts MUST handle RLS policies appropriately
+
+### Migration Verification
+
+- Pre-migration validation scripts MUST verify database state
+- Post-migration verification MUST confirm data integrity
+- Migration performance MUST be measured and optimized
+- Rollback procedures MUST be tested for all migrations
+
+## Examples
+
+<example>
+// Prisma schema update with safe new fields
+// prisma/schema.prisma
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  name          String
+  organizationId String
+  organization  Organization @relation(fields: [organizationId], references: [id])
+  // Safe additions - nullable field
+  bio           String?
+  // Safe addition - field with default
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+</example>
+
+<example>
+-- Safe migration: Adding a new nullable column
+-- prisma/migrations/20250601120000_add_user_bio/migration.sql
+-- Description: Add optional biography field to users
+
+-- Safe operation - adding nullable column
+ALTER TABLE "User" ADD COLUMN "bio" TEXT;
+
+-- Create index for searching
+CREATE INDEX "User_bio_idx" ON "User" USING GIN (to_tsvector('english', "bio"));
+</example>
+
+<example>
+-- Multi-phase migration: Renaming a column safely
+-- Phase 1: Add new column (deployed separately)
+-- prisma/migrations/20250602150000_add_full_name/migration.sql
+-- Description: Step 1 of renaming name to fullName - add new column
+
+-- Add new column without constraints
+ALTER TABLE "User" ADD COLUMN "fullName" TEXT;
+
+-- Copy data from old column to new column
+UPDATE "User" SET "fullName" = "name";
+
+-- Note: Application code will now write to both columns during transition
+</example>
+
+<example>
+-- Phase 2: Make new column required (deployed after code changes)
+-- prisma/migrations/20250603120000_require_full_name/migration.sql
+-- Description: Step 2 of renaming name to fullName - make new column required
+
+-- Verify all users have fullName populated
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM "User" WHERE "fullName" IS NULL) THEN
+    RAISE EXCEPTION 'Found users with NULL fullName';
+  END IF;
+END $$;
+
+-- Make the new column required
+ALTER TABLE "User" ALTER COLUMN "fullName" SET NOT NULL;
+
+-- Note: Application code now reads from fullName exclusively
+</example>
+
+<example>
+-- Phase 3: Remove old column (deployed after verifying code only uses new column)
+-- prisma/migrations/20250604130000_remove_name/migration.sql
+-- Description: Step 3 of renaming name to fullName - remove old column
+
+-- Drop the old column now that it's no longer used
+ALTER TABLE "User" DROP COLUMN "name";
+</example>
+
+<example>
+// Batched data migration script for large tables
+// scripts/migrations/backfill-project-status.ts
+import { PrismaClient } from '@prisma/client';
+
+async function backfillProjectStatus() {
+  const prisma = new PrismaClient();
+  let processed = 0;
+  const batchSize = 1000;
+  let hasMore = true;
+  let lastId = '';
+  
+  console.log('Starting project status backfill...');
+  
+  while (hasMore) {
+    // Process in batches using cursor-based pagination
+    const projects = await prisma.project.findMany({
+      where: {
+        id: { gt: lastId },
+        status: null
+      },
+      orderBy: { id: 'asc' },
+      take: batchSize,
+      select: { id: true }
+    });
+    
+    if (projects.length === 0) {
+      hasMore = false;
+      break;
+    }
+    
+    // Update projects in this batch
+    await prisma.project.updateMany({
+      where: {
+        id: { in: projects.map(p => p.id) }
+      },
+      data: {
+        status: 'ACTIVE'
+      }
+    });
+    
+    // Update progress tracking
+    processed += projects.length;
+    lastId = projects[projects.length - 1].id;
+    
+    console.log(`Processed ${processed} projects so far...`);
+  }
+  
+  console.log(`Backfill complete. Updated ${processed} projects.`);
+  await prisma.$disconnect();
+}
+
+backfillProjectStatus()
+  .catch(e => {
+    console.error('Error during backfill:', e);
+    process.exit(1);
+  });
+</example>
+
+<example>
+// Pre-migration validation script
+// scripts/validate-migration.ts
+import { PrismaClient } from '@prisma/client';
+
+async function validateMigration() {
+  const prisma = new PrismaClient();
+  
+  try {
+    // Check for data that would violate new constraints
+    const usersWithoutEmail = await prisma.user.findMany({
+      where: { email: null },
+      select: { id: true }
+    });
+    
+    if (usersWithoutEmail.length > 0) {
+      console.error(`Found ${usersWithoutEmail.length} users without email addresses`);
+      console.error('Migration would fail - please fix data first');
+      process.exit(1);
+    }
+    
+    console.log('Pre-migration validation successful');
+  } catch (error) {
+    console.error('Validation failed:', error);
+    process.exit(1);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+validateMigration();
+</example>
+
+<example type="invalid">
+-- ❌ AVOID: Unsafe migration with potential downtime
+-- Renaming a column directly causes table lock
+ALTER TABLE "User" RENAME COLUMN "name" TO "fullName";
+
+-- ❌ AVOID: Adding NOT NULL constraint without checking existing data
+ALTER TABLE "User" ADD COLUMN "phone" TEXT NOT NULL;
+
+-- ❌ AVOID: Changing column type directly
+ALTER TABLE "Task" ALTER COLUMN "priority" TYPE INTEGER USING priority::integer;
+</example>
+
+<example type="invalid">
+-- ❌ AVOID: Unbatched data migration that could cause timeouts
+UPDATE "Project" SET "status" = 'ACTIVE' WHERE "status" IS NULL;
+
+-- ❌ AVOID: Migration without tenant isolation
+UPDATE "User" SET "isActive" = true;
+-- Should be:
+-- UPDATE "User" SET "isActive" = true WHERE "organizationId" = $1;
+</example>
+
+<example type="invalid">
+-- ❌ AVOID: Dropping columns without removing code dependencies first
+ALTER TABLE "User" DROP COLUMN "username";
+
+-- ❌ AVOID: Running application code migration in database migration
+-- This causes a dependency on the application environment
+DO $$
+BEGIN
+  EXECUTE 'SELECT verify_application_code_updated()';
+END $$;
+</example>
+
+## Measuring Compliance
+
+- Verify all migrations follow naming convention
+- Test migrations in staging environment before production
+- Measure migration duration in test environment
+- Validate rollback procedures for all migrations
+- Review multi-phase patterns for breaking changes
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md#schema-first-development`** - Schema management workflow
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Tools (USE THESE!)
+- **`.cursor/tools/check-schema-changes.sh`** - **CRITICAL:** Validate schema before committing!
+  ```bash
+  ./.cursor/tools/check-schema-changes.sh
+  # Detects uncommitted changes, shows field changes
+  ```
+- **`.cursor/tools/inspect-model.sh`** - Inspect models before/after migration
+
+### Comprehensive Guides
+- **`guides/Database-Migration-Guide.md`** - **CRITICAL:** Migration patterns and best practices!
+- **`guides/Database-Environment-Management-Guide.md`** - **CRITICAL:** Multi-environment setup!
+- **`guides/Database-Schema-Guide.md`** - Schema design and evolution
+
+### Prisma Structure
+- **`app/prisma/schema.prisma`** - **MASTER SCHEMA** (Source of Truth!)
+- **`app/prisma/migrations/`** - Migration history
+  - `immutability-triggers.sql` - Immutability enforcement
+  - `verify-triggers.sql` - Trigger verification
+
+### Related Rules
+- **@002-rule-application.mdc** - **CRITICAL:** Prisma schema is Source of Truth!
+- @061-database-integration.mdc - Database integration
+- @067-database-security.mdc - Secure migrations
+- @081-data-versioning-standards.mdc - Data versioning
+
+### Quick Start
+1. **BEFORE Migration:** `.cursor/tools/inspect-model.sh` (understand current state)
+2. **Create Migration:** `prisma migrate dev --name descriptive-name`
+3. **BEFORE Commit:** `.cursor/tools/check-schema-changes.sh` (validate!)
+4. **Follow:** `guides/Database-Migration-Guide.md` patterns

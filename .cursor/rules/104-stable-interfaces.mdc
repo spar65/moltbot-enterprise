@@ -1,0 +1,231 @@
+---
+description:
+globs: ""
+alwaysApply: false
+---
+
+---
+
+description: Use @stable annotations to mark APIs, interfaces, and structures that should not be changed without explicit permission
+globs: "\*_/_"
+
+---
+
+# Stable Interface Annotation System
+
+This rule establishes a system for identifying and preserving critical interfaces, APIs, and code structures that must remain stable.
+
+## Context
+
+- Some components in the codebase are already in use by external systems
+- Changes to certain interfaces can break compatibility with existing clients
+- File and directory structures may be relied upon by external tools
+- Without clear indication, it's difficult to know which interfaces are safe to modify
+
+## Requirements
+
+### Annotation Format
+
+- Use the `@stable` annotation to mark code that should remain unchanged
+- Always include a reason in quotes explaining why the interface must remain stable
+- Optionally include version and since information
+
+#### For TypeScript/JavaScript functions and classes:
+
+```typescript
+/**
+ * @stable-api "Reason the API must remain stable"
+ * @version 1.0
+ * @since 2023-06-15
+ */
+function stableApiFunction(param1: string, param2: number): Result {
+  // Implementation details can change
+  // But the function signature must remain compatible
+}
+```
+
+#### For file structure and organization:
+
+```
+# @stable-structure "Reason this structure must remain stable"
+# @version 1.0
+# @since 2023-06-15
+# Details about what aspects must not change
+```
+
+#### For REST APIs in documentation:
+
+```markdown
+## User Authentication API
+
+**@stable-api** "In use by mobile app v1.2 and web client v3.0"
+**@version** 1.0
+**@since** 2023-06-15
+
+POST /api/auth/login
+...
+```
+
+### Stability Levels
+
+- **Full Stability (`@stable-api`)**: Function signatures, return types, and behavior must not change
+- **Structural Stability (`@stable-structure`)**: Directory organization, file names, or data structure must not change
+- **Behavioral Stability (`@stable-behavior`)**: Implementation can change, but observable behavior must remain the same
+- **Format Stability (`@stable-format`)**: Data format or schema must remain backward compatible
+
+### Change Process for Stable Interfaces
+
+1. Identify the need to change a stable interface
+2. Document the proposed changes and rationale
+3. Get explicit approval from stakeholders
+4. Implement changes using appropriate versioning strategy
+5. Update the `@stable` annotation with new version information
+6. Document the change in a changelog
+
+## Communication Protocol
+
+When marking something as stable, use the following format:
+
+"Mark the [specific component/API/structure] as @stable with reason '[your reason]'."
+
+Examples:
+
+- "Mark the authentication API endpoints as @stable with reason 'In use by mobile app v1.2'"
+- "Mark the FEATURES directory structure as @stable with reason 'Used by external documentation tools'"
+
+## Examples
+
+<example>
+// Correctly marking a stable API
+```typescript
+/**
+ * @stable-api "Used by the mobile app - changing this would break compatibility"
+ * @version 1.1
+ * @since 2023-04-10
+ */
+export async function authenticateUser(username: string, password: string): Promise<AuthResult> {
+  // Implementation can change, but signature must remain compatible
+}
+```
+
+// Correctly marking a stable structure
+
+```bash
+# @stable-structure "Required by documentation generator tool"
+# @version 1.0
+# @since 2023-05-15
+# The following directories must maintain their names and hierarchy:
+# - features/
+# - interface/
+# - user-stories/
+```
+
+// Correctly marking a stable data format
+
+```typescript
+/**
+ * @stable-format "Used in persistent storage and API responses"
+ * @version 1.0
+ * @since 2023-03-22
+ *
+ * Fields can be added but existing fields must not be removed or changed in type
+ */
+export interface UserProfile {
+  id: string;
+  username: string;
+  email: string;
+  // New fields can be added, but the ones above must remain
+}
+```
+
+</example>
+
+<example type="invalid">
+// WRONG: Changing a stable API signature
+```typescript
+/**
+ * @stable-api "Used by mobile app v1.2"
+ * @version 1.0
+ * @since 2023-01-15
+ */
+// Original:
+// export async function getUser(userId: string): Promise<User>
+
+// WRONG - Breaking change to parameter types
+export async function getUser(userId: number): Promise<User> {
+// Implementation
+}
+
+````
+
+// WRONG: Missing reason for stability
+```typescript
+/**
+ * @stable-api
+ */
+export function criticalFunction() {
+  // No explanation of why this is stable
+}
+````
+
+// WRONG: Reorganizing a stable structure
+
+```bash
+# @stable-structure "Required by documentation generator"
+# @version 1.0
+
+# WRONG - Renaming directories marked as stable
+mv features/ core-features/
+mv interface/ api-interface/
+```
+
+</example>
+
+## Automated Enforcement
+
+- Code reviews must include checks for changes to `@stable` interfaces
+- CI/CD pipelines should detect and flag changes to stable interfaces
+- Consider implementing tooling to scan for and validate stability annotations
+
+## See Also
+
+### Related Rules
+
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @100-feature-separation.mdc - Feature organization and boundaries
+- @003-do-no-harm.mdc - **CORE RULE - CRITICAL:** Protective philosophy
+- @150-technical-debt-prevention.mdc - Code quality maintenance
+- @066-database-migration-standards.mdc - Schema stability
+- @100-auth-provider-migration.mdc - Migration without breaking changes
+- @202-rollback-procedures.mdc - **CRITICAL:** When stable interfaces break
+
+### Tools & Documentation
+
+- **`.cursor/docs/ai-workflows.md`** - Stable interface workflows
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Comprehensive Guides
+
+- **`guides/API-Versioning-Guide.md`** ⭐ **Essential** - API versioning strategies
+- **`guides/Breaking-Changes-Guide.md`** - Managing breaking changes
+
+### Quick Start
+
+1. **Mark stable APIs:** Use `@stable-api "reason"` in JSDoc
+2. **Mark stable structures:** Use `@stable-structure "reason"` in comments
+3. **Document reason:** ALWAYS include why it's stable
+4. **Version:** Include @version and @since
+5. **Review:** Get approval before changing @stable interfaces
+
+### When to Use This Rule
+
+- ✅ When creating public APIs
+- ✅ When defining data formats
+- ✅ When establishing directory structures
+- ✅ When building integration points
+
+### Critical Warning
+
+- ⚠️ **NEVER** change @stable interfaces without explicit permission
+- ⚠️ **ALWAYS** document stability reason
+- ⚠️ Use versioning strategies for necessary changes

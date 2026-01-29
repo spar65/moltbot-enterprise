@@ -1,0 +1,53 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+___
+description: Apply consistent state management patterns when implementing features to ensure predictable application behavior and maintainability
+globs: "src/**/*.{js,jsx,ts,tsx}"
+___
+
+# State Management Standards
+
+## State Classification
+- **UI State**: Component-specific visual state (e.g., open/closed, active tab)
+- **Form State**: User input data and validation state
+- **Application State**: Cross-component shared state (e.g., authenticated user, theme)
+- **Server State**: Data from external APIs with caching and revalidation needs
+
+## Technology Selection Criteria
+- Use React useState/useReducer for isolated UI state
+- Implement React Context for shared state within a feature
+- Apply SWR or React Query for server state management
+- Consider Redux only for complex global state with many consumers
+
+## Implementation Patterns
+- Create custom hooks to encapsulate state logic
+- Use the Container/Presenter pattern to separate state from presentation
+- Implement state machines for complex state transitions
+- Document state shape and management decisions
+
+## Testing Considerations
+- Test state transitions with react-testing-library
+- Mock external state dependencies in component tests
+- Create test utilities for common state scenarios
+- Verify proper state cleanup on component unmount
+
+## See Also
+
+### Documentation
+- **`.cursor/docs/ai-workflows.md`** - State management patterns
+- **`.cursor/rules/003-cursor-system-overview.mdc`** - System overview (READ THIS FIRST)
+
+### Related Rules
+- @002-rule-application.mdc - Source of Truth Hierarchy
+- @042-ui-component-architecture.mdc - Component state patterns
+- @045-browser-state-management.mdc - Browser state coordination
+- @070-nextjs-architecture.mdc - Architecture patterns
+- @071-nextjs-data-fetching.mdc - Data fetching patterns
+
+### Quick Start
+1. **Review:** State management options per this rule
+2. **Components:** See @042-ui-component-architecture.mdc
+3. **Browser:** Follow @045-browser-state-management.mdc
